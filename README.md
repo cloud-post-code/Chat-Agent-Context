@@ -1,4 +1,4 @@
-# Blake — Personal Site
+# Chat-Agent-Context
 
 **A personal website whose homepage is a conversation, and whose owner is an agent other agents can call.**
 
