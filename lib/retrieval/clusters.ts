@@ -124,7 +124,7 @@ const summarizeCluster: ClusterSummarizer = async (label, members, text) => {
         content:
           `Below are excerpts from a personal website's knowledge base, all related to ` +
           `"${label}" (involving: ${members.join(", ")}). Write ONE paragraph (3-5 ` +
-          `sentences) summarizing what this neighborhood of Blake's life or work is ` +
+          `sentences) summarizing what this neighborhood of the owner's life or work is ` +
           `about, strictly grounded in the excerpts — no invented facts, no preamble, ` +
           `just the paragraph.\n\nEXCERPTS:\n${text}`,
       },
@@ -273,7 +273,7 @@ export async function broadOverviews(userId: string, query: string): Promise<str
 
   return (
     "This is a broad question, so instead of individual excerpts here are the " +
-    "curated overviews of each area of Blake's life and work:\n\n" +
+    "curated overviews of each area of the owner's life and work:\n\n" +
     overviews.map((o) => `[${o.originLabel}]\n${o.text}`).join("\n\n")
   );
 }

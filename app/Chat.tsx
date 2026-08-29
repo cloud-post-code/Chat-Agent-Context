@@ -132,7 +132,7 @@ export default function Chat({
         copy[copy.length - 1] = {
           role: "assistant",
           content:
-            "Hmm, I hit a snag reaching my brain (the API). Try again in a moment — or reach out to Blake directly.",
+            "Hmm, I hit a snag reaching my brain (the API). Try again in a moment — or use the contact info on this page.",
           cards: [],
         };
         return copy;
@@ -167,8 +167,8 @@ export default function Chat({
 
           <Composer input={input} setInput={setInput} onSend={() => send(input)} loading={loading} big />
           <p style={styles.footnote}>
-            This whole site is a conversation. An AI host answers as {name}, using only what
-            he&apos;s shared — and can show you cards, projects, and galleries right here.
+            This whole page is a conversation. An AI host answers as {name}, using only what
+            they&apos;ve shared — and can show you cards, projects, and galleries right here.
           </p>
           {/* Other agents get the same host over A2A, not just people. */}
           <a href="/agent" style={styles.agentLink}>

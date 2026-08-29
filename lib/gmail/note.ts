@@ -50,11 +50,11 @@ export function buildContactNotePrompt(draft: ContactDraft): string {
     : "(no message text)";
 
   return (
-    `These are emails Blake SENT to one person. Say who that person is to ` +
-    `Blake, based only on what is here.\n\n` +
+    `These are emails the account owner SENT to one person. Say who that ` +
+    `person is to the owner, based only on what is here.\n\n` +
     `Return STRICT JSON with keys:\n` +
     `- "summary": 1-3 sentences on who this person appears to be and what the ` +
-    `correspondence is about. Write it as a note in Blake's address book. If ` +
+    `correspondence is about. Write it as a note in the owner's address book. If ` +
     `the mail does not say, write what little is supported and stop — do not ` +
     `guess a job title, employer, or relationship that is not stated.\n` +
     `- "labels": 0-4 short lowercase tags for the relationship, e.g. ` +
@@ -62,7 +62,7 @@ export function buildContactNotePrompt(draft: ContactDraft): string {
     `rather than invent.\n` +
     `No prose outside the JSON.\n\n` +
     `Person: ${draft.name} <${draft.email}>\n` +
-    `Messages Blake sent them: ${draft.messageCount}\n` +
+    `Messages the owner sent them: ${draft.messageCount}\n` +
     `First: ${formatDate(draft.firstContacted)}   Last: ${formatDate(draft.lastContacted)}\n\n` +
     `SUBJECTS:\n${subjects}\n\n` +
     `MESSAGE TEXT:\n${bodies}`
