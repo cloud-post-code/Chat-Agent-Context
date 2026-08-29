@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentUser } from "@/lib/auth";
+import { TenantThemeStyle } from "@/app/TenantThemeStyle";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
 import { safeJson } from "@/lib/util";
@@ -591,10 +592,14 @@ export default async function Dashboard({
 
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px 80px" }}>
+      {/* The dashboard wears its owner's theme, so Theme-tab edits show here. */}
+      <TenantThemeStyle theme={themeConfig} />
       <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
         <div>
           <h1 style={{ fontSize: 26 }}>Control room</h1>
-          <p style={{ color: "var(--text)", fontStyle: "italic", fontSize: 14 }}>Everything here feeds the chatbot & site.</p>
+          <p style={{ color: "var(--text)", fontStyle: "italic", fontSize: 14 }}>
+            Everything here feeds your agent page at <a href={`/a/${user.slug}`}>/a/{user.slug}</a>.
+          </p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Link href="/" style={btnGhost as React.CSSProperties}>View site</Link>

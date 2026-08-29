@@ -337,6 +337,12 @@
       "proof": "docs/features/business-profile-restructure/PROOF.md",
       "status": "passing",
       "notes": "DONE 2026-08-28. Profile -> six business fields; PersonaConfig (company_logo/tagline/personaSections); ThemeConfig (theme*+aesthetic); Booking table + native booking feature removed end-to-end (api routes, lib/booking, lib/google, cards, admin). Migration squashed into 0_init (prod deploys via db push; history was already stale). Primary proof proof/run.sh GREEN (15/15) against fresh dockerized Postgres; gate PASS; evaluator PASS. Post-deploy: delete stale show_booking/show_timeline A2UI rows in admin; run reindex."
+    },
+    {
+      "id": "multi-tenant-conversion",
+      "title": "Multi-tenant conversion: per-user auth, data ownership, /a/[slug] agent pages, public directory",
+      "status": "done",
+      "notes": "User model with scrypt passwords + HMAC session cookie; required userId on every tenant model with compound per-user uniques; zero-data-loss backfill migration (founder account claimed at boot from ADMIN_EMAIL/ADMIN_PASSWORD); npm start moved from db push --accept-data-loss to baseline-aware prisma migrate deploy; per-user public page at /a/[slug] with per-tenant theme; directory at /. Proof: scripts/proof-multi-tenant.ts (PROOF PASS). Legacy A2A surface binds to the founding user."
     }
   ]
 }
