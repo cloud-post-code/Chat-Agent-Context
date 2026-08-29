@@ -1,22 +1,18 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { isAuthed } from "@/lib/auth";
-import { prisma, getProfile } from "@/lib/db";
-import { safeTags, safeSocials, safeExperience } from "@/lib/knowledge";
+import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
+import { safeTags } from "@/lib/knowledge";
 import { safeJson } from "@/lib/util";
 import { PERSONA_BLURB, PERSONA_SECTIONS, safePersonaSections } from "@/lib/persona";
 import { FONT_OPTIONS, BODY_FONT_OPTIONS } from "@/lib/fonts";
 import { RADIUS_OPTIONS } from "@/lib/theme";
-import { SocialsEditor } from "../SocialsEditor";
-import { ExperienceEditor } from "../ExperienceEditor";
 import {
   logout,
   saveProfile,
-  saveExperience,
-  uploadResume,
   savePersona,
   saveTheme,
-  uploadHeadshot,
+  uploadLogo,
   addProject,
   uploadPhoto,
   updatePhoto,
@@ -76,6 +72,8 @@ export default async function Dashboard({
 
   const [
     profile,
+    personaConfig,
+    themeConfig,
     projects,
     sources,
     photos,
@@ -94,6 +92,8 @@ export default async function Dashboard({
     gmail,
   ] = await Promise.all([
       getProfile(),
+      getPersonaConfig(),
+      getThemeConfig(),
       prisma.project.findMany({ orderBy: { order: "asc" } }),
       prisma.source.findMany({ orderBy: { createdAt: "desc" } }),
       // Custom ingestion sources own their `ingest:*`-marked photos; the
@@ -138,121 +138,45 @@ export default async function Dashboard({
     ingestionSources.map((s) => s.key),
   );
   const metrics = chatMetrics(chatSessions);
-  const socials = safeSocials(profile.socials);
-  const colors = safeJson<ThemeColors>(profile.themeColors, {});
-  const experience = safeExperience(profile.experience);
-  const personaSections = safePersonaSections(profile.personaSections);
+  const colors = safeJson<ThemeColors>(themeConfig.themeColors, {});
+  const personaSections = safePersonaSections(personaConfig.personaSections);
 
-  // ── PROFILE TAB (Details + Bio merged) ──
+  // ── PROFILE TAB — business identity ──
   const profileTab = (
     <section data-fill="surface" style={panel}>
       <SectionTitle>Profile</SectionTitle>
 
-      {/* Headshot — auto-uploads the moment a file is chosen. */}
-      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 20 }}>
-        {profile.headshot ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={profile.headshot} alt="headshot" style={{ width: 72, height: 72, borderRadius: "var(--radius-pill)", objectFit: "cover", border: "1px solid var(--border)" }} />
-        ) : (
-          <div style={{ width: 72, height: 72, borderRadius: "var(--radius-pill)", background: "var(--bg-soft)", border: "1px solid var(--border)" }} />
-        )}
-        <form action={uploadHeadshot}>
-          <Label>Headshot</Label>
-          <AutoUploadFile name="file" accept="image/*" hint="Pick a photo — it uploads automatically." />
-        </form>
-      </div>
-
-      {/* One form for the Profile tab — identity, contact, socials, and bio all
-          save together from the single button at the bottom. Experience lives
-          in its own Content tab. */}
       <form action={saveProfile}>
         <div style={grid2}>
           <div>
-            <Label>Name</Label>
-            <input name="name" defaultValue={profile.name} style={field} />
+            <Label>Company name</Label>
+            <input name="company_name" defaultValue={profile.company_name} style={field} />
           </div>
           <div>
-            <Label>Location</Label>
-            <input name="location" defaultValue={profile.location} placeholder="City, Country" style={field} />
-          </div>
-        </div>
-        <div style={grid2}>
-          <div>
-            <Label>Email</Label>
-            <input name="email" defaultValue={profile.email} style={field} />
-          </div>
-          <div>
-            <Label>GitHub URL</Label>
-            <input name="github" defaultValue={profile.github} style={field} />
+            <Label>Owner name</Label>
+            <input name="owner_name" defaultValue={profile.owner_name} style={field} />
           </div>
         </div>
         <div style={{ marginBottom: 14 }}>
-          <Label>Booking link</Label>
-          <input
-            name="bookingLink"
-            defaultValue={profile.bookingLink}
-            placeholder="https://calendly.com/you/intro"
-            style={field}
-          />
-          <p style={{ fontSize: 12, color: "var(--on-surface)", fontStyle: "italic", margin: "4px 0 0" }}>
-            A Calendly / Cal.com style link. When set, it appears on the contact card and the
-            chat can offer it as its own booking card.
-          </p>
+          <Label>Company address</Label>
+          <input name="company_address" defaultValue={profile.company_address} placeholder="Street, City, State" style={field} />
         </div>
-
-        <Label>Social media (add one at a time)</Label>
-        <SocialsEditor initial={socials} />
-
-        {/* ── Bio ── plain editable text (resume text lands here). */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "18px 0", paddingTop: 16 }}>
-          <Label>Bio</Label>
-          <textarea name="bio" defaultValue={profile.bio} rows={10} style={{ ...field, resize: "vertical" }} />
+        <div style={grid2}>
+          <div>
+            <Label>Company phone number</Label>
+            <input name="company_phone_number" defaultValue={profile.company_phone_number} style={field} />
+          </div>
+          <div>
+            <Label>Company email</Label>
+            <input name="company_email" defaultValue={profile.company_email} style={field} />
+          </div>
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <Label>Company hours</Label>
+          <input name="company_hours" defaultValue={profile.company_hours} placeholder="Mon-Fri 9am-5pm" style={field} />
         </div>
 
         <SaveButton>Save profile</SaveButton>
-      </form>
-    </section>
-  );
-
-  // ── EXPERIENCE TAB (Content section) — resume upload, the overview
-  // paragraph, the per-role cards, and the "other" catch-all. ──
-  const experienceTab = (
-    <section data-fill="surface" style={panel}>
-      <SectionTitle>Experience</SectionTitle>
-
-      {/* ── Upload resume — fills this tab plus the Profile bio and details. ── */}
-      <div style={{ border: "1px solid var(--primary)", borderRadius: "var(--radius-md)", padding: 16, marginBottom: 20 }}>
-        <strong style={{ fontSize: 14, color: "var(--on-surface)", display: "block", marginBottom: 6 }}>
-          Upload your resume
-        </strong>
-        <UploadToGenerate
-          action={uploadResume}
-          buttonLabel="Parse resume → fill everything"
-          pendingLabel="Parsing…"
-          hint="Upload a PDF, Word doc, or text resume. It's split into your Bio, Experience cards, and an 'Other' section, and fills your name, location, email, and any social links found. Review and edit below."
-        />
-      </div>
-
-      <form action={saveExperience}>
-        <Label>Experience — overview paragraph</Label>
-        <textarea
-          name="experienceSummary"
-          defaultValue={profile.experienceSummary}
-          rows={5}
-          placeholder="A paragraph summarizing your work experience — this is what shows on your profile."
-          style={{ ...field, resize: "vertical" }}
-        />
-
-        <Label>Experience roles (add one at a time)</Label>
-        <ExperienceEditor initial={experience} />
-
-        {/* ── Other ── everything else from the resume (education, skills, etc.). */}
-        <div style={{ borderTop: "1px solid var(--border)", margin: "18px 0", paddingTop: 16 }}>
-          <Label>Other (education, skills, awards — everything else)</Label>
-          <textarea name="other" defaultValue={profile.other} rows={7} style={{ ...field, resize: "vertical" }} />
-        </div>
-
-        <SaveButton>Save experience</SaveButton>
       </form>
     </section>
   );
@@ -265,11 +189,25 @@ export default async function Dashboard({
         {PERSONA_BLURB}
       </p>
 
+      {/* Company logo — auto-uploads the moment a file is chosen. */}
+      <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 20 }}>
+        {personaConfig.company_logo ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={personaConfig.company_logo} alt="company logo" style={{ width: 72, height: 72, borderRadius: "var(--radius-md)", objectFit: "cover", border: "1px solid var(--border)" }} />
+        ) : (
+          <div style={{ width: 72, height: 72, borderRadius: "var(--radius-md)", background: "var(--bg-soft)", border: "1px solid var(--border)" }} />
+        )}
+        <form action={uploadLogo}>
+          <Label>Company logo</Label>
+          <AutoUploadFile name="file" accept="image/*" hint="Pick an image — it uploads automatically." />
+        </form>
+      </div>
+
       <PersonaPrompt prompt={personaExtractionPrompt()} />
 
       <form action={savePersona}>
-        <Label>Tagline (shown under your name on the live site)</Label>
-        <input name="tagline" defaultValue={profile.tagline} style={field} />
+        <Label>Tagline (shown under the company name on the live site)</Label>
+        <input name="tagline" defaultValue={personaConfig.tagline} style={field} />
 
         <div style={{ borderTop: "1px solid var(--border)", margin: "18px 0", paddingTop: 16 }}>
           {PERSONA_SECTIONS.map((s) => (
@@ -301,7 +239,7 @@ export default async function Dashboard({
 
       <form action={saveTheme}>
         <Label>Aesthetic (describe the visual feeling you want)</Label>
-        <textarea name="aesthetic" defaultValue={profile.aesthetic} rows={2} style={{ ...field, resize: "vertical" }} />
+        <textarea name="aesthetic" defaultValue={themeConfig.aesthetic} rows={2} style={{ ...field, resize: "vertical" }} />
 
         <div style={{ borderTop: "1px solid var(--border)", margin: "16px 0", paddingTop: 16 }}>
           <ThemePicker
@@ -309,11 +247,11 @@ export default async function Dashboard({
             bodyFontOptions={BODY_FONT_OPTIONS}
             radiusOptions={RADIUS_OPTIONS}
             initial={{
-              themeFont: profile.themeFont,
-              themeBodyFont: profile.themeBodyFont,
-              themeRadius: profile.themeRadius,
-              themeFontSize: profile.themeFontSize,
-              themeHeadingWeight: profile.themeHeadingWeight,
+              themeFont: themeConfig.themeFont,
+              themeBodyFont: themeConfig.themeBodyFont,
+              themeRadius: themeConfig.themeRadius,
+              themeFontSize: themeConfig.themeFontSize,
+              themeHeadingWeight: themeConfig.themeHeadingWeight,
               colors,
             }}
           />
@@ -592,7 +530,6 @@ export default async function Dashboard({
   // Which Content tabs exist, their labels, and their order all come from the
   // IngestionSource rows; built-in keys dispatch to their bespoke panels.
   const builtinPanels: Record<string, React.ReactNode> = {
-    experience: experienceTab,
     projects: projectsTab,
     links: linksTab,
     pdfs: pdfsTab,
@@ -800,41 +737,6 @@ function FormDelete({ id }: { id: string }) {
   );
 }
 
-/** A "pick a file → Claude generates content" upload block, its own form. */
-function UploadToGenerate({
-  action,
-  buttonLabel,
-  pendingLabel,
-  hint,
-  footnote,
-}: {
-  action: (formData: FormData) => void | Promise<void>;
-  buttonLabel: string;
-  pendingLabel: string;
-  hint: string;
-  footnote?: string;
-}) {
-  return (
-    <div>
-      <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13, marginBottom: 10 }}>{hint}</p>
-      <form action={action} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <input
-          type="file"
-          name="file"
-          accept=".pdf,.docx,.csv,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/*"
-          required
-          style={{ ...field, marginBottom: 0, flex: 1, minWidth: 240 }}
-        />
-        <PendingButton pendingLabel={pendingLabel} style={btn}>
-          {buttonLabel}
-        </PendingButton>
-      </form>
-      {footnote && (
-        <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 12, marginTop: 8 }}>{footnote}</p>
-      )}
-    </div>
-  );
-}
 
 function Empty({ children }: { children: React.ReactNode }) {
   return <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>{children}</p>;

@@ -12,7 +12,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma, getProfile } from "@/lib/db";
 import { checkPassword, createSession, destroySession, isAuthed } from "@/lib/auth";
-import { extractLink, extractDocument, extractText, fileToText, writeProfileFromResume } from "@/lib/scrape";
+import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
 import {
   renameEntity,
@@ -53,7 +53,6 @@ import {
 import { checkEditPassword, createEditSession, isEditAuthed } from "@/lib/ingestionAuth";
 import { draftUiCard, type CardDraft } from "@/lib/cardBuilder";
 import { redraftAnswer } from "@/lib/answerDrafts";
-import { safeExperience, safeSocials } from "@/lib/knowledge";
 import { PERSONA_SECTIONS, writePersonaSections } from "@/lib/persona";
 import { COLOR_ROLES } from "@/lib/theme";
 import { saveUpload, saveBytes } from "@/lib/uploads";
@@ -121,130 +120,29 @@ export async function logout() {
   redirect("/admin");
 }
 
-// ── Details (identity + contact + socials) ──
-export async function saveDetails(formData: FormData) {
-  await requireAuth();
-  await getProfile();
-
-  // Socials arrive as parallel label[]/url[] arrays; zip into JSON.
-  const labels = formData.getAll("social_label").map(String);
-  const urls = formData.getAll("social_url").map(String);
-  const socials = labels
-    .map((label, i) => ({ label: label.trim(), url: (urls[i] ?? "").trim() }))
-    .filter((s) => s.label && s.url);
-
-  await prisma.profile.update({
-    where: { id: 1 },
-    data: {
-      name: String(formData.get("name") ?? "Blake"),
-      location: String(formData.get("location") ?? ""),
-      email: String(formData.get("email") ?? ""),
-      github: String(formData.get("github") ?? ""),
-      socials: JSON.stringify(socials),
-    },
-  });
-  revalidateAll();
-}
-
-/**
- * The Profile tab saves at once: identity, contact, socials, and bio. The
- * experience overview, role cards, and "other" live in their own Content tab
- * and save through saveExperience.
- */
+// ── Profile (business identity) ──
 export async function saveProfile(formData: FormData) {
   await requireAuth();
   await getProfile();
 
-  // Socials arrive as parallel label[]/url[] arrays; zip into JSON.
-  const labels = formData.getAll("social_label").map(String);
-  const urls = formData.getAll("social_url").map(String);
-  const socials = labels
-    .map((label, i) => ({ label: label.trim(), url: (urls[i] ?? "").trim() }))
-    .filter((s) => s.label && s.url);
-
   await prisma.profile.update({
     where: { id: 1 },
     data: {
-      name: String(formData.get("name") ?? "Blake"),
-      location: String(formData.get("location") ?? ""),
-      email: String(formData.get("email") ?? ""),
-      github: String(formData.get("github") ?? ""),
-      bookingLink: String(formData.get("bookingLink") ?? "").trim(),
-      socials: JSON.stringify(socials),
-      bio: String(formData.get("bio") ?? ""),
+      company_name: String(formData.get("company_name") ?? ""),
+      owner_name: String(formData.get("owner_name") ?? ""),
+      company_address: String(formData.get("company_address") ?? ""),
+      company_phone_number: String(formData.get("company_phone_number") ?? ""),
+      company_email: String(formData.get("company_email") ?? ""),
+      company_hours: String(formData.get("company_hours") ?? ""),
     },
   });
   await reindex("profile", indexProfile);
-  revalidateAll();
-}
-
-/**
- * The Experience tab (Content → Experience): the overview paragraph, the
- * per-role cards, and the "other" catch-all. Saved apart from the Profile tab
- * so neither form blanks the other's fields.
- */
-export async function saveExperience(formData: FormData) {
-  await requireAuth();
-  await getProfile();
-
-  const experience = safeExperience(String(formData.get("experience") ?? "[]"));
-
-  await prisma.profile.update({
-    where: { id: 1 },
-    data: {
-      experienceSummary: String(formData.get("experienceSummary") ?? ""),
-      experience: JSON.stringify(experience),
-      other: String(formData.get("other") ?? ""),
-    },
-  });
-  await reindex("profile", indexProfile);
-  revalidateAll();
-}
-
-/**
- * Resume upload: Claude parses the file and splits it into every Profile
- * destination — bio, experience cards, an "everything else" block, plus
- * name/location/email/socials. Only fills fields the resume actually contains;
- * never overwrites existing values with blanks. Socials are merged (deduped by
- * url) with any already saved.
- */
-export async function uploadResume(formData: FormData) {
-  await requireAuth();
-  const file = formData.get("file");
-  if (!isUpload(file) || file.size === 0) return;
-  const bytes = Buffer.from(await file.arrayBuffer());
-  const { text } = await fileToText(bytes, file.name);
-  const parsed = await writeProfileFromResume(text);
-
-  const profile = await getProfile();
-  const data: Record<string, string> = {};
-  if (parsed.bio) data.bio = parsed.bio;
-  if (parsed.experience.length) data.experience = JSON.stringify(parsed.experience);
-  if (parsed.experienceSummary) data.experienceSummary = parsed.experienceSummary;
-  if (parsed.other) data.other = parsed.other;
-  if (parsed.name) data.name = parsed.name;
-  if (parsed.location) data.location = parsed.location;
-  if (parsed.email) data.email = parsed.email;
-
-  // Merge socials with existing (keep existing; add new urls not already there).
-  if (parsed.socials.length) {
-    const existing = safeSocials(profile.socials);
-    const seen = new Set(existing.map((s) => s.url));
-    const merged = [...existing, ...parsed.socials.filter((s) => !seen.has(s.url))];
-    data.socials = JSON.stringify(merged);
-  }
-
-  if (Object.keys(data).length) {
-    await prisma.profile.update({ where: { id: 1 }, data });
-    await reindex("profile", indexProfile);
-  }
   revalidateAll();
 }
 
 // ── Persona (the section catalogue in lib/persona.ts) ──
 export async function savePersona(formData: FormData) {
   await requireAuth();
-  await getProfile();
 
   // Driven by the catalogue so adding a section can't silently fail to save.
   const sections: Record<string, string> = {};
@@ -252,9 +150,10 @@ export async function savePersona(formData: FormData) {
     sections[s.key] = String(formData.get(`section_${s.key}`) ?? "");
   }
 
-  await prisma.profile.update({
+  await prisma.personaConfig.upsert({
     where: { id: 1 },
-    data: { tagline: String(formData.get("tagline") ?? "") },
+    update: { tagline: String(formData.get("tagline") ?? "") },
+    create: { id: 1, tagline: String(formData.get("tagline") ?? "") },
   });
   await writePersonaSections(sections);
   await reindex("persona", indexPersona);
@@ -264,7 +163,6 @@ export async function savePersona(formData: FormData) {
 // ── Theme (aesthetic description + the design tokens the site renders from) ──
 export async function saveTheme(formData: FormData) {
   await requireAuth();
-  await getProfile();
 
   // Driven by COLOR_ROLES so adding a role to the design panel can't silently
   // fail to save. Only valid hex values are stored — a blank or malformed entry
@@ -276,31 +174,30 @@ export async function saveTheme(formData: FormData) {
     if (/^#[0-9a-fA-F]{3,8}$/.test(v)) colors[role.key] = v;
   }
 
-  await prisma.profile.update({
-    where: { id: 1 },
-    data: {
-      aesthetic: String(formData.get("aesthetic") ?? ""),
-      themeFont: String(formData.get("themeFont") ?? "space-grotesk"),
-      themeBodyFont: String(formData.get("themeBodyFont") ?? "inter"),
-      themeRadius: String(formData.get("themeRadius") ?? "rounded"),
-      themeFontSize: String(formData.get("themeFontSize") ?? "").trim(),
-      themeHeadingWeight: String(formData.get("themeHeadingWeight") ?? "").trim(),
-      themeColors: JSON.stringify(colors),
-    },
-  });
+  const theme = {
+    aesthetic: String(formData.get("aesthetic") ?? ""),
+    themeFont: String(formData.get("themeFont") ?? "space-grotesk"),
+    themeBodyFont: String(formData.get("themeBodyFont") ?? "inter"),
+    themeRadius: String(formData.get("themeRadius") ?? "rounded"),
+    themeFontSize: String(formData.get("themeFontSize") ?? "").trim(),
+    themeHeadingWeight: String(formData.get("themeHeadingWeight") ?? "").trim(),
+    themeColors: JSON.stringify(colors),
+  };
+  await prisma.themeConfig.upsert({ where: { id: 1 }, update: theme, create: { id: 1, ...theme } });
   revalidateAll();
 }
 
-/** Headshot image upload. */
-export async function uploadHeadshot(formData: FormData) {
+/** Company logo image upload. */
+export async function uploadLogo(formData: FormData) {
   await requireAuth();
   const file = formData.get("file");
   if (!isUpload(file) || file.size === 0) return;
   const filename = await saveUpload(file);
-  await getProfile();
-  await prisma.profile.update({
+  const company_logo = `/api/uploads/${filename}`;
+  await prisma.personaConfig.upsert({
     where: { id: 1 },
-    data: { headshot: `/api/uploads/${filename}` },
+    update: { company_logo },
+    create: { id: 1, company_logo },
   });
   revalidateAll();
 }

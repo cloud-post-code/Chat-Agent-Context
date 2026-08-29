@@ -20,10 +20,7 @@ export const CARD_TOOLS = [
   "show_projects",
   "show_project",
   "show_gallery",
-  "show_timeline",
   "show_contact_form",
-  "show_booking",
-  "show_booking_link",
   // Custom-designed cards from the admin card builder, drawn by key.
   "show_card",
 ] as const;

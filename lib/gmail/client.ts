@@ -7,7 +7,7 @@ import { GMAIL_AUTH_ID } from "./sync";
  * The Gmail transport: OAuth token handling and the sent-mail read.
  *
  * Deliberately dependency-free — Google's REST API over fetch rather than
- * googleapis, matching how app/api/booking talks to Calendar. Everything here
+ * googleapis, matching how lib/github.ts talks to GitHub. Everything here
  * is I/O; the logic that decides what a contact IS lives in contacts.ts, which
  * is why the proof can exercise the sync without touching this file.
  *

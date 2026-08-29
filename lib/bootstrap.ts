@@ -3,7 +3,6 @@ import { seedStarterIngestionSources } from "@/lib/ingestionSources";
 import { seedStarterUiCards } from "@/lib/uiCards";
 import { seedStarterAnswers } from "@/lib/canned";
 import { PERSONA_SECTIONS } from "@/lib/persona";
-import { safeSocials } from "@/lib/knowledge";
 
 /**
  * Deterministic database bootstrap, run by instrumentation.ts on every
@@ -63,11 +62,11 @@ export function foldLegacySections(stored: Record<string, unknown>): string {
  * byte-identical (so re-running is a no-op and updatedAt doesn't churn).
  */
 async function migrateLegacyPersona(): Promise<void> {
-  const profile = await prisma.profile.findUnique({ where: { id: 1 } });
-  if (!profile) return;
+  const persona = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+  if (!persona) return;
   let stored: Record<string, unknown>;
   try {
-    const parsed = JSON.parse(profile.personaSections || "{}");
+    const parsed = JSON.parse(persona.personaSections || "{}");
     stored = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
   } catch {
     stored = {};
@@ -87,29 +86,9 @@ async function migrateLegacyPersona(): Promise<void> {
     if (folded) clean.persona = folded;
     else delete clean.persona;
   }
-  await prisma.profile.update({
+  await prisma.personaConfig.update({
     where: { id: 1 },
     data: { personaSections: JSON.stringify(clean) },
-  });
-}
-
-/**
- * LinkedIn is just a social link now. Move a leftover Profile.linkedin value
- * into socials (once) and clear the column. The column itself is dropped in
- * a later release — removing it in the same release as this migration would
- * let `prisma db push` destroy the value before the migration runs.
- */
-async function migrateLegacyLinkedin(): Promise<void> {
-  const profile = await prisma.profile.findUnique({ where: { id: 1 } });
-  if (!profile || !profile.linkedin.trim()) return;
-  const url = profile.linkedin.trim();
-  const socials = safeSocials(profile.socials);
-  const next = socials.some((s) => s.url === url)
-    ? socials
-    : [{ label: "LinkedIn", url }, ...socials];
-  await prisma.profile.update({
-    where: { id: 1 },
-    data: { linkedin: "", socials: JSON.stringify(next) },
   });
 }
 
@@ -120,7 +99,6 @@ export async function bootstrapDatabase(): Promise<void> {
     ["seed A2UI cards", seedStarterUiCards],
     ["seed canned answers", async () => void (await seedStarterAnswers())],
     ["migrate legacy persona", migrateLegacyPersona],
-    ["migrate legacy linkedin", migrateLegacyLinkedin],
   ];
   for (const [label, run] of steps) {
     try {

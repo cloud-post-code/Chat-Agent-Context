@@ -17,15 +17,17 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata() {
   const profile = await getProfile();
+  const name = profile.company_name || profile.owner_name || "Agent";
   return {
-    title: `${profile.name} — agent card`,
-    description: `How to reach ${profile.name}'s personal agent over the A2A protocol.`,
+    title: `${name} — agent card`,
+    description: `How to reach ${name}'s agent over the A2A protocol.`,
   };
 }
 
 export default async function AgentPage() {
   const origin = siteOrigin(await headers());
   const [profile, card] = await Promise.all([getProfile(), agentCardV1(origin)]);
+  const name = profile.company_name || profile.owner_name || "Agent";
   // Always closed now; this only decides which credential to name.
   const hasDedicatedKey = !!a2aApiKey();
 
@@ -53,7 +55,7 @@ export default async function AgentPage() {
   -H 'Authorization: Bearer <token>' \\
   -d '{"jsonrpc":"2.0","id":1,"method":"SendMessage","params":{
         "message":{"messageId":"1","role":"ROLE_USER",
-                   "parts":[{"text":"What is ${profile.name} working on?"}]}}}'`;
+                   "parts":[{"text":"What is ${name} working on?"}]}}}'`;
 
   return (
     <main style={s.page}>
@@ -62,11 +64,11 @@ export default async function AgentPage() {
           ← Back to the conversation
         </Link>
 
-        <h1 style={s.h1}>{profile.name} has an agent.</h1>
+        <h1 style={s.h1}>{name} has an agent.</h1>
         <p style={s.lede}>
           This site is not only readable by people. It publishes an{" "}
           <strong style={s.strong}>A2A agent card</strong>, so another AI agent can discover it,
-          call it, and get answers about {profile.name} — the same answers a visitor gets in the
+          call it, and get answers about {name} — the same answers a visitor gets in the
           chat, delivered as protocol messages instead of pixels.
         </p>
 
@@ -103,8 +105,8 @@ export default async function AgentPage() {
             🔒 <strong>This agent does not accept anonymous requests.</strong> Every call must
             carry <code style={s.code}>Authorization: Bearer &lt;token&gt;</code>
             {hasDedicatedKey
-              ? ", using a token issued by " + profile.name + "."
-              : ". Contact " + profile.name + " if you need access."}{" "}
+              ? ", using a token issued by " + name + "."
+              : ". Contact " + name + " if you need access."}{" "}
             Requests are also rate limited per caller, and repeated bad credentials lock an
             address out.
           </p>

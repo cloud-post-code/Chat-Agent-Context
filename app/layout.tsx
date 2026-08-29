@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Space_Grotesk, Inter, JetBrains_Mono } from "next/font/google";
 import { brand, themeOverrideCss, type ThemeColors } from "@/lib/theme";
 import { headingFamily, bodyFamily } from "@/lib/fonts";
-import { getProfile } from "@/lib/db";
+import { getThemeConfig } from "@/lib/db";
 import { safeJson, siteOrigin } from "@/lib/util";
 import { PostHogProvider } from "./PostHogProvider";
 import "./globals.css";
@@ -33,14 +33,14 @@ export const dynamic = "force-dynamic";
 
 export default async function RootLayout({ children }: { children: React.ReactNode }) {
   // Read the admin-controlled theme so the whole site restyles from the DB.
-  const profile = await getProfile().catch(() => null);
-  const colors = safeJson<ThemeColors>(profile?.themeColors ?? "{}", {});
+  const theme = await getThemeConfig().catch(() => null);
+  const colors = safeJson<ThemeColors>(theme?.themeColors ?? "{}", {});
   const override = themeOverrideCss({
-    headingFamily: headingFamily(profile?.themeFont ?? "space-grotesk"),
-    bodyFamily: bodyFamily(profile?.themeBodyFont ?? "inter"),
-    radius: profile?.themeRadius ?? "rounded",
-    fontSize: profile?.themeFontSize ?? "",
-    headingWeight: profile?.themeHeadingWeight ?? "",
+    headingFamily: headingFamily(theme?.themeFont ?? "space-grotesk"),
+    bodyFamily: bodyFamily(theme?.themeBodyFont ?? "inter"),
+    radius: theme?.themeRadius ?? "rounded",
+    fontSize: theme?.themeFontSize ?? "",
+    headingWeight: theme?.themeHeadingWeight ?? "",
     colors,
   });
 

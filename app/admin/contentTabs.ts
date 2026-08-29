@@ -1,6 +1,5 @@
 /** Keys of the sub-tabs inside the combined Content section. */
 export const CONTENT_TAB_KEYS = [
-  "experience",
   "projects",
   "links",
   "pdfs",

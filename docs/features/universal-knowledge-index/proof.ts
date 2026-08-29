@@ -36,6 +36,7 @@ function para(marker: string, n: number): string {
 
 // Distinctive markers so retrieval hits are unambiguous.
 const BIO = para("QUILLHAVEN apprenticeship", 1);
+// The profile origin now indexes the business-identity fields.
 const PERSONA_TEXT = para("MARROWLIGHT directness", 1);
 const PROJECT_DETAIL = para("TIDEGLASS renderer", 1);
 const PHOTO_DESC = para("FERNWICK darkroom", 1);
@@ -45,7 +46,7 @@ const SOURCE_TEXT = [1, 2].map((n) => para("Quillhaven Studio collaboration", n)
 const ENTITY_KEYS = ["quillhaven studio", "tideglass"];
 
 async function main() {
-  const { prisma, getProfile } = await import("../../../lib/db");
+  const { prisma, getProfile, getPersonaConfig } = await import("../../../lib/db");
   const { indexSource, dropOrigin } = await import("../../../lib/retrieval/indexer");
   const {
     indexProfile, indexPersona, indexProject, indexPhoto, indexApprovedAnswer,
@@ -69,17 +70,18 @@ async function main() {
   };
 
   const before = await getProfile();
+  const personaBefore = await getPersonaConfig();
   const baseChunks = await prisma.chunk.count();
   const baseMentions = await prisma.entityMention.count();
 
   const cleanup = async () => {
     await prisma.profile.update({
       where: { id: 1 },
-      data: {
-        bio: before.bio, experienceSummary: before.experienceSummary,
-        experience: before.experience, other: before.other,
-        personaSections: before.personaSections,
-      },
+      data: { company_name: before.company_name, owner_name: before.owner_name },
+    });
+    await prisma.personaConfig.update({
+      where: { id: 1 },
+      data: { personaSections: personaBefore.personaSections },
     });
     await prisma.source.deleteMany({ where: { id: { startsWith: "uniproof" } } });
     await prisma.project.deleteMany({ where: { id: { startsWith: "uniproof" } } });
@@ -98,11 +100,13 @@ async function main() {
     await prisma.profile.update({
       where: { id: 1 },
       data: {
-        bio: BIO,
-        // Must be a real key from the lib/persona.ts catalogue — unknown keys
-        // are deliberately ignored by personaPromptBlock.
-        personaSections: JSON.stringify({ communication_style: PERSONA_TEXT }),
+        company_name: BIO.slice(0, 60),
+        owner_name: "QUILLHAVEN Proofsmith",
       },
+    });
+    await prisma.personaConfig.update({
+      where: { id: 1 },
+      data: { personaSections: JSON.stringify({ persona: PERSONA_TEXT }) },
     });
     await prisma.project.create({
       data: {
@@ -219,8 +223,9 @@ async function main() {
       `${baseChunks} -> ${await prisma.chunk.count()}`);
     check("mentions cleaned up", (await prisma.entityMention.count()) === baseMentions);
     const after = await getProfile();
-    check("profile restored", after.bio === before.bio &&
-      after.personaSections === before.personaSections);
+    const personaAfter = await getPersonaConfig();
+    check("profile restored", after.company_name === before.company_name &&
+      personaAfter.personaSections === personaBefore.personaSections);
     await prisma.$disconnect();
   }
 

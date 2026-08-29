@@ -10,9 +10,7 @@ import type { UiBlock } from "@/lib/cards";
  * The catalog drives the chatbot: lib/brain.ts offers a tool only when a row
  * names it, and lib/knowledge.ts builds the "when to use each card" prompt
  * section from the rows' reasons. Deleting a row therefore takes the card away
- * from the agent, and editing a reason steers it. The one thing a row can
- * never do is force a tool past its live-state gate (toolUsableNow) — the
- * booking tools stay withheld while they cannot actually book.
+ * from the agent, and editing a reason steers it.
  *
  * Data only, like lib/canned.ts — rendering belongs to the admin panel.
  */
@@ -34,9 +32,6 @@ const BLOCK_TYPES = [
   "project",
   "gallery",
   "contact",
-  "timeline",
-  "booking",
-  "booking_link",
   "custom",
   "html",
 ] as const;
@@ -158,22 +153,6 @@ export async function deleteUiCard(id: string) {
 export type CardGuidance = { tool: string; reason: string; key: string };
 
 /**
- * Whether a card's tool can succeed RIGHT NOW. The booking tools depend on
- * live admin state (calendar connected, link pasted); a catalog row can put a
- * tool in play, but it can never force one past this gate — gates only narrow.
- * knowledge.ts and brain.ts both filter through here, so the tool offered to
- * the model and the instructions about it are withheld on the same condition.
- */
-export function toolUsableNow(
-  tool: string,
-  live: { canBook: boolean; hasBookingLink: boolean },
-): boolean {
-  if (tool === "show_booking") return live.canBook;
-  if (tool === "show_booking_link") return live.hasBookingLink;
-  return true;
-}
-
-/**
  * The catalog as the chatbot consumes it: which tools exist and when to use
  * them. Falls back to the starter set when the table is empty — a visitor can
  * chat before the dashboard has ever seeded it — and when the read fails,
@@ -284,35 +263,6 @@ const SAMPLE_PROJECTS = [
 ];
 
 /** Five roles, so the "earlier roles" fold is on show — the card holds four. */
-const SAMPLE_TIMELINE = [
-  {
-    role: "Sample Role",
-    company: "Sample Company",
-    dates: "2023 – present",
-    description: "What the role covers, in the voice the rest of the site uses.",
-  },
-  {
-    role: "Previous Role",
-    company: "Earlier Company",
-    dates: "2021 – 2023",
-    description: "Dates are free text, so they read however they were typed.",
-  },
-  { role: "Third Role", company: "Another Company", dates: "2019 – 2021", description: "" },
-  {
-    role: "Fourth Role",
-    company: "One More Company",
-    dates: "Summer '18",
-    description: "The fourth entry is the last one shown before the fold.",
-  },
-  {
-    role: "Fifth Role",
-    company: "The First Company",
-    dates: "2016 – 2018",
-    description: "This one sits behind the fold until the visitor asks for it.",
-  },
-];
-
-const SAMPLE_BOOKING_URL = "https://cal.example.com/sample/intro";
 
 /**
  * The starter rows: every card the chatbot can currently draw. The `reason`
@@ -361,22 +311,6 @@ const STARTER_CARDS: Omit<UiCardRow, "id" | "order">[] = [
     sampleBlock: JSON.stringify({ type: "gallery", layout: "filmstrip", items: SAMPLE_PHOTOS }),
   },
   {
-    key: "timeline",
-    label: "Experience timeline",
-    tool: "show_timeline",
-    description: "Work history from your Experience editor, as a vertical timeline.",
-    reason:
-      "When asked about experience, background, career, work history, a CV or resume, "
-      + "or where Blake has worked. Speak to the arc of it; leave the roles, companies "
-      + "and dates to the card rather than listing them again.",
-    note: "",
-    sampleBlock: JSON.stringify({
-      type: "timeline",
-      items: SAMPLE_TIMELINE,
-      summary: "A one-paragraph summary in your own prose, above the roles.",
-    }),
-  },
-  {
     key: "contact",
     label: "Contact form",
     tool: "show_contact_form",
@@ -386,33 +320,6 @@ const STARTER_CARDS: Omit<UiCardRow, "id" | "order">[] = [
       + "so they can leave their details. Then also mention the direct contact info "
       + "from HOW TO CONNECT.",
     note: "Live form — anything sent from here lands in Contacts like a real visitor message.",
-    sampleBlock: JSON.stringify({ type: "contact", bookingLink: SAMPLE_BOOKING_URL }),
-  },
-  {
-    key: "booking-link",
-    label: "Booking link",
-    tool: "show_booking_link",
-    description: "Your external scheduler, when a booking link is set.",
-    reason:
-      "When the visitor asks for a link to schedule later or share with someone else. "
-      + "Prefer show_booking's live times when booking is on.",
-    note: "",
-    sampleBlock: JSON.stringify({
-      type: "booking_link",
-      url: SAMPLE_BOOKING_URL,
-      name: "Blake",
-    }),
-  },
-  {
-    key: "booking-live",
-    label: "Live booking",
-    tool: "show_booking",
-    description: "Real open times, when booking is on and Google is connected.",
-    reason:
-      "When someone wants to meet, talk, book a call, get time on the calendar, or "
-      + "asks when Blake is free. It shows REAL open times from the live calendar and "
-      + "confirms on the spot — never state available times yourself.",
-    note: "Live card — it reads your actual calendar, so it shows the state booking is really in.",
-    sampleBlock: JSON.stringify({ type: "booking" }),
+    sampleBlock: JSON.stringify({ type: "contact" }),
   },
 ];

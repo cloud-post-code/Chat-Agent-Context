@@ -36,7 +36,7 @@ const LEGACY_CORE = "Role: Zephyrwind kiln operator, archetype The Quiet Tinkere
 const LEGACY_STRESS = "Under pressure they shorten the firing cycle and ask Harrowgate for help.";
 
 async function main() {
-  const { prisma, getProfile } = await import("../../../lib/db");
+  const { prisma, getProfile, getPersonaConfig } = await import("../../../lib/db");
   const {
     PERSONA_BLURB,
     PERSONA_SECTIONS,
@@ -46,7 +46,7 @@ async function main() {
   } = await import("../../../lib/persona");
   const { buildSystemPrompt } = await import("../../../lib/knowledge");
 
-  const before = await getProfile();
+  const before = await getPersonaConfig();
   const snapshot = before.personaSections;
 
   try {
@@ -70,7 +70,7 @@ async function main() {
 
     // 2 ── Round-trip through the real save path.
     await writePersonaSections({ persona: PERSONA_TEXT, not_a_section: "should be dropped" });
-    const stored = safePersonaSections((await getProfile()).personaSections);
+    const stored = safePersonaSections((await getPersonaConfig()).personaSections);
     check("the persona field round-trips", stored.persona === PERSONA_TEXT);
     check("every catalogue key is present", keys.every((k) => k in stored));
     check("unknown keys are dropped", !("not_a_section" in stored));
@@ -114,8 +114,8 @@ async function main() {
     check("retired VOICE & WORLDVIEW block is gone", !prompt.includes("VOICE & WORLDVIEW"));
   } finally {
     // 6 ── Restore.
-    await prisma.profile.update({ where: { id: 1 }, data: { personaSections: snapshot } });
-    const restored = (await getProfile()).personaSections;
+    await prisma.personaConfig.update({ where: { id: 1 }, data: { personaSections: snapshot } });
+    const restored = (await getPersonaConfig()).personaSections;
     check("profile restored to its pre-proof state", restored === snapshot);
     await prisma.$disconnect();
   }

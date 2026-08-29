@@ -32,13 +32,9 @@ async function main() {
   const { resolveAdminTab } = await import("../../../app/admin/contentTabs");
   const { prisma } = await import("@/lib/db");
 
-  const before = await prisma.profile.findUnique({ where: { id: 1 } });
-  if (!before) throw new Error("No Profile row — seed the dev DB first.");
-  const snapshot = {
-    personaSections: before.personaSections,
-    linkedin: before.linkedin,
-    socials: before.socials,
-  };
+  const before = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+  if (!before) throw new Error("No PersonaConfig row — seed the dev DB first.");
+  const snapshot = { personaSections: before.personaSections };
 
   try {
     // 1. Idempotent on a populated DB.
@@ -64,12 +60,12 @@ async function main() {
     check("current-shape input folds to empty", foldLegacySections({ persona: "hi" }) === "");
 
     // 3. Persona migration round-trip.
-    await prisma.profile.update({
+    await prisma.personaConfig.update({
       where: { id: 1 },
       data: { personaSections: JSON.stringify({ core_profile: "PROOF-DDB legacy text" }) },
     });
     await bootstrapDatabase();
-    const migrated = await prisma.profile.findUnique({ where: { id: 1 } });
+    const migrated = await prisma.personaConfig.findUnique({ where: { id: 1 } });
     const parsed = JSON.parse(migrated!.personaSections || "{}");
     check(
       "legacy personaSections rewritten to the single-key shape",
@@ -79,32 +75,10 @@ async function main() {
       migrated!.personaSections,
     );
     const current = JSON.stringify({ persona: "PROOF-DDB current" });
-    await prisma.profile.update({ where: { id: 1 }, data: { personaSections: current } });
+    await prisma.personaConfig.update({ where: { id: 1 }, data: { personaSections: current } });
     await bootstrapDatabase();
-    const untouched = await prisma.profile.findUnique({ where: { id: 1 } });
+    const untouched = await prisma.personaConfig.findUnique({ where: { id: 1 } });
     check("current-shape personaSections left byte-identical", untouched!.personaSections === current);
-
-    // 4. Linkedin migration round-trip.
-    await prisma.profile.update({
-      where: { id: 1 },
-      data: { linkedin: "https://linkedin.com/in/proof-ddb", socials: "[]" },
-    });
-    await bootstrapDatabase();
-    let p = await prisma.profile.findUnique({ where: { id: 1 } });
-    let socials = JSON.parse(p!.socials || "[]");
-    check(
-      "linkedin moved into socials and column cleared",
-      p!.linkedin === "" &&
-        socials.some((s: { url: string }) => s.url === "https://linkedin.com/in/proof-ddb"),
-      p!.socials,
-    );
-    await bootstrapDatabase();
-    p = await prisma.profile.findUnique({ where: { id: 1 } });
-    socials = JSON.parse(p!.socials || "[]");
-    check(
-      "re-running does not duplicate the social row",
-      socials.filter((s: { url: string }) => s.url === "https://linkedin.com/in/proof-ddb").length === 1,
-    );
 
     // 5. The runtime is pruned.
     const read = (f: string) => readFileSync(path.join(root, f), "utf8");
@@ -132,7 +106,7 @@ async function main() {
     const r = resolveAdminTab("knowledge");
     check('resolveAdminTab("knowledge") passes through', r.nav === "knowledge" && r.sub === undefined, JSON.stringify(r));
   } finally {
-    await prisma.profile.update({ where: { id: 1 }, data: snapshot }).catch(() => {});
+    await prisma.personaConfig.update({ where: { id: 1 }, data: snapshot }).catch(() => {});
     await prisma.$disconnect();
   }
 

@@ -26,7 +26,7 @@ export type AgentFacts = Record<string, unknown>;
 export async function agentFacts(origin: string): Promise<AgentFacts> {
   const profile = await getProfile();
   const card = await agentCardV1(origin);
-  const name = profile.name || "Agent";
+  const name = profile.company_name || profile.owner_name || "Agent";
   const host = safeHost(origin);
   const handle = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";
 

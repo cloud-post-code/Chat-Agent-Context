@@ -451,126 +451,53 @@ model Contact {
   createdAt DateTime @default(now())
 }
 
-/// The single editable profile: identity, bio, persona, brand/theme, contact.
-/// Everything the chatbot knows about Blake plus what drives the site's look.
+/// The single editable business identity. What the chatbot states as fact
+/// about the business lives here; brand voice is PersonaConfig and the site's
+/// look is ThemeConfig.
 model Profile {
-  id        Int      @id @default(1)
+  id                   Int      @id @default(1)
+  company_name         String   @default("")
+  owner_name           String   @default("")
+  company_address      String   @default("")
+  company_phone_number String   @default("")
+  company_email        String   @default("")
+  /// Free text, e.g. "Mon-Fri 9am-5pm ET".
+  company_hours        String   @default("")
+  updatedAt            DateTime @updatedAt
+}
 
-  // ── Details ──
-  name      String   @default("Blake")
-  location  String   @default("")
-  /// JSON array of {label, url} social links.
-  socials   String   @default("[]")
-  email     String   @default("")
-  /// Retired — LinkedIn lives in `socials` now. The deploy bootstrap
-  /// (lib/bootstrap.ts) moves any leftover value there and clears this.
-  /// Kept one release so `db push` can't drop the value before the
-  /// migration runs; safe to delete next release.
-  linkedin  String   @default("")
-  github    String   @default("")
-
-  // ── Bio (fillable via file upload: CSV / text) ──
-  bio       String   @default("") @db.Text
-  /// JSON array of {role, company, dates, description} experience entries.
-  experience String  @default("[]") @db.Text
-  /// Prose paragraph summarizing work experience, shown on the profile.
-  experienceSummary String @default("") @db.Text
-  /// Free-text "everything else" from the resume: education, skills, awards.
-  other      String  @default("") @db.Text
-
-  // ── Persona & brand ──
-  tagline   String   @default("")
-  /// JSON {sectionKey: text} for the persona + agent-behavior sections
-  /// catalogued in lib/persona.ts. This is the persona the chatbot speaks from.
+/// Brand voice: what the chatbot sounds like and the face it shows.
+model PersonaConfig {
+  id           Int     @id @default(1)
+  /// /api/uploads/<file> — shown where the site needs a brand image.
+  company_logo String?
+  tagline      String  @default("")
+  /// JSON {sectionKey: text} for the persona sections catalogued in
+  /// lib/persona.ts. This is the persona the chatbot speaks from.
   personaSections String @default("{}") @db.Text
-  /// Free-text description of the visual feeling — edited on the Theme tab.
-  aesthetic String   @default("") @db.Text
-  headshot  String?  // /api/uploads/<file>
+  updatedAt    DateTime @updatedAt
+}
 
-  // ── Retired persona fields ──
-  // Superseded by personaSections; kept so existing text survives until it can
-  // be mapped into sections. Nothing reads these.
-  persona   String   @default("") @db.Text
-  overview  String   @default("") @db.Text
-  values    String   @default("") @db.Text
-  tone      String   @default("") @db.Text
-
-  // ── Theme (drives the live site's CSS variables) ──
+/// Theme (drives the live site's CSS variables), edited on the Theme tab.
+model ThemeConfig {
+  id            Int    @id @default(1)
   /// Curated heading font key (see lib/fonts).
-  themeFont String   @default("space-grotesk")
+  themeFont     String @default("space-grotesk")
   /// Curated body/text font key (see lib/fonts).
   themeBodyFont String @default("inter")
   /// JSON {bg, surface, border, text, textMuted, primary, accent} hex overrides.
-  themeColors String @default("{}")
+  themeColors   String @default("{}")
   /// Corner roundness preset: sharp | rounded | pill.
-  themeRadius String @default("rounded")
+  themeRadius   String @default("rounded")
   /// Base font size in px (body text scale). Empty = default 16.
   themeFontSize String @default("")
   /// Heading font weight: 500 | 600 | 700 | 800. Empty = default.
   themeHeadingWeight String @default("")
-
-  // ── Booking (the in-chat booking card, backed by Google Calendar) ──
-  /// Master switch. Off until Google is connected, so a half-configured deploy
-  /// never shows a visitor a booker that cannot book.
-  bookingEnabled   Boolean @default(false)
-  /// IANA zone the weekly hours below are expressed in, and the zone the
-  /// calendar event is written with. Wall-clock hours are meaningless without it.
-  bookingTz        String  @default("America/New_York")
-  /// Meeting length in minutes; also the step of the slot grid.
-  bookingMinutes   Int     @default(30)
-  /// JSON {mon:[["09:00","17:00"]], tue:[...], ...} weekly availability windows.
-  /// Absent or empty day = not available that day.
-  bookingHours     String  @default("{}") @db.Text
-  /// Hours of notice before the earliest bookable slot.
-  bookingLeadHours Int     @default(12)
-  /// How many days ahead the card offers.
-  bookingDays      Int     @default(14)
-  /// Gap enforced on both sides of an existing calendar event, in minutes.
-  bookingBufferMinutes Int @default(15)
-  /// Shown as the calendar event's title, with the guest's name appended.
-  bookingTitle     String  @default("Intro call")
-  /// External scheduling link (Calendly, Cal.com, …), independent of the native
-  /// booking card above. When set it appears on the contact card and the chat
-  /// gains a booking-link card; empty means the feature exists nowhere.
-  bookingLink      String  @default("")
-
-  updatedAt DateTime @updatedAt
+  /// Free-text description of the visual feeling.
+  aesthetic     String @default("") @db.Text
+  updatedAt     DateTime @updatedAt
 }
 
-/// A meeting a visitor booked through the in-chat booking card. This is Blake's
-/// own record: the authoritative event lives in Google Calendar, and whatever
-/// later happens to it there (edited, moved, deleted) does not reach back here.
-///
-/// `startsAt` is unique on purpose. Between reading free/busy and writing the
-/// event there is a window where two visitors can pick the same slot; the row is
-/// claimed before the Google call, so the constraint — not a hopeful re-check —
-/// is what makes the loser lose. Cancelling is done in Google Calendar, and the
-/// row is deleted from the admin, which is also what frees the slot again.
-model Booking {
-  id            String   @id @default(cuid())
-  name          String
-  email         String
-  note          String   @default("") @db.Text
-  /// Slot bounds as instants (UTC).
-  startsAt      DateTime @unique
-  endsAt        DateTime
-  /// IANA zone the visitor saw the slot in, so the admin can read their local
-  /// time back without guessing where they were.
-  guestTz       String   @default("")
-  /// Google Calendar event id — the trace from this row to the real event.
-  googleEventId String?
-  /// Google Meet link, when Google issued one.
-  meetUrl       String?
-  createdAt     DateTime @default(now())
-
-  @@index([startsAt])
-}
-
-/// One A2A task: work another agent asked this agent to do over the A2A
-/// endpoint (lib/a2a). Persisted rather than held in memory because the
-/// protocol lets a caller send a message now and fetch the result later —
-/// GetTask/ListTasks/CancelTask have to survive the request that created the
-/// task, and on Railway they also have to survive a redeploy.
 model A2ATask {
   id        String   @id
   /// Groups tasks into one conversation. Reused as the chat sessionId, so an

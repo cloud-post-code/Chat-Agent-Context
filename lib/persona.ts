@@ -86,9 +86,10 @@ export async function writePersonaSections(sections: PersonaSections): Promise<v
     const v = (sections[s.key] ?? "").trim();
     if (v) clean[s.key] = v;
   }
-  await prisma.profile.update({
+  await prisma.personaConfig.upsert({
     where: { id: 1 },
-    data: { personaSections: JSON.stringify(clean) },
+    update: { personaSections: JSON.stringify(clean) },
+    create: { id: 1, personaSections: JSON.stringify(clean) },
   });
 }
 

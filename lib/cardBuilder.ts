@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, cardBuilderModel } from "@/lib/claude";
-import { prisma, getProfile } from "@/lib/db";
-import { safeTags, safeExperience } from "@/lib/knowledge";
+import { prisma, getProfile, getPersonaConfig } from "@/lib/db";
+import { safeTags } from "@/lib/knowledge";
 import { CARD_TOOLS, type CardTool } from "@/lib/canned";
 import { parseSampleBlock, swatch } from "@/lib/uiCards";
 import { retrieve as defaultRetrieve, formatContext } from "@/lib/retrieval/search";
@@ -39,10 +39,7 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_projects: ["projects"],
   show_project: ["project"],
   show_gallery: ["gallery"],
-  show_timeline: ["timeline"],
   show_contact_form: ["contact"],
-  show_booking: ["booking"],
-  show_booking_link: ["booking_link"],
   show_card: ["custom", "html"],
 };
 
@@ -92,14 +89,11 @@ const BUILDER_BRIEF = `You design "A2UI cards" for a personal portfolio site's c
 
 There are three ways to build a card. FIRST decide which fits, in this order:
 
-1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, work history, contact form, booking). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
+1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
 - show_projects → {"type":"projects","items":[ProjectCard, …]} — a grid of project cards
 - show_project → {"type":"project","item":ProjectCard} — one project, drawn wide
 - show_gallery → {"type":"gallery","layout":"carousel"|"filmstrip","items":[PhotoCard, …]} — photos
-- show_timeline → {"type":"timeline","items":[TimelineEntry, …],"summary":"one short paragraph"} — work history
-- show_contact_form → {"type":"contact","bookingLink":null} — the in-chat contact form
-- show_booking → {"type":"booking"} — live open times from the calendar (no other fields)
-- show_booking_link → {"type":"booking_link","url":"https://…","name":"Blake"} — external scheduler link
+- show_contact_form → {"type":"contact"} — the in-chat contact form
 
 2. A CUSTOM card (tool "show_card"), ONLY for content that is genuinely a plain vertical stack — an FAQ, a testimonial, a short list of points. Stock elements render as a single unstyled column at one text size; they cannot express layout. The content you write IS what visitors will see (nothing is hydrated later — write it fully and well). Shape:
 {"type":"custom","title":"…","elements":[Element, …]}
@@ -139,7 +133,7 @@ TimelineEntry = {"role":string,"company":string,"dates":string,"description":str
 Rules:
 - Route in order: a live-data tool when the intent clearly matches site content; otherwise run route 2's disqualifying test and take CODED html the moment any part of it fails. When a card could plausibly go either way, code it — a flat stack that wanted design is a worse outcome than a designed card that could have been flat.
 - Custom and coded card content comes from the REAL SITE DATA section below — real project names, real tags, real roles. Never invent facts; where the data is silent, stay generic and say so in "note".
-- IMAGES: when the request carries an ATTACHED IMAGES block, those come first — the owner picked them deliberately, and each one says whether to embed it or treat it as visual direction. Beyond that you have two tools. "find_image" searches the images the owner already HAS (uploaded photos and their descriptions, project images, their headshot) — always try this first, because a real photo of the actual subject beats any drawing of it. "generate_image" draws new artwork when the library has nothing that fits. Both return a src path like "/api/uploads/…" — put that EXACT string in the image field and it renders for real, in stock elements and coded cards alike. Only when neither tool gives you something suitable, fall back to the exact string "placeholder", which becomes a flat colored swatch. Never write any other URL into an image field: outside images are stripped and render as a swatch.
+- IMAGES: when the request carries an ATTACHED IMAGES block, those come first — the owner picked them deliberately, and each one says whether to embed it or treat it as visual direction. Beyond that you have two tools. "find_image" searches the images the owner already HAS (uploaded photos and their descriptions, project images, their company logo) — always try this first, because a real photo of the actual subject beats any drawing of it. "generate_image" draws new artwork when the library has nothing that fits. Both return a src path like "/api/uploads/…" — put that EXACT string in the image field and it renders for real, in stock elements and coded cards alike. Only when neither tool gives you something suitable, fall back to the exact string "placeholder", which becomes a flat colored swatch. Never write any other URL into an image field: outside images are stripped and render as a swatch.
 - Generated artwork defaults to flat, textless illustration on a plain background — the look that survives the visitor re-theming the card under it. Ask for something else in the prompt whenever the card wants it (photographic realism, a dense texture, a specific palette, lettering) and your prompt wins. Two things stay true regardless: generated art cannot depict the owner's actual people, places or events — use find_image for those — and words baked into pixels keep their own color when the theme changes, so put titles and labels in the HTML around the image unless the lettering itself is the design.
 - In a custom card, only include facts the owner actually stated. Where you need specifics they didn't give (a price, a link), keep it generic and flag it in "note" so they know to revise.
 - "reason" is the instruction the chatbot will actually receive about when to show this card. Write it as guidance, starting "When …".
@@ -159,13 +153,15 @@ Respond with ONLY a JSON object (no prose, no code fences):
  */
 async function siteDataBrief(): Promise<string> {
   try {
-    const [profile, projects, photoCount] = await Promise.all([
+    const [profile, persona, projects, photoCount] = await Promise.all([
       getProfile(),
+      getPersonaConfig(),
       prisma.project.findMany({ orderBy: { order: "asc" } }),
       prisma.photo.count(),
     ]);
     const lines: string[] = ["REAL SITE DATA (build card content from this — do not invent facts):"];
-    lines.push(`Owner: ${profile.name}${profile.tagline ? ` — ${profile.tagline}` : ""}${profile.location ? `, ${profile.location}` : ""}`);
+    const who = profile.company_name || profile.owner_name;
+    lines.push(`Business: ${who}${persona.tagline ? ` — ${persona.tagline}` : ""}`);
     if (projects.length) {
       lines.push("Projects (name | tags | blurb):");
       for (const p of projects.slice(0, 20)) {
@@ -174,11 +170,8 @@ async function siteDataBrief(): Promise<string> {
     } else {
       lines.push("Projects: none added yet.");
     }
-    const roles = safeExperience(profile.experience);
-    if (roles.length) {
-      lines.push("Experience (role @ company, dates):");
-      for (const r of roles.slice(0, 12)) lines.push(`- ${r.role} @ ${r.company}, ${r.dates}`);
-    }
+    const contact = [profile.company_email, profile.company_phone_number, profile.company_address, profile.company_hours].filter(Boolean).join(" | ");
+    if (contact) lines.push(`Contact: ${contact}`);
     lines.push(`Photos: ${photoCount} uploaded.`);
     return lines.join("\n").slice(0, 3500);
   } catch {
@@ -241,7 +234,7 @@ const FIND_IMAGE_TOOL = {
   name: "find_image",
   description:
     "Search the images the owner already has — uploaded photos with their descriptions, "
-    + "project images, source article images and their headshot — for one that fits the card. "
+    + "project images, source article images and their company logo — for one that fits the card. "
     + "Returns matching images with a src path you can use directly in an image field. "
     + "ALWAYS try this before generate_image: a real photo of the actual subject is better "
     + "than a drawing of it.",

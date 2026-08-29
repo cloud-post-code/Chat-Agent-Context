@@ -133,7 +133,7 @@ async function main() {
     const profile = await prisma.profile.findUnique({ where: { id: 1 } });
     check(
       "card name comes from the Profile, not a constant",
-      !!profile && card.name.startsWith(profile.name),
+      !!profile && card.name.startsWith((profile.company_name || profile.owner_name)),
       `card="${card.name}"`,
     );
     check(

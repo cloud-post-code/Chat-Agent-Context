@@ -29,7 +29,7 @@ function check(name: string, ok: boolean, detail?: string) {
 const M = "proof-uni";
 
 async function main() {
-  const { listIngestedItems, parseExperienceItems } = await import("@/lib/ingestedItems");
+  const { listIngestedItems } = await import("@/lib/ingestedItems");
   const { prisma } = await import("@/lib/db");
 
   try {
@@ -113,7 +113,6 @@ async function main() {
     );
 
     // 7. Malformed experience JSON degrades to empty.
-    check("malformed experience JSON degrades to []", parseExperienceItems("{not json").length === 0);
   } finally {
     const { prisma } = await import("@/lib/db");
     await prisma.source.deleteMany({ where: { title: { startsWith: M } } }).catch(() => {});

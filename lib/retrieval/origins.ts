@@ -1,7 +1,7 @@
-import { prisma, getProfile } from "../db";
+import { prisma, getProfile, getPersonaConfig } from "../db";
 import { personaPromptBlock } from "../persona";
 import { splitPersonaFacts, type PersonaFact } from "../personaFacts";
-import { safeExperience, safeTags } from "../knowledge";
+import { safeTags } from "../knowledge";
 import { indexOrigin, dropOrigin, type IndexOpts } from "./indexer";
 
 /**
@@ -35,19 +35,16 @@ export const ORIGIN_LABELS: Record<string, string> = {
   cluster: "Overviews",
 };
 
-/** Bio, experience and the "everything else" block from the Profile tab. */
+/** The business identity from the Profile tab, as indexable prose. */
 export async function indexProfile(opts: IndexOpts = {}): Promise<void> {
   const p = await getProfile();
   const lines: string[] = [];
-  if (p.bio) lines.push(p.bio.trim());
-  if (p.experienceSummary) lines.push(p.experienceSummary.trim());
-  for (const e of safeExperience(p.experience)) {
-    const head = [e.role, e.company].filter(Boolean).join(" at ");
-    const when = e.dates ? ` (${e.dates})` : "";
-    lines.push(`${head}${when}${e.description ? `. ${e.description}` : ""}`);
-  }
-  if (p.other) lines.push(p.other.trim());
-  if (p.location) lines.push(`${p.name} is based in ${p.location}.`);
+  if (p.company_name) lines.push(`The business is ${p.company_name}.`);
+  if (p.owner_name) lines.push(`It is owned and run by ${p.owner_name}.`);
+  if (p.company_address) lines.push(`Address: ${p.company_address}.`);
+  if (p.company_phone_number) lines.push(`Phone: ${p.company_phone_number}.`);
+  if (p.company_email) lines.push(`Email: ${p.company_email}.`);
+  if (p.company_hours) lines.push(`Hours: ${p.company_hours}.`);
 
   await indexOrigin(
     { kind: "profile", id: "profile", label: "Profile", text: lines.join("\n\n") },
@@ -79,7 +76,7 @@ export type PersonaIndexOpts = IndexOpts & { split?: PersonaSplitter };
  * full paragraph still ships verbatim on every message.
  */
 export async function indexPersona(opts: PersonaIndexOpts = {}): Promise<void> {
-  const p = await getProfile();
+  const p = await getPersonaConfig();
   const prose = personaPromptBlock(p.personaSections);
   const facts = await (opts.split ?? splitPersonaFacts)(prose);
 

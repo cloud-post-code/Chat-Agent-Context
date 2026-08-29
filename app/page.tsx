@@ -1,4 +1,4 @@
-import { getProfile } from "@/lib/db";
+import { getProfile, getPersonaConfig } from "@/lib/db";
 import Chat from "./Chat";
 import { starterQuestions } from "@/lib/theme";
 
@@ -6,12 +6,12 @@ import { starterQuestions } from "@/lib/theme";
 export const dynamic = "force-dynamic";
 
 export default async function Home() {
-  const profile = await getProfile();
+  const [profile, persona] = await Promise.all([getProfile(), getPersonaConfig()]);
   return (
     <Chat
-      name={profile.name}
-      tagline={profile.tagline}
-      headshot={profile.headshot}
+      name={profile.company_name || profile.owner_name}
+      tagline={persona.tagline}
+      logo={persona.company_logo}
       starters={starterQuestions}
     />
   );

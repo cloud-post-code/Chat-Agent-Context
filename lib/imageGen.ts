@@ -1,5 +1,5 @@
 import { saveBytes, readUpload } from "@/lib/uploads";
-import { prisma, getProfile } from "@/lib/db";
+import { prisma, getPersonaConfig } from "@/lib/db";
 import { describeImageForDesign } from "@/lib/vision";
 
 /**
@@ -163,7 +163,7 @@ export async function describePromptImage(src: string): Promise<string> {
 export type LibraryImage = {
   /** Site-relative path, ready to drop into a card's src/imageUrl. */
   src: string;
-  /** photo | project | source | headshot — where it came from. */
+  /** photo | project | source | logo — where it came from. */
   origin: string;
   /** What it depicts, for the model to match against the card's subject. */
   description: string;
@@ -188,7 +188,7 @@ export async function findLibraryImages(query: string): Promise<LibraryImage[]> 
     }),
     prisma.project.findMany({ where: { NOT: { imageUrl: null } }, orderBy: { order: "asc" } }),
     prisma.source.findMany({ where: { NOT: { imageUrl: null } }, orderBy: { createdAt: "desc" }, take: 40 }),
-    getProfile().catch(() => null),
+    getPersonaConfig().catch(() => null),
   ]);
 
   const all: LibraryImage[] = [
@@ -208,11 +208,11 @@ export async function findLibraryImages(query: string): Promise<LibraryImage[]> 
       description: `${s.title ?? "Source"}: ${(s.summary ?? "").slice(0, 160)}`,
     })),
   ];
-  if (profile?.headshot) {
+  if (profile?.company_logo) {
     all.push({
-      src: profile.headshot,
-      origin: "headshot",
-      description: `Portrait of ${profile.name}${profile.tagline ? ` — ${profile.tagline}` : ""}`,
+      src: profile.company_logo,
+      origin: "logo",
+      description: `Company logo${profile.tagline ? ` — ${profile.tagline}` : ""}`,
     });
   }
 

@@ -240,7 +240,7 @@ export async function setIngestionSourceHidden(id: string, hidden: boolean): Pro
 }
 
 /**
- * The seven built-in tabs, in display order. Seeded once into an empty table
+ * The built-in tabs, in display order. Seeded once into an empty table
  * (seedStarterIngestionSources); after that the rows are Blake's to edit or
  * reorder — the starters never overwrite live rows.
  */
@@ -252,20 +252,6 @@ export const STARTER_INGESTION_SOURCES: Array<
     "id" | "enabled" | "builtin" | "classification" | "splitMode" | "panelHtml" | "createdAt" | "updatedAt"
   > & { builtin: true }
 > = [
-  {
-    key: "experience",
-    label: "Experience",
-    description: "Work history: roles, companies, dates, and what each one involved.",
-    systemPrompt:
-      "Extract a clean work history from the uploaded resume: one entry per role with " +
-      "company, title, start/end dates, and a short plain-English description of the work. " +
-      "Prefer the resume's own wording; never invent employers or dates.",
-    uploadMethod: "resume",
-    storageKinds: "text",
-    outputMethod: "Profile.experience (JSON) + persona chunks via reindex",
-    builtin: true,
-    order: 0,
-  },
   {
     key: "projects",
     label: "Projects",

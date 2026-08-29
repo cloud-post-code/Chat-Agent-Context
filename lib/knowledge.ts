@@ -1,10 +1,9 @@
-import { prisma, getProfile } from "./db";
+import { prisma, getProfile, getPersonaConfig } from "./db";
 import { personaPromptBlock } from "./persona";
 import { goalsPromptSection, rulesPromptLines } from "./directives";
 import { retrieve, formatContext } from "./retrieval/search";
 import { broadOverviews } from "./retrieval/clusters";
-import { googleConfigured } from "./google";
-import { cardCatalog, toolUsableNow, type CardGuidance } from "./uiCards";
+import { cardCatalog, type CardGuidance } from "./uiCards";
 
 /**
  * Assembles the chatbot's system prompt: a persona core (profile, projects,
@@ -21,8 +20,9 @@ import { cardCatalog, toolUsableNow, type CardGuidance } from "./uiCards";
  * "when to show it" text becomes a line of the USING RICH CARDS section.
  */
 export async function buildSystemPrompt(query?: string): Promise<string> {
-  const [profile, projects, photos, corrections, chunkCount, directives] = await Promise.all([
+  const [profile, personaConfig, projects, photos, corrections, chunkCount, directives] = await Promise.all([
     getProfile(),
+    getPersonaConfig(),
     prisma.project.findMany({ orderBy: { order: "asc" } }),
     // The prompt's gallery listing is curated photos only; custom-ingested
     // images (`ingest:*` marks) reach the model through retrieval chunks.
@@ -75,18 +75,9 @@ export async function buildSystemPrompt(query?: string): Promise<string> {
         .join("\n")}`
     : "";
 
-  // The booking tools are withheld from the model unless they can actually
-  // book, so the instructions for them are withheld on the same condition —
-  // telling Claude about a tool it hasn't been given is how you get an apology
-  // instead of a card. The same live gate filters the tool list in brain.ts.
-  const canBook = profile.bookingEnabled && googleConfigured();
-  const bookingLink = profile.bookingLink.trim();
-
-  // The card catalog Blake curates on the A2UI tab: which cards exist and when
-  // to show each. The live gate above can only remove cards, never add one.
-  const cards = (await cardCatalog()).filter((c) =>
-    toolUsableNow(c.tool, { canBook, hasBookingLink: !!bookingLink }),
-  );
+  // The card catalog the admin curates on the A2UI tab: which cards exist and
+  // when to show each.
+  const cards = await cardCatalog();
   const cardTools = new Set(cards.map((c) => c.tool));
 
   // Photos are only worth announcing as showable if the gallery card exists.
@@ -97,18 +88,22 @@ export async function buildSystemPrompt(query?: string): Promise<string> {
     : "(No photos uploaded yet.)";
 
   const personaBlock =
-    personaPromptBlock(profile.personaSections) ||
+    personaPromptBlock(personaConfig.personaSections) ||
     "Warm, curious, a builder at heart. Enthusiastic about making useful things. Speaks plainly, with a bit of playful energy.";
 
-  return `You are the personal AI host for ${profile.name}'s website. You speak on Blake's behalf to visitors — friendly, curious, and genuine, never corporate. Refer to Blake in the first person ("I", "my") as if you are him, unless a visitor asks something you have no information about.
+  const owner = profile.owner_name.trim();
+  const company = profile.company_name.trim() || owner || "this business";
+  const speaker = owner || company;
+
+  return `You are the AI host for ${company}'s website. You speak on ${speaker}'s behalf to visitors — friendly, helpful, and genuine, never corporate.
 
 PERSONA (who you are and how you behave — follow it in every answer):
 ${personaBlock}
 
 WHO YOU ARE:
-${profile.name}${profile.tagline ? ` — ${profile.tagline}` : ""}${
-    profile.location ? `, based in ${profile.location}` : ""
-  }.
+${company}${personaConfig.tagline ? ` — ${personaConfig.tagline}` : ""}${
+    owner ? ` Owned and run by ${owner}.` : ""
+  }
 
 HOW TO CONNECT:
 ${connectBlock(profile)}
@@ -193,51 +188,23 @@ Always add a short spoken sentence alongside a card — the card supplements you
 }
 
 function connectBlock(p: {
-  email: string;
-  github: string;
-  socials: string;
+  company_email: string;
+  company_phone_number: string;
+  company_address: string;
+  company_hours: string;
 }): string {
   const lines: string[] = [];
-  if (p.email) lines.push(`Email: ${p.email}`);
-  if (p.github) lines.push(`GitHub: ${p.github}`);
-  for (const s of safeSocials(p.socials)) lines.push(`${s.label}: ${s.url}`);
+  if (p.company_email) lines.push(`Email: ${p.company_email}`);
+  if (p.company_phone_number) lines.push(`Phone: ${p.company_phone_number}`);
+  if (p.company_address) lines.push(`Address: ${p.company_address}`);
+  if (p.company_hours) lines.push(`Hours: ${p.company_hours}`);
   return lines.length ? lines.join("\n") : "(No contact info added yet.)";
-}
-
-export function safeSocials(raw: string): { label: string; url: string }[] {
-  try {
-    const v = JSON.parse(raw);
-    return Array.isArray(v)
-      ? v.filter((x) => x && x.label && x.url).map((x) => ({ label: String(x.label), url: String(x.url) }))
-      : [];
-  } catch {
-    return [];
-  }
 }
 
 export function safeTags(raw: string): string[] {
   try {
     const v = JSON.parse(raw);
     return Array.isArray(v) ? v.map(String) : [];
-  } catch {
-    return [];
-  }
-}
-
-export type Experience = { role: string; company: string; dates: string; description: string };
-
-export function safeExperience(raw: string): Experience[] {
-  try {
-    const v = JSON.parse(raw);
-    if (!Array.isArray(v)) return [];
-    return v
-      .map((x) => ({
-        role: String(x?.role ?? "").trim(),
-        company: String(x?.company ?? "").trim(),
-        dates: String(x?.dates ?? "").trim(),
-        description: String(x?.description ?? "").trim(),
-      }))
-      .filter((x) => x.role || x.company || x.description);
   } catch {
     return [];
   }

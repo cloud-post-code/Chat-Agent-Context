@@ -92,7 +92,7 @@ function fakeExtract() {
 }
 
 async function main() {
-  const { prisma, getProfile } = await import("../../../lib/db");
+  const { prisma, getProfile, getPersonaConfig } = await import("../../../lib/db");
   const {
     MAX_FACTS,
     MIN_SPLIT_CHARS,
@@ -107,7 +107,7 @@ async function main() {
   const { LOCAL_EMBED_MODEL } = await import("../../../lib/retrieval/embed");
   const { buildSystemPrompt } = await import("../../../lib/knowledge");
 
-  const before = await getProfile();
+  const before = await getPersonaConfig();
   const snapshot = before.personaSections;
 
   const personaOrigins = async (): Promise<string[]> => {
@@ -120,7 +120,7 @@ async function main() {
     return rows.map((r) => r.originId);
   };
   const setPersona = (text: string) =>
-    prisma.profile.update({
+    prisma.personaConfig.update({
       where: { id: 1 },
       data: { personaSections: JSON.stringify(text ? { persona: text } : {}) },
     });
@@ -333,8 +333,8 @@ async function main() {
       await dropOrigin("persona", id);
     }
     await prisma.entity.deleteMany({ where: { key: { in: ["marrowlight", "zephyrwind"] } } });
-    await prisma.profile.update({ where: { id: 1 }, data: { personaSections: snapshot } });
-    const restored = (await getProfile()).personaSections;
+    await prisma.personaConfig.update({ where: { id: 1 }, data: { personaSections: snapshot } });
+    const restored = (await getPersonaConfig()).personaSections;
     check("profile restored to its pre-proof state", restored === snapshot);
     await prisma.$disconnect();
   }

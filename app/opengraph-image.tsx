@@ -1,5 +1,5 @@
 import { ImageResponse } from "next/og";
-import { getProfile } from "@/lib/db";
+import { getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { brand, starterQuestions, themeVarLines, type ThemeColors } from "@/lib/theme";
 import { safeJson } from "@/lib/util";
 
@@ -81,19 +81,21 @@ function parseVars(lines: string): Record<string, string> {
 
 export default async function OgImage() {
   const profile = await getProfile().catch(() => null);
-  const name = profile?.name || brand.name;
-  const tagline = profile?.tagline || brand.tagline;
+  const persona = await getPersonaConfig().catch(() => null);
+  const theme = await getThemeConfig().catch(() => null);
+  const name = profile?.company_name || profile?.owner_name || brand.name;
+  const tagline = persona?.tagline || brand.tagline;
 
   // Resolve the exact same tokens the layout injects, so the thumbnail keeps
   // matching the site as the admin restyles it.
-  const colors = safeJson<ThemeColors>(profile?.themeColors ?? "{}", {});
+  const colors = safeJson<ThemeColors>(theme?.themeColors ?? "{}", {});
   const v = parseVars(
     themeVarLines({
       headingFamily: "heading",
       bodyFamily: "body",
-      radius: profile?.themeRadius ?? "rounded",
-      fontSize: profile?.themeFontSize ?? "",
-      headingWeight: profile?.themeHeadingWeight ?? "",
+      radius: theme?.themeRadius ?? "rounded",
+      fontSize: theme?.themeFontSize ?? "",
+      headingWeight: theme?.themeHeadingWeight ?? "",
       colors,
     }),
   );
@@ -120,8 +122,8 @@ export default async function OgImage() {
   const chips = starterQuestions.map((s) => s.q);
   const allText = [heroLine1, heroLine2, tagline, placeholder, sendLabel, ...chips].join("");
 
-  const headingName = googleFamily(profile?.themeFont ?? "space-grotesk");
-  const bodyName = googleFamily(profile?.themeBodyFont ?? "inter");
+  const headingName = googleFamily(theme?.themeFont ?? "space-grotesk");
+  const bodyName = googleFamily(theme?.themeBodyFont ?? "inter");
   const [headingData, bodyData, bodyItalicData] = await Promise.all([
     loadWithFallback(headingName, headingWeight, allText).then(
       (d) => d ?? loadWithFallback("Space Grotesk", headingWeight, allText),

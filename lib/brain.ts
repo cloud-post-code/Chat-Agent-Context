@@ -5,16 +5,12 @@ import {
   allProjectsBlock,
   singleProjectBlock,
   galleryBlock,
-  experienceTimelineBlock,
   contactBlock,
-  bookingLinkBlock,
-  bookingLinkUrl,
   type UiBlock,
 } from "@/lib/cards";
 import { recordTurn } from "@/lib/activity";
 import { findServableCanned, recordCannedHit } from "@/lib/canned";
-import { bookingLive } from "@/lib/booking/service";
-import { cardCatalog, toolUsableNow, customCardBlock } from "@/lib/uiCards";
+import { cardCatalog, customCardBlock } from "@/lib/uiCards";
 
 /**
  * The chatbot, independent of how it was reached. `answer()` is the one entry
@@ -96,47 +92,12 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
-    name: "show_timeline",
-    description:
-      "Render Blake's work history as a visual timeline of roles, each with its company, dates and what he did. Use when the visitor asks about his experience, background, career, work history, CV or resume, where he has worked, or what he did before.",
-    input_schema: { type: "object", properties: {} },
-  },
-  {
     name: "show_contact_form",
     description:
       "Render a contact form so the visitor can leave their name, email, and a message for Blake. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for Blake.",
     input_schema: { type: "object", properties: {} },
   },
 ];
-
-/**
- * Offered only when booking is switched on and Google is connected. A booking
- * card that can never return a slot is a worse outcome than not offering to
- * meet, so the tool is withheld rather than left to fail politely.
- */
-const BOOKING_TOOL: Anthropic.Tool = {
-  name: "show_booking",
-  description:
-    "Render a booking card showing Blake's real open times, pulled live from his Google Calendar. " +
-    "The visitor picks a slot and it is confirmed on his calendar with a video link. Use this when " +
-    "someone wants to meet, talk, book a call, or find a time — prefer it over the contact form when " +
-    "a conversation is what they're after.",
-  input_schema: { type: "object", properties: {} },
-};
-
-/**
- * Offered only when Blake has pasted an external booking link into the admin.
- * Same withholding pattern as BOOKING_TOOL: a card whose button opens nothing
- * is worse than no card, so an empty link means the tool does not exist.
- */
-const BOOKING_LINK_TOOL: Anthropic.Tool = {
-  name: "show_booking_link",
-  description:
-    "Render a card linking to Blake's external booking page (Calendly-style), where the visitor " +
-    "picks a time themselves. Use when someone wants to schedule, meet, or asks for a scheduling " +
-    "link — unless show_booking is available, which shows live times and should be preferred.",
-  input_schema: { type: "object", properties: {} },
-};
 
 /**
  * The tool for cards designed in the admin card builder. One tool for all of
@@ -166,17 +127,8 @@ async function hydrate(name: string, input: Record<string, unknown>): Promise<Ui
       return singleProjectBlock(String(input.id ?? ""));
     case "show_gallery":
       return galleryBlock(input.layout === "carousel" ? "carousel" : "filmstrip");
-    case "show_timeline":
-      return experienceTimelineBlock();
     case "show_contact_form":
       return contactBlock();
-    case "show_booking":
-      // Guarded here too, not just at tool-offer time: a canned answer can name
-      // this tool, and it must not draw a booker after booking is switched off.
-      return (await bookingLive()) ? { type: "booking" } : null;
-    case "show_booking_link":
-      // Null once the link is cleared, for the same canned-answer reason.
-      return bookingLinkBlock();
     case "show_card":
       // Null when the key doesn't name a custom card any more — a canned
       // answer can outlive the card it pointed at.
@@ -204,24 +156,14 @@ async function* runModel(
 ): AsyncGenerator<BrainEvent> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [system, canBook, linkUrl, catalog] = await Promise.all([
+  const [system, catalog] = await Promise.all([
     buildSystemPrompt(message),
-    bookingLive(),
-    bookingLinkUrl(),
     cardCatalog(),
   ]);
-  // A tool is offered only when a catalog card names it AND its live gate
-  // passes. The catalog decides what exists (Blake's A2UI tab); the gate keeps
-  // the booking tools withheld while they cannot actually book — a card row
-  // can remove a tool, but it can never force one past its gate. The prompt's
-  // card instructions are filtered by the same two conditions in knowledge.ts,
-  // so the model is never told about a tool it wasn't given.
+  // A tool is offered only when a catalog card names it — the catalog (the
+  // admin's A2UI tab) decides what exists.
   const catalogTools = new Set(catalog.map((c) => c.tool));
-  const tools = [...TOOLS, BOOKING_TOOL, BOOKING_LINK_TOOL].filter(
-    (t) =>
-      catalogTools.has(t.name) &&
-      toolUsableNow(t.name, { canBook, hasBookingLink: !!linkUrl }),
-  );
+  const tools = TOOLS.filter((t) => catalogTools.has(t.name));
   // Custom-designed cards share one keyed tool, built from the catalog.
   const customKeys = catalog.filter((c) => c.tool === "show_card").map((c) => c.key);
   if (customKeys.length) tools.push(customCardTool(customKeys));

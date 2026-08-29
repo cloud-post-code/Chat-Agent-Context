@@ -26,12 +26,12 @@ function shortLabel(q: string): string {
 export default function Chat({
   name,
   tagline,
-  headshot,
+  logo,
   starters,
 }: {
   name: string;
   tagline: string;
-  headshot?: string | null;
+  logo?: string | null;
   starters: Starter[];
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -180,8 +180,9 @@ export default function Chat({
               title="Back to home"
               aria-label="Back to home"
             >
-              {headshot ? (
-                <img src={headshot} alt={name} style={styles.headerAvatar} />
+              {logo ? (
+                // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded file served from the app's own volume; next/image adds nothing here
+                <img src={logo} alt={name} style={styles.headerAvatar} />
               ) : (
                 <div style={styles.headerAvatarFallback}>{name.slice(0, 1)}</div>
               )}

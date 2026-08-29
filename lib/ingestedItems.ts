@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { dropOrigin } from "@/lib/retrieval/indexer";
-import { indexProfile, indexPersona } from "@/lib/retrieval/origins";
+import { indexPersona } from "@/lib/retrieval/origins";
 import {
   clearSourceClassifications,
   resolveClassifications,
@@ -63,19 +63,6 @@ const imageItem = (
   imageUrl: string,
   createdAt: Date,
 ): IngestedItem => ({ kind: "image", id, sourceKey, title, text, imageUrl, createdAt });
-
-/** Parse Profile.experience JSON defensively — bad JSON is an empty history. */
-export function parseExperienceItems(
-  raw: string | null | undefined,
-): Array<{ role: string; company: string; dates: string; description: string }> {
-  try {
-    const v = JSON.parse(raw || "[]");
-    if (!Array.isArray(v)) return [];
-    return v.filter((e) => e && typeof e === "object");
-  } catch {
-    return [];
-  }
-}
 
 function parseSections(raw: string | null | undefined): Record<string, string> {
   try {
@@ -146,18 +133,8 @@ export async function deleteIngestedData(sourceKey: string): Promise<void> {
   };
 
   switch (sourceKey) {
-    case "experience": {
-      await prisma.profile.updateMany({
-        where: { id: 1 },
-        data: { experience: "[]", experienceSummary: "" },
-      });
-      // Re-index what's left of the profile (bio etc.); an empty profile
-      // retracts its origin entirely inside indexOrigin.
-      await reindex("profile", () => indexProfile());
-      return;
-    }
     case "persona": {
-      await prisma.profile.updateMany({ where: { id: 1 }, data: { personaSections: "{}" } });
+      await prisma.personaConfig.updateMany({ where: { id: 1 }, data: { personaSections: "{}" } });
       // The persona sweep drops every origin the (now empty) persona no
       // longer asserts.
       await reindex("persona", () => indexPersona());
@@ -238,19 +215,6 @@ export async function listIngestedItemsClassified(
 /** Everything a source has ingested, as uniform text/image items. */
 export async function listIngestedItems(sourceKey: string): Promise<IngestedItem[]> {
   switch (sourceKey) {
-    case "experience": {
-      const profile = await prisma.profile.findUnique({ where: { id: 1 } });
-      const when = profile?.updatedAt ?? new Date(0);
-      return parseExperienceItems(profile?.experience).map((e, i) =>
-        textItem(
-          sourceKey,
-          `experience:${i}`,
-          [e.role, e.company].filter(Boolean).join(" — ") || "Role",
-          [e.dates, e.description].filter(Boolean).join("\n"),
-          when,
-        ),
-      );
-    }
     case "projects": {
       const projects = await prisma.project.findMany({ orderBy: { order: "asc" } });
       return projects.flatMap((p) => {
@@ -303,9 +267,9 @@ export async function listIngestedItems(sourceKey: string): Promise<IngestedItem
       );
     }
     case "persona": {
-      const profile = await prisma.profile.findUnique({ where: { id: 1 } });
-      const when = profile?.updatedAt ?? new Date(0);
-      return Object.entries(parseSections(profile?.personaSections))
+      const persona = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+      const when = persona?.updatedAt ?? new Date(0);
+      return Object.entries(parseSections(persona?.personaSections))
         .filter(([, text]) => typeof text === "string" && text.trim())
         .map(([key, text]) => textItem(sourceKey, `persona:${key}`, key, text, when));
     }

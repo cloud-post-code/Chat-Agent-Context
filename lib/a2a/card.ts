@@ -1,4 +1,4 @@
-import { prisma, getProfile } from "@/lib/db";
+import { prisma, getProfile, getPersonaConfig } from "@/lib/db";
 import { a2aApiKey } from "./guard";
 import type { AgentCardV1, AgentSkill } from "./types";
 
@@ -130,14 +130,14 @@ function securityBlock(): Pick<AgentCardV1, "securitySchemes" | "securityRequire
 
 /** The current-spec (v1.0) card. This is what /.well-known/agent-card.json serves. */
 export async function agentCardV1(origin: string): Promise<AgentCardV1> {
-  const profile = await getProfile();
-  const name = profile.name || "Agent";
+  const [profile, persona] = await Promise.all([getProfile(), getPersonaConfig()]);
+  const name = profile.company_name || profile.owner_name || "Agent";
   const skills = await buildSkills(name);
 
   return {
     name: `${name} — personal agent`,
     description:
-      profile.tagline?.trim() ||
+      persona.tagline?.trim() ||
       `The personal agent for ${name}. Ask it anything about ${name}'s background, ` +
         `projects and published work.`,
     // Ordered: first entry is preferred (§8.3.1). Both bindings are the same
@@ -163,7 +163,7 @@ export async function agentCardV1(origin: string): Promise<AgentCardV1> {
     defaultInputModes: ["text/plain"],
     defaultOutputModes: ["text/plain", "application/json"],
     skills,
-    ...(profile.headshot ? { iconUrl: absolute(origin, profile.headshot) } : {}),
+    ...(persona.company_logo ? { iconUrl: absolute(origin, persona.company_logo) } : {}),
   };
 }
 

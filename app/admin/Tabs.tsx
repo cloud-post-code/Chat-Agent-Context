@@ -14,7 +14,7 @@ export function Tabs({
 }: {
   tabs: { key: string; label: string; badge?: number; content: React.ReactNode }[];
   /** Which panel to open on. Lets a redirect back into the admin land on the
-   *  tab it came from — the Google callback returns to Booking, not Profile. */
+   *  tab it came from rather than the first tab. */
   initial?: string;
 }) {
   const [active, setActive] = useState(

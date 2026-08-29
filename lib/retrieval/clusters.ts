@@ -259,7 +259,8 @@ export async function broadOverviews(query: string): Promise<string | null> {
   for (const d of docs) {
     for (const t of new Set(tokenize(d.text))) df.set(t, (df.get(t) ?? 0) + 1);
   }
-  const owner = new Set(tokenize((await getProfile()).name));
+  const ownerProfile = await getProfile();
+  const owner = new Set(tokenize(`${ownerProfile.company_name} ${ownerProfile.owner_name}`));
   if (!isBroadQuery(tokenize(q), df, docs.length, owner)) return null;
 
   return (
