@@ -37,7 +37,7 @@ export type UiBlock =
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number };
 
-export function Cards({ block }: { block: UiBlock }) {
+export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "projects") {
     if (block.items.length === 0) return <Empty>No projects yet.</Empty>;
     return (
@@ -65,7 +65,7 @@ export function Cards({ block }: { block: UiBlock }) {
     );
   }
   if (block.type === "contact") {
-    return <ContactForm />;
+    return <ContactForm slug={slug} />;
   }
   if (block.type === "custom") {
     return <CustomCard title={block.title} elements={block.elements} />;
@@ -255,7 +255,7 @@ function CustomEl({ el }: { el: CustomElement }) {
   }
 }
 
-function ContactForm() {
+function ContactForm({ slug }: { slug: string }) {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [message, setMessage] = useState("");
@@ -270,7 +270,7 @@ function ContactForm() {
       const res = await fetch("/api/contact", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, message }),
+        body: JSON.stringify({ name, email, message, slug }),
       });
       const data = await res.json();
       if (!res.ok || !data.ok) {
@@ -290,7 +290,7 @@ function ContactForm() {
       <div data-fill="bg-soft" style={{ ...card, borderColor: "var(--success-on-bg-soft)" }}>
         <strong style={{ fontSize: 15 }}>Got it — thank you.</strong>
         <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 14, marginTop: 6 }}>
-          Your message reached Blake. He&apos;ll get back to you at {email}.
+          Your message was delivered. You&apos;ll hear back at {email}.
         </p>
       </div>
     );

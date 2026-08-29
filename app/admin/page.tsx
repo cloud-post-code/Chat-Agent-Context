@@ -6,6 +6,17 @@ import { PendingButton } from "./PendingButton";
 
 export const dynamic = "force-dynamic";
 
+const inputStyle: React.CSSProperties = {
+  width: "100%",
+  padding: "12px 14px",
+  background: "var(--bg-soft)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-md)",
+  marginBottom: 14,
+  outline: "none",
+  color: "var(--on-bg-soft)",
+};
+
 export default async function AdminLogin({
   searchParams,
 }: {
@@ -37,30 +48,31 @@ export default async function AdminLogin({
           boxShadow: "var(--glow-primary)",
         }}
       >
-        <h1 style={{ fontSize: 24, marginBottom: 6 }}>Admin</h1>
+        <h1 style={{ fontSize: 24, marginBottom: 6 }}>Log in</h1>
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14, marginBottom: 20 }}>
-          Blake&apos;s control room. Add projects, scan links, upload photos.
+          Your control room. Manage your agent page&apos;s knowledge, persona, and look.
         </p>
         {error && (
           <p style={{ color: "var(--danger-on-surface)", fontSize: 14, marginBottom: 12 }}>
-            Wrong password. Try again.
+            Wrong email or password. Try again.
           </p>
         )}
+        <input
+          type="email"
+          name="email"
+          placeholder="Email"
+          autoComplete="email"
+          autoFocus
+          required
+          style={inputStyle}
+        />
         <input
           type="password"
           name="password"
           placeholder="Password"
-          autoFocus
-          style={{
-            width: "100%",
-            padding: "12px 14px",
-            background: "var(--bg-soft)",
-            border: "1px solid var(--border)",
-            borderRadius: "var(--radius-md)",
-            marginBottom: 14,
-            outline: "none",
-            color: "var(--on-bg-soft)",
-          }}
+          autoComplete="current-password"
+          required
+          style={inputStyle}
         />
         <PendingButton
           pendingLabel="Signing in…"
@@ -76,8 +88,11 @@ export default async function AdminLogin({
         >
           Enter →
         </PendingButton>
-        <Link href="/" style={{ display: "block", textAlign: "center", marginTop: 16, fontSize: 13 }}>
-          ← back to site
+        <p style={{ textAlign: "center", marginTop: 16, fontSize: 13 }}>
+          No account yet? <Link href="/signup">Create your agent page</Link>
+        </p>
+        <Link href="/" style={{ display: "block", textAlign: "center", marginTop: 8, fontSize: 13 }}>
+          ← back to the directory
         </Link>
       </form>
     </main>

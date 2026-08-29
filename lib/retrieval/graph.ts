@@ -55,14 +55,14 @@ export type GraphEdge = {
   relation: string;
 };
 
-export async function graphStats(): Promise<GraphStats> {
+export async function graphStats(userId: string): Promise<GraphStats> {
   const [chunks, entities, edges, models, originRows, orphanEntities] = await Promise.all([
-    prisma.chunk.count(),
-    prisma.entity.count(),
-    prisma.entityEdge.count(),
-    prisma.chunk.groupBy({ by: ["embedModel"], _count: { _all: true } }),
-    prisma.chunk.groupBy({ by: ["originKind", "originId"], _count: { _all: true } }),
-    prisma.entity.count({ where: { mentions: { none: {} } } }),
+    prisma.chunk.count({ where: { userId } }),
+    prisma.entity.count({ where: { userId } }),
+    prisma.entityEdge.count({ where: { from: { userId } } }),
+    prisma.chunk.groupBy({ by: ["embedModel"], where: { userId }, _count: { _all: true } }),
+    prisma.chunk.groupBy({ by: ["originKind", "originId"], where: { userId }, _count: { _all: true } }),
+    prisma.entity.count({ where: { userId, mentions: { none: {} } } }),
   ]);
 
   // One groupBy feeds both the Sources tile and the per-origin breakdown, so
@@ -90,8 +90,9 @@ export async function graphStats(): Promise<GraphStats> {
   };
 }
 
-export async function listEntities(): Promise<GraphEntity[]> {
+export async function listEntities(userId: string): Promise<GraphEntity[]> {
   const rows = await prisma.entity.findMany({
+    where: { userId },
     orderBy: { name: "asc" },
     include: {
       _count: { select: { edgesOut: true, edgesIn: true } },
@@ -111,8 +112,9 @@ export async function listEntities(): Promise<GraphEntity[]> {
   }));
 }
 
-export async function listEdges(): Promise<GraphEdge[]> {
+export async function listEdges(userId: string): Promise<GraphEdge[]> {
   const rows = await prisma.entityEdge.findMany({
+    where: { from: { userId } },
     include: { from: { select: { id: true, name: true } }, to: { select: { id: true, name: true } } },
   });
   return rows
@@ -134,6 +136,7 @@ export async function listEdges(): Promise<GraphEdge[]> {
  * "Blake" and "Blake Mauri" can be made one node.
  */
 export async function renameEntity(
+  userId: string,
   id: string,
   name: string,
   type: string,
@@ -141,18 +144,21 @@ export async function renameEntity(
   const clean = name.replace(/\s+/g, " ").trim();
   if (!clean) return { merged: false };
 
-  const entity = await prisma.entity.findUnique({ where: { id } });
+  const entity = await prisma.entity.findFirst({ where: { id, userId } });
   if (!entity) return { merged: false };
 
   const key = entityKey(clean);
-  const existing = key === entity.key ? null : await prisma.entity.findUnique({ where: { key } });
+  const existing =
+    key === entity.key
+      ? null
+      : await prisma.entity.findUnique({ where: { userId_key: { userId, key } } });
 
   if (!existing) {
     await prisma.entity.update({ where: { id }, data: { name: clean, key, type } });
     return { merged: false };
   }
 
-  await mergeInto(entity.id, existing.id);
+  await mergeInto(userId, entity.id, existing.id);
   return { merged: true };
 }
 
@@ -161,7 +167,7 @@ export async function renameEntity(
  * delete it (remaining mentions/edges cascade). Duplicate edges collapse and
  * edges whose endpoints become identical are dropped.
  */
-async function mergeInto(fromId: string, intoId: string): Promise<void> {
+async function mergeInto(userId: string, fromId: string, intoId: string): Promise<void> {
   const mentions = await prisma.entityMention.findMany({ where: { entityId: fromId } });
   if (mentions.length) {
     await prisma.entityMention.createMany({
@@ -192,7 +198,7 @@ async function mergeInto(fromId: string, intoId: string): Promise<void> {
     });
     if (owners.length) {
       await prisma.entityEdgeOrigin.createMany({
-        data: owners.map((o) => ({ ...o, edgeId: merged.id })),
+        data: owners.map((o) => ({ ...o, userId, edgeId: merged.id })),
         skipDuplicates: true,
       });
     }
@@ -202,8 +208,8 @@ async function mergeInto(fromId: string, intoId: string): Promise<void> {
 }
 
 /** Remove an entity. Mentions and edges cascade; chunks and sources are untouched. */
-export async function deleteEntity(id: string): Promise<void> {
-  await prisma.entity.delete({ where: { id } }).catch(() => {});
+export async function deleteEntity(userId: string, id: string): Promise<void> {
+  await prisma.entity.deleteMany({ where: { id, userId } }).catch(() => {});
 }
 
 export type MergeSuggestion = {
@@ -239,9 +245,10 @@ const MAX_SUGGESTIONS = 20;
  * The higher-mention entity survives (ties: more edges, then longer name —
  * fuller names are usually canonical). Containment pairs sort first.
  */
-export async function suggestedMerges(): Promise<MergeSuggestion[]> {
+export async function suggestedMerges(userId: string): Promise<MergeSuggestion[]> {
   const [entities, edges, dismissals] = await Promise.all([
     prisma.entity.findMany({
+      where: { userId },
       select: {
         id: true,
         name: true,
@@ -249,8 +256,11 @@ export async function suggestedMerges(): Promise<MergeSuggestion[]> {
         _count: { select: { mentions: true, edgesOut: true, edgesIn: true } },
       },
     }),
-    prisma.entityEdge.findMany({ select: { fromId: true, toId: true } }),
-    prisma.mergeDismissal.findMany({ select: { keyA: true, keyB: true } }),
+    prisma.entityEdge.findMany({
+      where: { from: { userId } },
+      select: { fromId: true, toId: true },
+    }),
+    prisma.mergeDismissal.findMany({ where: { userId }, select: { keyA: true, keyB: true } }),
   ]);
   const dismissed = new Set(dismissals.map((d) => pairKey(d.keyA, d.keyB)));
 
@@ -342,10 +352,14 @@ function pairKey(a: string, b: string): string {
  * must survive entity rows being pruned and recreated on re-index. Fails soft
  * on stale ids; repeating a dismissal is a no-op.
  */
-export async function dismissMerge(fromId: string, intoId: string): Promise<boolean> {
+export async function dismissMerge(
+  userId: string,
+  fromId: string,
+  intoId: string,
+): Promise<boolean> {
   if (!fromId || !intoId || fromId === intoId) return false;
   const rows = await prisma.entity.findMany({
-    where: { id: { in: [fromId, intoId] } },
+    where: { id: { in: [fromId, intoId] }, userId },
     select: { key: true },
   });
   if (rows.length !== 2) return false;
@@ -353,9 +367,9 @@ export async function dismissMerge(fromId: string, intoId: string): Promise<bool
     ? [rows[0].key, rows[1].key]
     : [rows[1].key, rows[0].key];
   await prisma.mergeDismissal.upsert({
-    where: { keyA_keyB: { keyA, keyB } },
+    where: { userId_keyA_keyB: { userId, keyA, keyB } },
     update: {},
-    create: { keyA, keyB },
+    create: { userId, keyA, keyB },
   });
   return true;
 }
@@ -365,11 +379,17 @@ export async function dismissMerge(fromId: string, intoId: string): Promise<bool
  * same machinery renaming onto an existing name uses. Fails soft — a stale
  * form resubmit (either side already merged away) changes nothing.
  */
-export async function mergeEntities(fromId: string, intoId: string): Promise<boolean> {
+export async function mergeEntities(
+  userId: string,
+  fromId: string,
+  intoId: string,
+): Promise<boolean> {
   if (!fromId || !intoId || fromId === intoId) return false;
-  const endpoints = await prisma.entity.count({ where: { id: { in: [fromId, intoId] } } });
+  const endpoints = await prisma.entity.count({
+    where: { id: { in: [fromId, intoId] }, userId },
+  });
   if (endpoints !== 2) return false;
-  await mergeInto(fromId, intoId);
+  await mergeInto(userId, fromId, intoId);
   return true;
 }
 
@@ -377,11 +397,18 @@ export async function mergeEntities(fromId: string, intoId: string): Promise<boo
  * Assert a relation the extractor missed. Returns false for a self-loop or a
  * missing endpoint; repeating the same triple is a no-op.
  */
-export async function addEdge(fromId: string, toId: string, relation: string): Promise<boolean> {
+export async function addEdge(
+  userId: string,
+  fromId: string,
+  toId: string,
+  relation: string,
+): Promise<boolean> {
   const rel = relation.replace(/\s+/g, " ").trim().slice(0, 60);
   if (!rel || !fromId || !toId || fromId === toId) return false;
 
-  const endpoints = await prisma.entity.count({ where: { id: { in: [fromId, toId] } } });
+  const endpoints = await prisma.entity.count({
+    where: { id: { in: [fromId, toId] }, userId },
+  });
   if (endpoints !== 2) return false;
 
   await prisma.entityEdge.upsert({
@@ -392,8 +419,8 @@ export async function addEdge(fromId: string, toId: string, relation: string): P
   return true;
 }
 
-export async function deleteEdge(id: string): Promise<void> {
-  await prisma.entityEdge.delete({ where: { id } }).catch(() => {});
+export async function deleteEdge(userId: string, id: string): Promise<void> {
+  await prisma.entityEdge.deleteMany({ where: { id, from: { userId } } }).catch(() => {});
 }
 
 export type RetrievalPreview = {
@@ -421,18 +448,21 @@ export type RetrievalPreview = {
  * graph edits can be driven by observation instead of re-asking the chatbot
  * and guessing.
  */
-export async function retrievalPreview(query: string): Promise<RetrievalPreview> {
+export async function retrievalPreview(
+  userId: string,
+  query: string,
+): Promise<RetrievalPreview> {
   const q = query.trim();
   if (!q) return { chunks: [], relations: [], queryEntities: [], indexEmpty: false };
 
   const [chunkCount, entities] = await Promise.all([
-    prisma.chunk.count(),
-    prisma.entity.findMany({ select: { name: true, key: true } }),
+    prisma.chunk.count({ where: { userId } }),
+    prisma.entity.findMany({ where: { userId }, select: { name: true, key: true } }),
   ]);
   const ql = q.toLowerCase();
   const queryEntities = entities.filter((e) => ql.includes(e.key)).map((e) => e.name);
 
-  const r = await retrieve(q);
+  const r = await retrieve(userId, q);
   return {
     chunks: r.chunks.map((c) => ({
       ref: c.ref,

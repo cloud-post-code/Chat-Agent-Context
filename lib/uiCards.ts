@@ -74,12 +74,15 @@ export function parseSampleBlock(raw: string): UiBlock | null {
   }
 }
 
-export async function listUiCards(): Promise<UiCardRow[]> {
-  return prisma.uiCard.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] });
+export async function listUiCards(userId: string): Promise<UiCardRow[]> {
+  return prisma.uiCard.findMany({
+    where: { userId },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
 }
 
 /** Write one row from the admin form. A blank id creates. */
-export async function saveUiCard(input: {
+export async function saveUiCard(userId: string, input: {
   id?: string;
   key: string;
   label: string;
@@ -113,11 +116,17 @@ export async function saveUiCard(input: {
   // is taken gets a suffixed key instead: the builder names cards freely, and
   // silently overwriting whichever existing card happened to share the name
   // is how a "new" card vanishes from the list while the agent serves it.
-  const owner = await prisma.uiCard.findUnique({ where: { key } });
+  const owner = await prisma.uiCard.findUnique({
+    where: { userId_key: { userId, key } },
+  });
   if (owner && owner.id !== input.id) {
     for (let n = 2; ; n++) {
       const candidate = `${key}-${n}`;
-      if (!(await prisma.uiCard.findUnique({ where: { key: candidate } }))) {
+      if (
+        !(await prisma.uiCard.findUnique({
+          where: { userId_key: { userId, key: candidate } },
+        }))
+      ) {
         key = candidate;
         break;
       }
@@ -135,19 +144,26 @@ export async function saveUiCard(input: {
   };
 
   if (input.id) {
-    await prisma.uiCard.update({ where: { id: input.id }, data: { ...data, order: input.order ?? 0 } });
+    const updated = await prisma.uiCard.updateMany({
+      where: { id: input.id, userId },
+      data: { ...data, order: input.order ?? 0 },
+    });
+    if (updated.count === 0) return "That card no longer exists.";
   } else {
     // New cards go to the end of the list, where "just added" is findable.
-    const last = await prisma.uiCard.aggregate({ _max: { order: true } });
+    const last = await prisma.uiCard.aggregate({
+      where: { userId },
+      _max: { order: true },
+    });
     await prisma.uiCard.create({
-      data: { ...data, order: input.order ?? (last._max.order ?? -1) + 1 },
+      data: { ...data, userId, order: input.order ?? (last._max.order ?? -1) + 1 },
     });
   }
   return null;
 }
 
-export async function deleteUiCard(id: string) {
-  await prisma.uiCard.delete({ where: { id } });
+export async function deleteUiCard(userId: string, id: string) {
+  await prisma.uiCard.deleteMany({ where: { id, userId } });
 }
 
 export type CardGuidance = { tool: string; reason: string; key: string };
@@ -158,9 +174,10 @@ export type CardGuidance = { tool: string; reason: string; key: string };
  * chat before the dashboard has ever seeded it — and when the read fails,
  * because a DB hiccup must degrade to stock guidance, not a card-less bot.
  */
-export async function cardCatalog(): Promise<CardGuidance[]> {
+export async function cardCatalog(userId: string): Promise<CardGuidance[]> {
   try {
     const rows = await prisma.uiCard.findMany({
+      where: { userId },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
       select: { tool: true, reason: true, key: true },
     });
@@ -176,9 +193,11 @@ export async function cardCatalog(): Promise<CardGuidance[]> {
  * Only "custom" and coded "html" blocks are served: pointing show_card at a
  * built-in card would draw its SAMPLE content to a visitor as if it were real.
  */
-export async function customCardBlock(key: string): Promise<UiBlock | null> {
+export async function customCardBlock(userId: string, key: string): Promise<UiBlock | null> {
   if (!key.trim()) return null;
-  const row = await prisma.uiCard.findUnique({ where: { key: key.trim() } });
+  const row = await prisma.uiCard.findUnique({
+    where: { userId_key: { userId, key: key.trim() } },
+  });
   const block = row ? parseSampleBlock(row.sampleBlock) : null;
   return block && (block.type === "custom" || block.type === "html") ? block : null;
 }
@@ -188,10 +207,10 @@ export async function customCardBlock(key: string): Promise<UiBlock | null> {
  * currently draw. Never tops up a non-empty table: a missing row is a
  * deletion Blake made on purpose.
  */
-export async function seedStarterUiCards() {
-  if ((await prisma.uiCard.count()) > 0) return;
+export async function seedStarterUiCards(userId: string) {
+  if ((await prisma.uiCard.count({ where: { userId } })) > 0) return;
   await prisma.uiCard.createMany({
-    data: STARTER_CARDS.map((c, i) => ({ ...c, order: i })),
+    data: STARTER_CARDS.map((c, i) => ({ ...c, userId, order: i })),
     skipDuplicates: true,
   });
 }

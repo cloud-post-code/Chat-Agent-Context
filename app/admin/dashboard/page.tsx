@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
 import { safeJson } from "@/lib/util";
@@ -65,7 +65,8 @@ export default async function Dashboard({
   // Deep links (?tab=…) open the dashboard on a specific tab.
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!(await isAuthed())) redirect("/admin");
+  const user = await currentUser();
+  if (!user) redirect("/admin");
 
   const query = await searchParams;
   const one = (k: string) => (Array.isArray(query[k]) ? query[k][0] : query[k]);
@@ -91,45 +92,46 @@ export default async function Dashboard({
     addressBook,
     gmail,
   ] = await Promise.all([
-      getProfile(),
-      getPersonaConfig(),
-      getThemeConfig(),
-      prisma.project.findMany({ orderBy: { order: "asc" } }),
-      prisma.source.findMany({ orderBy: { createdAt: "desc" } }),
+      getProfile(user.id),
+      getPersonaConfig(user.id),
+      getThemeConfig(user.id),
+      prisma.project.findMany({ where: { userId: user.id }, orderBy: { order: "asc" } }),
+      prisma.source.findMany({ where: { userId: user.id }, orderBy: { createdAt: "desc" } }),
       // Custom ingestion sources own their `ingest:*`-marked photos; the
       // built-in Photos tab shows only its own.
       prisma.photo.findMany({
-        where: { NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId: user.id, NOT: { kind: { startsWith: "ingest:" } } },
         orderBy: { order: "asc" },
       }),
       prisma.chatSession.findMany({
+        where: { userId: user.id },
         orderBy: { updatedAt: "desc" },
         take: 100,
         include: { messages: { orderBy: { createdAt: "asc" } } },
       }),
-      graphStats(),
-      listEntities(),
-      listEdges(),
-      suggestedMerges(),
+      graphStats(user.id),
+      listEntities(user.id),
+      listEdges(user.id),
+      suggestedMerges(user.id),
       prisma.chunk.findMany({
-        where: { originKind: "cluster" },
+        where: { userId: user.id, originKind: "cluster" },
         orderBy: { originLabel: "asc" },
         select: { id: true, originLabel: true, text: true },
       }),
-      // Starters are seeded at server start (lib/bootstrap.ts via
-      // instrumentation.ts); the dashboard just reads. Any blank answer row
-      // still gets a first draft here — that calls the model, which belongs
-      // in an admin visit, not in boot. Best-effort: a provider outage must
-      // not take down the admin.
-      draftBlankAnswers()
+      // Starters are seeded at signup (lib/users.ts) and re-checked at boot;
+      // the dashboard just reads. Any blank answer row still gets a first
+      // draft here — that calls the model, which belongs in an admin visit,
+      // not in boot. Best-effort: a provider outage must not take down the
+      // admin.
+      draftBlankAnswers(user.id)
         .catch(() => 0)
-        .then(listCannedAnswers),
-      listUiCards(),
-      listIngestionSources(),
-      listDirectives("goal"),
-      listDirectives("rule"),
-      listAddressBook(),
-      gmailStatus(),
+        .then(() => listCannedAnswers(user.id)),
+      listUiCards(user.id),
+      listIngestionSources(user.id),
+      listDirectives(user.id, "goal"),
+      listDirectives(user.id, "rule"),
+      listAddressBook(user.id),
+      gmailStatus(user.id),
     ]);
   // ?tab= deep links resolve against the live source keys so custom tabs
   // deep-link too; every non-content key targets its own nav entry.
@@ -540,7 +542,7 @@ export default async function Dashboard({
   // Custom sources render the generic panel over their own marked rows.
   const customRows = ingestionSources.filter((s) => !s.builtin && !builtinPanels[s.key]);
   const customItems = await Promise.all(
-    customRows.map((s) => listIngestedItemsClassified(s.key)),
+    customRows.map((s) => listIngestedItemsClassified(user.id, s.key)),
   );
   const contentPanels: Record<string, React.ReactNode> = { ...builtinPanels };
   customRows.forEach((s, i) => {
@@ -715,7 +717,11 @@ export default async function Dashboard({
                       <ContactsPanel rows={addressBook} gmail={gmail} message={one("gmail")} />
                     ),
                   },
-                  { key: "a2ui", label: "A2UI", content: <A2uiPanel rows={uiCards} /> },
+                  {
+                    key: "a2ui",
+                    label: "A2UI",
+                    content: <A2uiPanel rows={uiCards} slug={user.slug} />,
+                  },
                 ]}
               />
             ),

@@ -179,16 +179,26 @@ const LIBRARY_LIMIT = 8;
  * embeddings: the corpus is small (tens of rows, not thousands), and the model
  * reads the descriptions itself to make the final call.
  */
-export async function findLibraryImages(query: string): Promise<LibraryImage[]> {
+export async function findLibraryImages(
+  userId: string,
+  query: string,
+): Promise<LibraryImage[]> {
   const terms = query.toLowerCase().split(/\s+/).filter((t) => t.length > 2);
   const [photos, projects, sources, profile] = await Promise.all([
     prisma.photo.findMany({
-      where: { NOT: { kind: { startsWith: "ingest:" } } },
+      where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
       orderBy: { order: "asc" },
     }),
-    prisma.project.findMany({ where: { NOT: { imageUrl: null } }, orderBy: { order: "asc" } }),
-    prisma.source.findMany({ where: { NOT: { imageUrl: null } }, orderBy: { createdAt: "desc" }, take: 40 }),
-    getPersonaConfig().catch(() => null),
+    prisma.project.findMany({
+      where: { userId, NOT: { imageUrl: null } },
+      orderBy: { order: "asc" },
+    }),
+    prisma.source.findMany({
+      where: { userId, NOT: { imageUrl: null } },
+      orderBy: { createdAt: "desc" },
+      take: 40,
+    }),
+    getPersonaConfig(userId).catch(() => null),
   ]);
 
   const all: LibraryImage[] = [

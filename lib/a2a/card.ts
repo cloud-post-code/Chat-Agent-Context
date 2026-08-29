@@ -34,11 +34,11 @@ function slug(name: string): string {
  * what this one is worth asking. So they're derived from what the site
  * actually holds: no projects, no project skill.
  */
-async function buildSkills(name: string): Promise<AgentSkill[]> {
+async function buildSkills(userId: string, name: string): Promise<AgentSkill[]> {
   const [projectCount, photoCount, sourceCount] = await Promise.all([
-    prisma.project.count(),
-    prisma.photo.count(),
-    prisma.source.count(),
+    prisma.project.count({ where: { userId } }),
+    prisma.photo.count({ where: { userId } }),
+    prisma.source.count({ where: { userId } }),
   ]);
   const who = name || "the site owner";
   const key = slug(name);
@@ -129,10 +129,13 @@ function securityBlock(): Pick<AgentCardV1, "securitySchemes" | "securityRequire
 }
 
 /** The current-spec (v1.0) card. This is what /.well-known/agent-card.json serves. */
-export async function agentCardV1(origin: string): Promise<AgentCardV1> {
-  const [profile, persona] = await Promise.all([getProfile(), getPersonaConfig()]);
+export async function agentCardV1(userId: string, origin: string): Promise<AgentCardV1> {
+  const [profile, persona] = await Promise.all([
+    getProfile(userId),
+    getPersonaConfig(userId),
+  ]);
   const name = profile.company_name || profile.owner_name || "Agent";
-  const skills = await buildSkills(name);
+  const skills = await buildSkills(userId, name);
 
   return {
     name: `${name} — personal agent`,
@@ -177,8 +180,8 @@ function absolute(origin: string, path: string): string {
  * `supportedInterfaces`, `security` instead of `securityRequirements`, and a
  * `type`-discriminated security scheme.
  */
-export async function agentCardV03(origin: string): Promise<Record<string, unknown>> {
-  const v1 = await agentCardV1(origin);
+export async function agentCardV03(userId: string, origin: string): Promise<Record<string, unknown>> {
+  const v1 = await agentCardV1(userId, origin);
   const legacySecurity = {
     securitySchemes: { bearer: { type: "http", scheme: "bearer" } },
     security: [{ bearer: [] }],

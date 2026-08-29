@@ -80,16 +80,19 @@ export function safePersonaSections(raw: string | null | undefined): PersonaSect
 }
 
 /** Persist the section map, keeping only catalogue keys and trimmed text. */
-export async function writePersonaSections(sections: PersonaSections): Promise<void> {
+export async function writePersonaSections(
+  userId: string,
+  sections: PersonaSections,
+): Promise<void> {
   const clean: PersonaSections = {};
   for (const s of PERSONA_SECTIONS) {
     const v = (sections[s.key] ?? "").trim();
     if (v) clean[s.key] = v;
   }
   await prisma.personaConfig.upsert({
-    where: { id: 1 },
+    where: { userId },
     update: { personaSections: JSON.stringify(clean) },
-    create: { id: 1, personaSections: JSON.stringify(clean) },
+    create: { userId, personaSections: JSON.stringify(clean) },
   });
 }
 

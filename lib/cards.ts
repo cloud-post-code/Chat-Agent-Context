@@ -76,13 +76,16 @@ function toProjectCard(p: {
   };
 }
 
-export async function allProjectsBlock(): Promise<UiBlock> {
-  const projects = await prisma.project.findMany({ orderBy: { order: "asc" } });
+export async function allProjectsBlock(userId: string): Promise<UiBlock> {
+  const projects = await prisma.project.findMany({
+    where: { userId },
+    orderBy: { order: "asc" },
+  });
   return { type: "projects", items: projects.map(toProjectCard) };
 }
 
-export async function singleProjectBlock(id: string): Promise<UiBlock> {
-  const p = await prisma.project.findUnique({ where: { id } });
+export async function singleProjectBlock(userId: string, id: string): Promise<UiBlock> {
+  const p = await prisma.project.findFirst({ where: { id, userId } });
   return { type: "project", item: p ? toProjectCard(p) : null };
 }
 
@@ -92,12 +95,13 @@ export async function contactBlock(): Promise<UiBlock> {
 }
 
 export async function galleryBlock(
+  userId: string,
   layout: "carousel" | "filmstrip",
 ): Promise<UiBlock> {
   // Custom ingestion sources mark their photos `ingest:*`; the public
-  // gallery shows only Blake's curated photo kinds.
+  // gallery shows only the owner's curated photo kinds.
   const photos = await prisma.photo.findMany({
-    where: { NOT: { kind: { startsWith: "ingest:" } } },
+    where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
     orderBy: { order: "asc" },
   });
   return {

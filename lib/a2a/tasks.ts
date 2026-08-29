@@ -61,12 +61,14 @@ export function newId(): string {
 
 export async function createTask(input: {
   id?: string;
+  userId: string;
   contextId: string;
   history: A2AMessage[];
 }): Promise<StoredTask> {
   const row = await prisma.a2ATask.create({
     data: {
       id: input.id ?? newId(),
+      userId: input.userId,
       contextId: input.contextId,
       state: "submitted",
       history: JSON.stringify(input.history),
@@ -76,12 +78,13 @@ export async function createTask(input: {
   return hydrate(row);
 }
 
-export async function getTask(id: string): Promise<StoredTask | null> {
-  const row = await prisma.a2ATask.findUnique({ where: { id } });
+export async function getTask(userId: string, id: string): Promise<StoredTask | null> {
+  const row = await prisma.a2ATask.findFirst({ where: { id, userId } });
   return row ? hydrate(row) : null;
 }
 
 export async function updateTask(
+  userId: string,
   id: string,
   patch: Partial<Pick<StoredTask, "state" | "history" | "artifacts" | "error">>,
 ): Promise<StoredTask | null> {
@@ -90,7 +93,11 @@ export async function updateTask(
   if (patch.error !== undefined) data.error = patch.error;
   if (patch.history !== undefined) data.history = JSON.stringify(patch.history);
   if (patch.artifacts !== undefined) data.artifacts = JSON.stringify(patch.artifacts);
-  const row = await prisma.a2ATask.update({ where: { id }, data }).catch(() => null);
+  const updated = await prisma.a2ATask
+    .updateMany({ where: { id, userId }, data })
+    .catch(() => null);
+  if (!updated || updated.count === 0) return null;
+  const row = await prisma.a2ATask.findFirst({ where: { id, userId } });
   return row ? hydrate(row) : null;
 }
 
@@ -99,8 +106,11 @@ export async function updateTask(
  * null on success — the caller maps that onto TaskNotCancelableError. A task
  * already in a terminal state is not cancelable (§9.4.5).
  */
-export async function requestCancel(id: string): Promise<StoredTask | "missing" | "terminal"> {
-  const task = await getTask(id);
+export async function requestCancel(
+  userId: string,
+  id: string,
+): Promise<StoredTask | "missing" | "terminal"> {
+  const task = await getTask(userId, id);
   if (!task) return "missing";
   if (isTerminal(task.state)) return "terminal";
   const row = await prisma.a2ATask.update({
@@ -110,18 +120,23 @@ export async function requestCancel(id: string): Promise<StoredTask | "missing" 
   return hydrate(row);
 }
 
-export async function isCancelRequested(id: string): Promise<boolean> {
-  const row = await prisma.a2ATask.findUnique({ where: { id }, select: { cancelRequested: true } });
+export async function isCancelRequested(userId: string, id: string): Promise<boolean> {
+  const row = await prisma.a2ATask.findFirst({
+    where: { id, userId },
+    select: { cancelRequested: true },
+  });
   return row?.cancelRequested ?? false;
 }
 
 export async function listTasks(opts: {
+  userId: string;
   contextId?: string;
   state?: TaskStateName;
   pageSize: number;
   skip: number;
 }): Promise<{ tasks: StoredTask[]; total: number }> {
   const where = {
+    userId: opts.userId,
     ...(opts.contextId ? { contextId: opts.contextId } : {}),
     ...(opts.state ? { state: opts.state } : {}),
   };
@@ -142,9 +157,13 @@ export async function listTasks(opts: {
  * agent-to-agent conversation memory: a caller that reuses a contextId gets
  * the earlier exchange fed back into the chatbot as history.
  */
-export async function contextHistory(contextId: string, limit = 20): Promise<A2AMessage[]> {
+export async function contextHistory(
+  userId: string,
+  contextId: string,
+  limit = 20,
+): Promise<A2AMessage[]> {
   const rows = await prisma.a2ATask.findMany({
-    where: { contextId },
+    where: { userId, contextId },
     orderBy: { createdAt: "desc" },
     take: 10,
     select: { history: true },

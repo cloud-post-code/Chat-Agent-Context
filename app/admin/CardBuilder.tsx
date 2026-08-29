@@ -23,11 +23,14 @@ export function CardBuilder({
   id,
   cardKey,
   initial,
+  slug = "",
 }: {
   /** Set when editing an existing card; absent on /admin/cards/new. */
   id?: string;
   cardKey?: string;
   initial?: CardDraft;
+  /** The owner's agent slug, so live preview cards (contact form) post home. */
+  slug?: string;
 }) {
   const router = useRouter();
   const [instructions, setInstructions] = useState("");
@@ -274,7 +277,7 @@ export function CardBuilder({
                 : "Preview (sample content — the live card uses your real data)"}
             </Label>
             {block ? (
-              <Cards block={block} />
+              <Cards block={block} slug={slug} />
             ) : (
               <p style={{ fontSize: 13, fontStyle: "italic", color: "var(--danger-on-surface)" }}>
                 This draft&apos;s sample can&apos;t be rendered — ask for a revision below.

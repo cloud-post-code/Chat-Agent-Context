@@ -1,7 +1,6 @@
 import { prisma } from "../db";
 import type { SentMessage } from "./contacts";
 import type { SentMailReader } from "./sync";
-import { GMAIL_AUTH_ID } from "./sync";
 
 /**
  * The Gmail transport: OAuth token handling and the sent-mail read.
@@ -103,7 +102,11 @@ async function postToken(body: Record<string, string>): Promise<TokenResponse> {
  * flow: re-consent after a revoked or expired grant is a button click instead
  * of a redeploy.
  */
-export async function exchangeAndStore(code: string, origin: string): Promise<string | null> {
+export async function exchangeAndStore(
+  userId: string,
+  code: string,
+  origin: string,
+): Promise<string | null> {
   const token = await postToken({
     code,
     client_id: gmailClientId(),
@@ -133,10 +136,10 @@ export async function exchangeAndStore(code: string, origin: string): Promise<st
     scope: token.scope ?? GMAIL_SCOPE,
   };
   await prisma.gmailAuth.upsert({
-    where: { id: GMAIL_AUTH_ID },
+    where: { userId },
     // A fresh grant is a fresh mailbox: reset the cursor so the next sync
     // reads everything rather than trusting a cursor from a previous account.
-    create: { id: GMAIL_AUTH_ID, ...data },
+    create: { userId, ...data },
     update: { ...data, lastSyncedAt: null },
   });
   return null;
@@ -164,8 +167,8 @@ async function fetchProfileAddress(token: string): Promise<string> {
   return json.emailAddress ?? "";
 }
 
-export async function disconnectGmail(): Promise<void> {
-  await prisma.gmailAuth.deleteMany({ where: { id: GMAIL_AUTH_ID } });
+export async function disconnectGmail(userId: string): Promise<void> {
+  await prisma.gmailAuth.deleteMany({ where: { userId } });
 }
 
 export type GmailStatus = {
@@ -176,8 +179,8 @@ export type GmailStatus = {
   scope: string;
 };
 
-export async function gmailStatus(): Promise<GmailStatus> {
-  const auth = await prisma.gmailAuth.findUnique({ where: { id: GMAIL_AUTH_ID } });
+export async function gmailStatus(userId: string): Promise<GmailStatus> {
+  const auth = await prisma.gmailAuth.findUnique({ where: { userId } });
   return {
     connected: !!auth,
     configured: gmailConfigured(),
@@ -369,10 +372,11 @@ export function decodeEncodedWords(input: string): string {
   );
 }
 
-/** The live reader. Swapping this out is how a different transport plugs in. */
-export const gmailReader: SentMailReader = {
+/** The live reader for one user's grant. Swapping this out is how a different
+ * transport plugs in. */
+export const gmailReader = (userId: string): SentMailReader => ({
   async listSentMessages({ since }) {
-    const auth = await prisma.gmailAuth.findUnique({ where: { id: GMAIL_AUTH_ID } });
+    const auth = await prisma.gmailAuth.findUnique({ where: { userId } });
     if (!auth) throw new Error("Gmail is not connected.");
     const token = await accessToken(auth.refreshToken);
 
@@ -386,7 +390,7 @@ export const gmailReader: SentMailReader = {
     }
     return out;
   },
-};
+});
 
 async function listSentIds(token: string, since: Date | null): Promise<string[]> {
   const ids: string[] = [];

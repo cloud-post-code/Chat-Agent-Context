@@ -1,4 +1,5 @@
 import { agentCardV1, siteOrigin } from "@/lib/a2a/card";
+import { foundingUser } from "@/lib/users";
 
 /**
  * The Agent Card, at the path A2A reserves for it.
@@ -14,7 +15,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const card = await agentCardV1(siteOrigin(req.headers));
+  // The legacy discovery surface describes the founding user's agent.
+  const founder = await foundingUser();
+  if (!founder) return new Response("No agent is set up yet.", { status: 404 });
+  const card = await agentCardV1(founder.id, siteOrigin(req.headers));
   const body = JSON.stringify(card, null, 2);
 
   return new Response(body, {

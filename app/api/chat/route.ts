@@ -1,3 +1,4 @@
+import { prisma } from "@/lib/db";
 import { answer, type Msg } from "@/lib/brain";
 
 export const runtime = "nodejs";
@@ -9,15 +10,23 @@ export const runtime = "nodejs";
  *   {"t":"text","v":"..."}      incremental assistant text
  *   {"t":"card","v":{...}}      a hydrated UI block to render
  * The frontend splits on newlines and interprets each.
+ *
+ * `slug` names whose agent is being asked — every tenant's public page chats
+ * through this one route, and the brain answers only from that tenant's data.
  */
 
 export async function POST(req: Request) {
-  let body: { messages?: Msg[]; sessionId?: string };
+  let body: { messages?: Msg[]; sessionId?: string; slug?: string };
   try {
     body = await req.json();
   } catch {
     return new Response("Bad request", { status: 400 });
   }
+
+  const slug = typeof body.slug === "string" ? body.slug.trim() : "";
+  if (!slug) return new Response("Missing agent slug", { status: 400 });
+  const user = await prisma.user.findUnique({ where: { slug } });
+  if (!user) return new Response("No such agent", { status: 404 });
 
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
   const incoming = (body.messages ?? [])
@@ -36,6 +45,7 @@ export async function POST(req: Request) {
   const stream = new ReadableStream({
     async start(controller) {
       for await (const event of answer({
+        userId: user.id,
         message: lastUser.content,
         history,
         sessionId,

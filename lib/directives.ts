@@ -27,9 +27,12 @@ export type DirectiveRow = {
   createdAt: Date;
 };
 
-export async function listDirectives(kind: DirectiveKind): Promise<DirectiveRow[]> {
+export async function listDirectives(
+  userId: string,
+  kind: DirectiveKind,
+): Promise<DirectiveRow[]> {
   return prisma.agentDirective.findMany({
-    where: { kind },
+    where: { userId, kind },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 }
@@ -39,7 +42,7 @@ export async function listDirectives(kind: DirectiveKind): Promise<DirectiveRow[
  * no-op either way — an empty directive must never reach the prompt, and
  * deleting is its own button rather than a side effect of clearing a box.
  */
-export async function saveDirective(input: {
+export async function saveDirective(userId: string, input: {
   id?: string;
   kind: DirectiveKind;
   text: string;
@@ -50,14 +53,14 @@ export async function saveDirective(input: {
   if (!text) return;
   const data = { kind: input.kind, text, enabled: input.enabled, order: input.order ?? 0 };
   if (input.id) {
-    await prisma.agentDirective.update({ where: { id: input.id }, data });
+    await prisma.agentDirective.updateMany({ where: { id: input.id, userId }, data });
   } else {
-    await prisma.agentDirective.create({ data });
+    await prisma.agentDirective.create({ data: { ...data, userId } });
   }
 }
 
-export async function deleteDirective(id: string): Promise<void> {
-  await prisma.agentDirective.delete({ where: { id } });
+export async function deleteDirective(userId: string, id: string): Promise<void> {
+  await prisma.agentDirective.deleteMany({ where: { id, userId } });
 }
 
 /** The enabled, non-blank rows of a kind — what the prompt is built from. */

@@ -11,23 +11,23 @@ export const prisma =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-/** Load the singleton Profile row (business identity), creating a default if missing. */
-export async function getProfile() {
-  const existing = await prisma.profile.findUnique({ where: { id: 1 } });
+/** Load one user's Profile row (business identity), creating a default if missing. */
+export async function getProfile(userId: string) {
+  const existing = await prisma.profile.findUnique({ where: { userId } });
   if (existing) return existing;
-  return prisma.profile.create({ data: { id: 1 } });
+  return prisma.profile.create({ data: { userId } });
 }
 
-/** Load the singleton PersonaConfig row (brand voice), creating a default if missing. */
-export async function getPersonaConfig() {
-  const existing = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+/** Load one user's PersonaConfig row (brand voice), creating a default if missing. */
+export async function getPersonaConfig(userId: string) {
+  const existing = await prisma.personaConfig.findUnique({ where: { userId } });
   if (existing) return existing;
-  return prisma.personaConfig.create({ data: { id: 1 } });
+  return prisma.personaConfig.create({ data: { userId } });
 }
 
-/** Load the singleton ThemeConfig row (site look), creating a default if missing. */
-export async function getThemeConfig() {
-  const existing = await prisma.themeConfig.findUnique({ where: { id: 1 } });
+/** Load one user's ThemeConfig row (site look), creating a default if missing. */
+export async function getThemeConfig(userId: string) {
+  const existing = await prisma.themeConfig.findUnique({ where: { userId } });
   if (existing) return existing;
-  return prisma.themeConfig.create({ data: { id: 1 } });
+  return prisma.themeConfig.create({ data: { userId } });
 }

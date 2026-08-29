@@ -94,11 +94,11 @@ function sourceRows(rows: Array<{ id: string; title: string | null; url: string 
  * Lives here, not in lib/ingestionSources.ts — that module is imported by
  * client components, and this one pulls in the retrieval stack (Node-only).
  */
-export async function deleteIngestionSourceAndData(id: string): Promise<void> {
-  const row = await prisma.ingestionSource.findUnique({ where: { id } });
+export async function deleteIngestionSourceAndData(userId: string, id: string): Promise<void> {
+  const row = await prisma.ingestionSource.findFirst({ where: { id, userId } });
   if (!row) return;
-  await deleteIngestedData(row.key);
-  await prisma.ingestionSource.delete({ where: { id } }).catch(() => {});
+  await deleteIngestedData(userId, row.key);
+  await prisma.ingestionSource.deleteMany({ where: { id, userId } }).catch(() => {});
 }
 
 /**
@@ -112,14 +112,14 @@ export async function deleteIngestionSourceAndData(id: string): Promise<void> {
  * `deletePhoto` keeps files too; rows and index entries are what retrieval
  * and the admin read.
  */
-export async function deleteIngestedData(sourceKey: string): Promise<void> {
+export async function deleteIngestedData(userId: string, sourceKey: string): Promise<void> {
   // Per-item classification overrides describe rows that are about to stop
   // existing; cleared up front so every branch's early return still leaves
   // none behind to be inherited by a later item reusing an id.
-  await clearSourceClassifications(sourceKey);
+  await clearSourceClassifications(userId, sourceKey);
   const drop = async (kind: string, id: string) => {
     try {
-      await dropOrigin(kind, id);
+      await dropOrigin(userId, kind, id);
     } catch (e) {
       console.error(`drop ${kind} ${id} failed:`, e);
     }
@@ -134,21 +134,27 @@ export async function deleteIngestedData(sourceKey: string): Promise<void> {
 
   switch (sourceKey) {
     case "persona": {
-      await prisma.personaConfig.updateMany({ where: { id: 1 }, data: { personaSections: "{}" } });
+      await prisma.personaConfig.updateMany({
+        where: { userId },
+        data: { personaSections: "{}" },
+      });
       // The persona sweep drops every origin the (now empty) persona no
       // longer asserts.
-      await reindex("persona", () => indexPersona());
+      await reindex("persona", () => indexPersona(userId));
       return;
     }
     case "projects": {
-      const projects = await prisma.project.findMany({ select: { id: true } });
-      await prisma.project.deleteMany({});
+      const projects = await prisma.project.findMany({
+        where: { userId },
+        select: { id: true },
+      });
+      await prisma.project.deleteMany({ where: { userId } });
       for (const p of projects) await drop("project", p.id);
       return;
     }
     case "photos": {
       const photos = await prisma.photo.findMany({
-        where: { NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
         select: { id: true },
       });
       await prisma.photo.deleteMany({
@@ -166,7 +172,7 @@ export async function deleteIngestedData(sourceKey: string): Promise<void> {
           : sourceKey === "text"
             ? { type: "text" }
             : { type: { in: ["pdf", "doc"] } };
-      const where = { ...typeFilter, NOT: { kind: { startsWith: "ingest:" } } };
+      const where = { userId, ...typeFilter, NOT: { kind: { startsWith: "ingest:" } } };
       const rows = await prisma.source.findMany({ where, select: { id: true } });
       // Chunks cascade with the Source rows; dropOrigin retracts graph claims.
       await prisma.source.deleteMany({ where: { id: { in: rows.map((r) => r.id) } } });
@@ -177,11 +183,11 @@ export async function deleteIngestedData(sourceKey: string): Promise<void> {
       // Custom sources own exactly the rows they marked.
       const mark = ingestMark(sourceKey);
       const [texts, photos] = await Promise.all([
-        prisma.source.findMany({ where: { kind: mark }, select: { id: true } }),
-        prisma.photo.findMany({ where: { kind: mark }, select: { id: true } }),
+        prisma.source.findMany({ where: { userId, kind: mark }, select: { id: true } }),
+        prisma.photo.findMany({ where: { userId, kind: mark }, select: { id: true } }),
       ]);
-      await prisma.source.deleteMany({ where: { kind: mark } });
-      await prisma.photo.deleteMany({ where: { kind: mark } });
+      await prisma.source.deleteMany({ where: { userId, kind: mark } });
+      await prisma.photo.deleteMany({ where: { userId, kind: mark } });
       for (const t of texts) await drop("source", t.id);
       for (const p of photos) await drop("photo", p.id);
       return;
@@ -195,10 +201,12 @@ export async function deleteIngestedData(sourceKey: string): Promise<void> {
  * the source's default.
  */
 export async function listIngestedItemsClassified(
+  userId: string,
   sourceKey: string,
 ): Promise<ClassifiedItem[]> {
-  const items = await listIngestedItems(sourceKey);
+  const items = await listIngestedItems(userId, sourceKey);
   const resolved = await resolveClassifications(
+    userId,
     sourceKey,
     items.map((i) => i.id),
   );
@@ -213,10 +221,16 @@ export async function listIngestedItemsClassified(
 }
 
 /** Everything a source has ingested, as uniform text/image items. */
-export async function listIngestedItems(sourceKey: string): Promise<IngestedItem[]> {
+export async function listIngestedItems(
+  userId: string,
+  sourceKey: string,
+): Promise<IngestedItem[]> {
   switch (sourceKey) {
     case "projects": {
-      const projects = await prisma.project.findMany({ orderBy: { order: "asc" } });
+      const projects = await prisma.project.findMany({
+        where: { userId },
+        orderBy: { order: "asc" },
+      });
       return projects.flatMap((p) => {
         const items = [
           textItem(sourceKey, `project:${p.id}`, p.name, p.blurb || p.detail || "", p.createdAt),
@@ -231,28 +245,28 @@ export async function listIngestedItems(sourceKey: string): Promise<IngestedItem
     }
     case "links": {
       const rows = await prisma.source.findMany({
-        where: { type: "link", NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId, type: "link", NOT: { kind: { startsWith: "ingest:" } } },
         orderBy: { createdAt: "desc" },
       });
       return sourceRows(rows, sourceKey);
     }
     case "pdfs": {
       const rows = await prisma.source.findMany({
-        where: { type: { in: ["pdf", "doc"] }, NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId, type: { in: ["pdf", "doc"] }, NOT: { kind: { startsWith: "ingest:" } } },
         orderBy: { createdAt: "desc" },
       });
       return sourceRows(rows, sourceKey);
     }
     case "text": {
       const rows = await prisma.source.findMany({
-        where: { type: "text", NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId, type: "text", NOT: { kind: { startsWith: "ingest:" } } },
         orderBy: { createdAt: "desc" },
       });
       return sourceRows(rows, sourceKey);
     }
     case "photos": {
       const rows = await prisma.photo.findMany({
-        where: { NOT: { kind: { startsWith: "ingest:" } } },
+        where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
         orderBy: { order: "asc" },
       });
       return rows.map((p) =>
@@ -267,7 +281,7 @@ export async function listIngestedItems(sourceKey: string): Promise<IngestedItem
       );
     }
     case "persona": {
-      const persona = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+      const persona = await prisma.personaConfig.findUnique({ where: { userId } });
       const when = persona?.updatedAt ?? new Date(0);
       return Object.entries(parseSections(persona?.personaSections))
         .filter(([, text]) => typeof text === "string" && text.trim())
@@ -277,8 +291,14 @@ export async function listIngestedItems(sourceKey: string): Promise<IngestedItem
       // Custom sources own exactly the rows they marked.
       const mark = ingestMark(sourceKey);
       const [texts, photos] = await Promise.all([
-        prisma.source.findMany({ where: { kind: mark }, orderBy: { createdAt: "desc" } }),
-        prisma.photo.findMany({ where: { kind: mark }, orderBy: { createdAt: "desc" } }),
+        prisma.source.findMany({
+          where: { userId, kind: mark },
+          orderBy: { createdAt: "desc" },
+        }),
+        prisma.photo.findMany({
+          where: { userId, kind: mark },
+          orderBy: { createdAt: "desc" },
+        }),
       ]);
       return [
         ...sourceRows(texts, sourceKey),

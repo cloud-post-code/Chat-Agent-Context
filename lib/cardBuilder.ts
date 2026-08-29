@@ -151,13 +151,13 @@ Respond with ONLY a JSON object (no prose, no code fences):
  * generic where the data is silent. Best-effort: a DB hiccup degrades to
  * drafting without data, not a dead builder.
  */
-async function siteDataBrief(): Promise<string> {
+async function siteDataBrief(userId: string): Promise<string> {
   try {
     const [profile, persona, projects, photoCount] = await Promise.all([
-      getProfile(),
-      getPersonaConfig(),
-      prisma.project.findMany({ orderBy: { order: "asc" } }),
-      prisma.photo.count(),
+      getProfile(userId),
+      getPersonaConfig(userId),
+      prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
+      prisma.photo.count({ where: { userId } }),
     ]);
     const lines: string[] = ["REAL SITE DATA (build card content from this — do not invent facts):"];
     const who = profile.company_name || profile.owner_name;
@@ -315,6 +315,7 @@ const SEARCH_TOOL = {
  * dead-end a card the model could still draft from the summary brief.
  */
 async function runSearch(
+  userId: string,
   input: unknown,
   search: typeof defaultRetrieve,
 ): Promise<{ text: string; query: string; hits: number }> {
@@ -323,7 +324,7 @@ async function runSearch(
     return { text: "No query given — call the tool with a `query` string.", query, hits: 0 };
   }
   try {
-    const result = await search(query);
+    const result = await search(userId, query);
     if (!result.chunks.length) {
       return {
         query,
@@ -387,11 +388,15 @@ async function describeAttachments(attachments: PromptImage[]): Promise<string> 
  * Look up images the owner already has. Never throws: a lookup failure means
  * the model generates or goes without artwork, not that the card dies.
  */
-async function runFindImage(input: unknown, emit: (e: BuildEvent) => void): Promise<string> {
+async function runFindImage(
+  userId: string,
+  input: unknown,
+  emit: (e: BuildEvent) => void,
+): Promise<string> {
   const query = String((input as { query?: unknown })?.query ?? "").trim();
   emit({ t: "status", v: `Looking for an image of "${query}"…` });
   try {
-    const found = await findLibraryImages(query);
+    const found = await findLibraryImages(userId, query);
     if (!found.length) {
       return "The owner has no images stored yet. Either generate one, or design the card "
         + "without artwork.";
@@ -436,6 +441,7 @@ async function runGenerateImage(input: unknown, emit: (e: BuildEvent) => void): 
  * turns, so feedback like "make it three photos" edits rather than restarts.
  */
 export async function draftUiCard(
+  userId: string,
   input: {
     instructions: string;
     current?: CardDraft;
@@ -464,7 +470,7 @@ export async function draftUiCard(
   const client = deps.client ?? claude();
   const search = deps.retrieve ?? defaultRetrieve;
   const emit = deps.onEvent ?? (() => {});
-  const system = `${BUILDER_BRIEF}\n\n${await siteDataBrief()}`;
+  const system = `${BUILDER_BRIEF}\n\n${await siteDataBrief(userId)}`;
 
   // Two nested behaviors share one conversation:
   //  - Research: the model may call search_knowledge to pull real facts out of
@@ -504,7 +510,7 @@ export async function draftUiCard(
           results.push({
             type: "tool_result",
             tool_use_id: tu.id,
-            content: await runFindImage(tu.input, emit),
+            content: await runFindImage(userId, tu.input, emit),
           });
           continue;
         }
@@ -539,7 +545,7 @@ export async function draftUiCard(
         searches++;
         const q = String((tu.input as { query?: unknown })?.query ?? "").trim();
         emit({ t: "search", query: q });
-        const r = await runSearch(tu.input, search);
+        const r = await runSearch(userId, tu.input, search);
         emit({ t: "searched", query: r.query, hits: r.hits });
         results.push({ type: "tool_result", tool_use_id: tu.id, content: r.text });
       }

@@ -43,14 +43,12 @@ export type SyncResult = {
 /** Contacts written per pass. Each costs one model call, so the pass is bounded. */
 export const MAX_CONTACTS_PER_SYNC = 200;
 
-export const GMAIL_AUTH_ID = "singleton";
-
 export async function syncSentContacts(opts: {
-  authId?: string;
+  userId: string;
   reader: SentMailReader;
   extractNote?: ContactNoteExtractor;
 }): Promise<SyncResult> {
-  const authId = opts.authId ?? GMAIL_AUTH_ID;
+  const { userId } = opts;
   const extractNote = opts.extractNote ?? extractContactNote;
   const empty: SyncResult = {
     ok: false,
@@ -61,7 +59,7 @@ export async function syncSentContacts(opts: {
     notesFailed: 0,
   };
 
-  const auth = await prisma.gmailAuth.findUnique({ where: { id: authId } });
+  const auth = await prisma.gmailAuth.findUnique({ where: { userId } });
   if (!auth) return { ...empty, error: "Gmail is not connected." };
 
   let messages: SentMessage[];
@@ -92,7 +90,7 @@ export async function syncSentContacts(opts: {
       notesFailed++;
     }
     const block = formatNoteBlock(note, now);
-    const wasNew = await upsertContact(draft, block);
+    const wasNew = await upsertContact(userId, draft, block);
     if (wasNew) created++;
     else updated++;
   }
@@ -105,7 +103,7 @@ export async function syncSentContacts(opts: {
     const cursor = new Date(newest);
     if (!auth.lastSyncedAt || cursor > auth.lastSyncedAt) {
       await prisma.gmailAuth.update({
-        where: { id: authId },
+        where: { userId },
         data: { lastSyncedAt: cursor },
       });
     }
@@ -135,14 +133,19 @@ export async function syncSentContacts(opts: {
  * a sync appends to it and never replaces it; `trust` is left entirely alone,
  * because mail volume does not tell you how much someone is trusted.
  */
-async function upsertContact(draft: ContactDraft, noteBlock: string): Promise<boolean> {
+async function upsertContact(
+  userId: string,
+  draft: ContactDraft,
+  noteBlock: string,
+): Promise<boolean> {
   const existing = await prisma.addressBookEntry.findUnique({
-    where: { canonicalEmail: draft.canonicalEmail },
+    where: { userId_canonicalEmail: { userId, canonicalEmail: draft.canonicalEmail } },
   });
 
   if (!existing) {
     await prisma.addressBookEntry.create({
       data: {
+        userId,
         name: draft.name,
         details: noteBlock,
         email: draft.email,
@@ -170,7 +173,7 @@ async function upsertContact(draft: ContactDraft, noteBlock: string): Promise<bo
   await prisma.addressBookEntry.update({
     where: { id: existing.id },
     data: {
-      // A name Blake typed outranks one scraped from a header.
+      // A name the owner typed outranks one scraped from a header.
       name: existing.name.trim() || draft.name,
       details: appendNote(existing.details, noteBlock),
       email: existing.email.trim() || draft.email,

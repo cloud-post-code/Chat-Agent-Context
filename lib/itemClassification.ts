@@ -34,9 +34,10 @@ export type ResolvedClassification = {
 
 /** A source's default, falling back to "public" for an unknown/missing row. */
 export async function sourceDefaultClassification(
+  userId: string,
   sourceKey: string,
 ): Promise<Classification> {
-  const source = await getIngestionSource(sourceKey);
+  const source = await getIngestionSource(userId, sourceKey);
   return asClassification(source?.classification) ?? "public";
 }
 
@@ -45,17 +46,18 @@ export async function sourceDefaultClassification(
  * regardless of item count, so a long Content list doesn't fan out.
  */
 export async function resolveClassifications(
+  userId: string,
   sourceKey: string,
   itemIds: string[],
 ): Promise<Map<string, ResolvedClassification>> {
-  const fallback = await sourceDefaultClassification(sourceKey);
+  const fallback = await sourceDefaultClassification(userId, sourceKey);
   const out = new Map<string, ResolvedClassification>(
     itemIds.map((id) => [id, { classification: fallback, overridden: false }]),
   );
   if (itemIds.length === 0) return out;
 
   const rows = await prisma.itemClassification
-    .findMany({ where: { itemId: { in: itemIds } } })
+    .findMany({ where: { userId, itemId: { in: itemIds } } })
     .catch(() => []);
   for (const row of rows) {
     const value = asClassification(row.classification);
@@ -69,10 +71,11 @@ export async function resolveClassifications(
 
 /** Resolve one item's classification. */
 export async function resolveClassification(
+  userId: string,
   sourceKey: string,
   itemId: string,
 ): Promise<ResolvedClassification> {
-  const map = await resolveClassifications(sourceKey, [itemId]);
+  const map = await resolveClassifications(userId, sourceKey, [itemId]);
   return map.get(itemId) ?? { classification: "public", overridden: false };
 }
 
@@ -83,22 +86,23 @@ export async function resolveClassification(
  * resume following that default when it later changes.
  */
 export async function setItemClassification(
+  userId: string,
   sourceKey: string,
   itemId: string,
   classification: string | null | undefined,
 ): Promise<void> {
   if (!itemId) return;
   const value = asClassification(classification);
-  const fallback = await sourceDefaultClassification(sourceKey);
+  const fallback = await sourceDefaultClassification(userId, sourceKey);
   if (!value || value === fallback) {
-    await clearItemClassifications([itemId]);
+    await clearItemClassifications(userId, [itemId]);
     return;
   }
   await prisma.itemClassification
     .upsert({
-      where: { itemId },
+      where: { userId_itemId: { userId, itemId } },
       update: { sourceKey, classification: value },
-      create: { itemId, sourceKey, classification: value },
+      create: { userId, itemId, sourceKey, classification: value },
     })
     .catch((e) => {
       console.error(`setItemClassification(${itemId}) failed:`, e);
@@ -111,24 +115,33 @@ export async function setItemClassification(
  * made for the document.
  */
 export async function setItemClassifications(
+  userId: string,
   sourceKey: string,
   itemIds: string[],
   classification: string | null | undefined,
 ): Promise<void> {
   for (const id of itemIds) {
-    await setItemClassification(sourceKey, id, classification);
+    await setItemClassification(userId, sourceKey, id, classification);
   }
 }
 
 /** Drop override rows for deleted items, so ids can't be reused stale. */
-export async function clearItemClassifications(itemIds: string[]): Promise<void> {
+export async function clearItemClassifications(
+  userId: string,
+  itemIds: string[],
+): Promise<void> {
   if (itemIds.length === 0) return;
   await prisma.itemClassification
-    .deleteMany({ where: { itemId: { in: itemIds } } })
+    .deleteMany({ where: { userId, itemId: { in: itemIds } } })
     .catch(() => {});
 }
 
 /** Drop every override a source owns — used when its data is purged. */
-export async function clearSourceClassifications(sourceKey: string): Promise<void> {
-  await prisma.itemClassification.deleteMany({ where: { sourceKey } }).catch(() => {});
+export async function clearSourceClassifications(
+  userId: string,
+  sourceKey: string,
+): Promise<void> {
+  await prisma.itemClassification
+    .deleteMany({ where: { userId, sourceKey } })
+    .catch(() => {});
 }

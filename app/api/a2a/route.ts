@@ -12,6 +12,7 @@ import {
   versionNotSupported,
 } from "@/lib/a2a/transport";
 import { A2A_ERRORS } from "@/lib/a2a/types";
+import { foundingUser } from "@/lib/users";
 
 /**
  * The A2A JSON-RPC endpoint — the address in the Agent Card, and the thing
@@ -58,6 +59,10 @@ export async function POST(req: Request) {
   const version = negotiateVersion(req.headers, method);
   if (version === "unsupported") return versionNotSupported(id);
 
+  // The legacy A2A surface answers as the founding user's agent.
+  const founder = await foundingUser();
+  if (!founder) return httpError(503, "No agent is set up yet.");
+
   // A 0.3 caller naming a 1.0 method (or the reverse) is answered rather than
   // rejected — the two namespaces don't collide, so the intent is unambiguous.
   if (!canonicalMethod(method)) {
@@ -65,7 +70,7 @@ export async function POST(req: Request) {
   }
 
   const params = (body.params ?? {}) as Record<string, unknown>;
-  const outcome = await dispatch(method, params, { version }).catch((e: unknown) => ({
+  const outcome = await dispatch(method, params, { version, userId: founder.id }).catch((e: unknown) => ({
     type: "error" as const,
     code: A2A_ERRORS.internal.code,
     message: e instanceof Error ? e.message : A2A_ERRORS.internal.message,
@@ -92,6 +97,8 @@ export async function POST(req: Request) {
  * self-describing at the address the card itself advertises.
  */
 export async function GET(req: Request) {
-  const card = await agentCardV1(siteOrigin(req.headers));
+  const founder = await foundingUser();
+  if (!founder) return httpError(404, "No agent is set up yet.");
+  const card = await agentCardV1(founder.id, siteOrigin(req.headers));
   return Response.json(card, { headers: versionHeaders("1.0") });
 }

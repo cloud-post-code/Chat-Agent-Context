@@ -39,6 +39,8 @@ export type Channel = "web" | "a2a" | (string & {});
 const CARD_CHANNELS: ReadonlySet<string> = new Set(["web", "a2a"]);
 
 export type BrainInput = {
+  /// Which user's agent is answering — scopes knowledge, cards, and logging.
+  userId: string;
   message: string;
   history?: Msg[];
   sessionId: string;
@@ -66,7 +68,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_projects",
     description:
-      "Render cards for ALL of Blake's projects. Use when the visitor asks about his projects in general.",
+      "Render cards for ALL of the owner's projects. Use when the visitor asks about their projects in general.",
     input_schema: { type: "object", properties: {} },
   },
   {
@@ -82,7 +84,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_gallery",
     description:
-      "Render Blake's photos as a gallery. layout 'carousel' is a slideshow; 'filmstrip' is a browsable thumbnail strip with a lightbox.",
+      "Render the owner's photos as a gallery. layout 'carousel' is a slideshow; 'filmstrip' is a browsable thumbnail strip with a lightbox.",
     input_schema: {
       type: "object",
       properties: {
@@ -94,7 +96,7 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_contact_form",
     description:
-      "Render a contact form so the visitor can leave their name, email, and a message for Blake. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for Blake.",
+      "Render a contact form so the visitor can leave their name, email, and a message for the owner. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for the owner.",
     input_schema: { type: "object", properties: {} },
   },
 ];
@@ -108,7 +110,7 @@ function customCardTool(keys: string[]): Anthropic.Tool {
   return {
     name: "show_card",
     description:
-      "Render one of Blake's custom-designed cards. Pass the card's key exactly as given " +
+      "Render one of the owner's custom-designed cards. Pass the card's key exactly as given " +
       "in the USING RICH CARDS instructions.",
     input_schema: {
       type: "object",
@@ -119,20 +121,24 @@ function customCardTool(keys: string[]): Anthropic.Tool {
 }
 
 /** Turn a tool call into the UI block it names. Shared by both tiers. */
-async function hydrate(name: string, input: Record<string, unknown>): Promise<UiBlock | null> {
+async function hydrate(
+  userId: string,
+  name: string,
+  input: Record<string, unknown>,
+): Promise<UiBlock | null> {
   switch (name) {
     case "show_projects":
-      return allProjectsBlock();
+      return allProjectsBlock(userId);
     case "show_project":
-      return singleProjectBlock(String(input.id ?? ""));
+      return singleProjectBlock(userId, String(input.id ?? ""));
     case "show_gallery":
-      return galleryBlock(input.layout === "carousel" ? "carousel" : "filmstrip");
+      return galleryBlock(userId, input.layout === "carousel" ? "carousel" : "filmstrip");
     case "show_contact_form":
       return contactBlock();
     case "show_card":
       // Null when the key doesn't name a custom card any more — a canned
       // answer can outlive the card it pointed at.
-      return customCardBlock(String(input.key ?? ""));
+      return customCardBlock(userId, String(input.key ?? ""));
     default:
       return null;
   }
@@ -150,6 +156,7 @@ function parseCardInput(raw: string | null): Record<string, unknown> {
 
 /** The model tier: stream text, run any tools, let Claude close. */
 async function* runModel(
+  userId: string,
   message: string,
   history: Msg[],
   client: ModelClient,
@@ -157,8 +164,8 @@ async function* runModel(
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
   const [system, catalog] = await Promise.all([
-    buildSystemPrompt(message),
-    cardCatalog(),
+    buildSystemPrompt(userId, message),
+    cardCatalog(userId),
   ]);
   // A tool is offered only when a catalog card names it — the catalog (the
   // admin's A2UI tab) decides what exists.
@@ -197,7 +204,7 @@ async function* runModel(
 
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
-      const block = await hydrate(tu.name, (tu.input ?? {}) as Record<string, unknown>);
+      const block = await hydrate(userId, tu.name, (tu.input ?? {}) as Record<string, unknown>);
       if (block) yield { t: "card", v: block };
       results.push({
         type: "tool_result",
@@ -221,24 +228,24 @@ export async function* answer(
   input: BrainInput,
   deps: BrainDeps = {},
 ): AsyncGenerator<BrainEvent> {
-  const { message, history = [], sessionId, channel = "web" } = input;
+  const { userId, message, history = [], sessionId, channel = "web" } = input;
   const cards = CARD_CHANNELS.has(channel);
   let spoken = "";
 
   try {
-    const canned = await findServableCanned(message);
+    const canned = await findServableCanned(userId, message);
     if (canned) {
       spoken = canned.answer;
       yield { t: "text", v: canned.answer };
       if (cards && canned.cardTool) {
-        const block = await hydrate(canned.cardTool, parseCardInput(canned.cardInput));
+        const block = await hydrate(userId, canned.cardTool, parseCardInput(canned.cardInput));
         if (block) yield { t: "card", v: block };
       }
       await recordCannedHit(canned.id);
       return;
     }
 
-    for await (const event of runModel(message, history, deps.client ?? claude())) {
+    for await (const event of runModel(userId, message, history, deps.client ?? claude())) {
       if (event.t === "text") spoken += event.v;
       if (event.t === "card" && !cards) continue;
       yield event;
@@ -251,6 +258,6 @@ export async function* answer(
     yield { t: "text", v: `\n\n[${note}]` };
   } finally {
     // Best-effort: a logging failure must never break a visitor's answer.
-    await recordTurn({ sessionId, question: message, answer: spoken }).catch(() => {});
+    await recordTurn({ userId, sessionId, question: message, answer: spoken }).catch(() => {});
   }
 }

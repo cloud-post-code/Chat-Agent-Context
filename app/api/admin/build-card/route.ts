@@ -1,6 +1,6 @@
 import { draftUiCard, type BuildEvent, type CardDraft } from "@/lib/cardBuilder";
 import { IMAGE_INTENTS, type PromptImage } from "@/lib/imageGen";
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 
 export const runtime = "nodejs";
 // A coded card with a thinking budget can run past a minute.
@@ -22,7 +22,8 @@ export const maxDuration = 300;
  * refused before any model call.
  */
 export async function POST(req: Request) {
-  if (!(await isAuthed())) return new Response("Unauthorized", { status: 401 });
+  const user = await currentUser();
+  if (!user) return new Response("Unauthorized", { status: 401 });
 
   let body: {
     instructions?: string;
@@ -70,6 +71,7 @@ export async function POST(req: Request) {
       };
       try {
         await draftUiCard(
+          user.id,
           { instructions, current: body.current, feedback: body.feedback, attachments },
           { onEvent: send },
         );

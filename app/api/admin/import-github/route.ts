@@ -1,5 +1,5 @@
 import { revalidatePath } from "next/cache";
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { fetchGithubProjects, enrichProject } from "@/lib/github";
 
@@ -19,7 +19,8 @@ export const runtime = "nodejs";
  * and updated in place.
  */
 export async function POST(req: Request) {
-  if (!(await isAuthed())) {
+  const user = await currentUser();
+  if (!user) {
     return new Response("Unauthorized", { status: 401 });
   }
 
@@ -38,6 +39,7 @@ export async function POST(req: Request) {
         // Split repos into: new, stale (already imported but pushed to on
         // GitHub since we last synced them), and unchanged (skipped).
         const existing = await prisma.project.findMany({
+          where: { userId: user.id },
           select: { id: true, githubUrl: true, updatedAt: true },
         });
         const byUrl = new Map(
@@ -83,11 +85,12 @@ export async function POST(req: Request) {
 
         // Sequential on purpose: enrich → save → emit, one project at a time,
         // so cards appear in the admin panel as each one completes.
-        let order = await prisma.project.count();
+        let order = await prisma.project.count({ where: { userId: user.id } });
         for (const repo of fresh) {
           const enriched = await enrichProject(repo);
           const project = await prisma.project.create({
             data: {
+              userId: user.id,
               name: repo.name,
               blurb: enriched.blurb,
               detail: enriched.detail || null,

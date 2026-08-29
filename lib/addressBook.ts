@@ -51,8 +51,9 @@ export type AddressBookRow = {
   lastContacted: Date | null;
 };
 
-export async function listAddressBook(): Promise<AddressBookRow[]> {
+export async function listAddressBook(userId: string): Promise<AddressBookRow[]> {
   return prisma.addressBookEntry.findMany({
+    where: { userId },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 }
@@ -69,7 +70,7 @@ export async function listAddressBook(): Promise<AddressBookRow[]> {
  * A hand-typed email gets the same canonical key sent-mail ingestion uses, so
  * a later sync enriches this person instead of adding a second row for them.
  */
-export async function saveAddressBookEntry(input: {
+export async function saveAddressBookEntry(userId: string, input: {
   id?: string;
   name: string;
   details: string;
@@ -90,7 +91,7 @@ export async function saveAddressBookEntry(input: {
 
   if (canonicalEmail) {
     const clash = await prisma.addressBookEntry.findUnique({
-      where: { canonicalEmail },
+      where: { userId_canonicalEmail: { userId, canonicalEmail } },
     });
     if (clash && clash.id !== input.id) {
       return `${clash.name} already uses that email address.`;
@@ -107,13 +108,13 @@ export async function saveAddressBookEntry(input: {
     canonicalEmail,
   };
   if (input.id) {
-    await prisma.addressBookEntry.update({ where: { id: input.id }, data });
+    await prisma.addressBookEntry.updateMany({ where: { id: input.id, userId }, data });
   } else {
-    await prisma.addressBookEntry.create({ data });
+    await prisma.addressBookEntry.create({ data: { ...data, userId } });
   }
   return null;
 }
 
-export async function deleteAddressBookEntry(id: string): Promise<void> {
-  await prisma.addressBookEntry.delete({ where: { id } });
+export async function deleteAddressBookEntry(userId: string, id: string): Promise<void> {
+  await prisma.addressBookEntry.deleteMany({ where: { id, userId } });
 }

@@ -37,8 +37,12 @@ type TextExtract = (
 
 type ImageDescribe = (bytes: Buffer, ext: string) => Promise<string>;
 
-async function allows(sourceKey: string, kind: "text" | "image"): Promise<string | null> {
-  const source = await getIngestionSource(sourceKey);
+async function allows(
+  userId: string,
+  sourceKey: string,
+  kind: "text" | "image",
+): Promise<string | null> {
+  const source = await getIngestionSource(userId, sourceKey);
   if (!source) return `No ingestion source "${sourceKey}".`;
   if (!source.storageKinds.includes(kind)) {
     return `"${source.label}" stores ${source.storageKinds}, not ${kind}.`;
@@ -210,6 +214,7 @@ const docTag = (label: string) => `doc:${label}`;
  * choice was made about the document, and its pieces are the same document.
  */
 async function writeSplitItems(
+  userId: string,
   sourceKey: string,
   parentLabel: string,
   items: SplitItem[],
@@ -220,6 +225,7 @@ async function writeSplitItems(
   for (const item of items) {
     const row = await prisma.source.create({
       data: {
+        userId,
         type: "text",
         kind: mark,
         title: item.title,
@@ -231,12 +237,12 @@ async function writeSplitItems(
     });
     written.push(`source:${row.id}`);
     try {
-      await indexSource(row.id);
+      await indexSource(userId, row.id);
     } catch (e) {
       console.error(`index split item ${row.id} failed:`, e);
     }
   }
-  await setItemClassifications(sourceKey, written, classification);
+  await setItemClassifications(userId, sourceKey, written, classification);
   return items.length;
 }
 
@@ -245,6 +251,7 @@ async function writeSplitItems(
  * replaced by the item rows; on failure the caller keeps the plain row.
  */
 async function splitAndReplace(
+  userId: string,
   sourceKey: string,
   parentId: string,
   parentLabel: string,
@@ -253,36 +260,37 @@ async function splitAndReplace(
   classification?: string | null,
 ): Promise<boolean> {
   if (!rawText?.trim()) return false;
-  const source = await getIngestionSource(sourceKey);
+  const source = await getIngestionSource(userId, sourceKey);
   // The source said "one item per upload" — no split pass, no model call.
   if (source?.splitMode === "single") return false;
   const items = await splitIntoItems(rawText, source?.systemPrompt ?? "", client);
   if (!items) return false;
-  await writeSplitItems(sourceKey, parentLabel, items, classification);
+  await writeSplitItems(userId, sourceKey, parentLabel, items, classification);
   // Safe without dropOrigin: on the text/file paths the parent row is
   // deleted before it is ever indexed, so it owns no chunks or edges.
-  await prisma.source.delete({ where: { id: parentId } }).catch(() => {});
+  await prisma.source.deleteMany({ where: { id: parentId, userId } }).catch(() => {});
   // The parent's own override (if the split path was reached after one was
   // recorded) dies with the row; its items carry the choice instead.
-  await clearItemClassifications([`source:${parentId}`]);
+  await clearItemClassifications(userId, [`source:${parentId}`]);
   return true;
 }
 
 /** Ingest pasted text into a custom source. Returns an error string or null. */
 export async function ingestCustomText(
+  userId: string,
   sourceKey: string,
   input: { title: string; text: string; classification?: string | null },
   extract: TextExtract = extractText,
   splitClient?: SplitClient,
 ): Promise<string | null> {
-  const refusal = await allows(sourceKey, "text");
+  const refusal = await allows(userId, sourceKey, "text");
   if (refusal) return refusal;
   const text = input.text.trim();
   if (text.length < 2) return "Nothing to ingest.";
   const title = input.title.trim() || null;
 
   const src = await prisma.source.create({
-    data: { type: "text", kind: ingestMark(sourceKey), title, status: "pending" },
+    data: { userId, type: "text", kind: ingestMark(sourceKey), title, status: "pending" },
   });
   try {
     const r = await extract(text, title);
@@ -308,6 +316,7 @@ export async function ingestCustomText(
   }
   if (
     await splitAndReplace(
+      userId,
       sourceKey,
       src.id,
       title ?? "note",
@@ -318,9 +327,9 @@ export async function ingestCustomText(
   ) {
     return null;
   }
-  await setItemClassifications(sourceKey, [`source:${src.id}`], input.classification);
+  await setItemClassifications(userId, sourceKey, [`source:${src.id}`], input.classification);
   try {
-    await indexSource(src.id);
+    await indexSource(userId, src.id);
   } catch (e) {
     console.error(`index custom source ${src.id} failed:`, e);
   }
@@ -342,22 +351,23 @@ type DocExtract = (
  * while the ownership mark keeps the row out of the built-in Links tab.
  */
 export async function ingestCustomUrl(
+  userId: string,
   sourceKey: string,
   url: string,
   extract: LinkExtract = extractLink,
   splitClient?: SplitClient,
   classification?: string | null,
 ): Promise<string | null> {
-  const refusal = await allows(sourceKey, "text");
+  const refusal = await allows(userId, sourceKey, "text");
   if (refusal) return refusal;
   const clean = url.trim();
   if (!/^https?:\/\//i.test(clean)) return "That doesn't look like a URL.";
 
   const mark = ingestMark(sourceKey);
   const src = await prisma.source.upsert({
-    where: { url: clean },
+    where: { userId_url: { userId, url: clean } },
     update: { status: "pending", error: null, type: "link", kind: mark },
-    create: { url: clean, type: "link", kind: mark, status: "pending" },
+    create: { userId, url: clean, type: "link", kind: mark, status: "pending" },
   });
   try {
     const r = await extract(clean);
@@ -384,7 +394,7 @@ export async function ingestCustomUrl(
   // fresh split has actually produced items, then retire the blob row.
   {
     const fresh = await prisma.source.findUnique({ where: { id: src.id } });
-    const source = await getIngestionSource(sourceKey);
+    const source = await getIngestionSource(userId, sourceKey);
     const items =
       source?.splitMode !== "single" && fresh?.rawText?.trim()
         ? await splitIntoItems(fresh.rawText, source?.systemPrompt ?? "", splitClient)
@@ -395,7 +405,7 @@ export async function ingestCustomUrl(
       // substring would (doc:https://x.com/page vs …/page/2).
       const exactTag = JSON.stringify(docTag(clean));
       const stale = await prisma.source.findMany({
-        where: { kind: mark, tags: { contains: exactTag }, NOT: { id: src.id } },
+        where: { userId, kind: mark, tags: { contains: exactTag }, NOT: { id: src.id } },
         select: { id: true },
       });
       // Deleting a Source cascades its chunks but NOT its graph-edge
@@ -403,7 +413,7 @@ export async function ingestCustomUrl(
       // or relations from the old scan persist as fact forever.
       for (const row of [...stale, { id: src.id }]) {
         try {
-          await dropOrigin("source", row.id);
+          await dropOrigin(userId, "source", row.id);
         } catch (e) {
           console.error(`dropOrigin(source ${row.id}) failed:`, e);
         }
@@ -411,18 +421,18 @@ export async function ingestCustomUrl(
       await prisma.source.deleteMany({ where: { id: { in: stale.map((r) => r.id) } } });
       // A re-scan replaces the previous items, so their overrides go with
       // them — the fresh set carries this scan's choice instead.
-      await clearItemClassifications([
+      await clearItemClassifications(userId, [
         ...stale.map((r) => `source:${r.id}`),
         `source:${src.id}`,
       ]);
-      await writeSplitItems(sourceKey, clean, items, classification);
-      await prisma.source.delete({ where: { id: src.id } }).catch(() => {});
+      await writeSplitItems(userId, sourceKey, clean, items, classification);
+      await prisma.source.deleteMany({ where: { id: src.id, userId } }).catch(() => {});
       return null;
     }
   }
-  await setItemClassifications(sourceKey, [`source:${src.id}`], classification);
+  await setItemClassifications(userId, sourceKey, [`source:${src.id}`], classification);
   try {
-    await indexSource(src.id);
+    await indexSource(userId, src.id);
   } catch (e) {
     console.error(`index custom source ${src.id} failed:`, e);
   }
@@ -431,6 +441,7 @@ export async function ingestCustomUrl(
 
 /** Ingest an uploaded document (PDF / Word / text file) into a custom source. */
 export async function ingestCustomFile(
+  userId: string,
   sourceKey: string,
   bytes: Buffer,
   filename: string,
@@ -438,12 +449,13 @@ export async function ingestCustomFile(
   splitClient?: SplitClient,
   classification?: string | null,
 ): Promise<string | null> {
-  const refusal = await allows(sourceKey, "text");
+  const refusal = await allows(userId, sourceKey, "text");
   if (refusal) return refusal;
   if (bytes.length === 0) return "Empty file.";
 
   const src = await prisma.source.create({
     data: {
+      userId,
       type: /\.docx$/i.test(filename) ? "doc" : "pdf",
       filename,
       kind: ingestMark(sourceKey),
@@ -475,6 +487,7 @@ export async function ingestCustomFile(
     const fresh = await prisma.source.findUnique({ where: { id: src.id } });
     if (
       await splitAndReplace(
+        userId,
         sourceKey,
         src.id,
         filename,
@@ -486,9 +499,9 @@ export async function ingestCustomFile(
       return null;
     }
   }
-  await setItemClassifications(sourceKey, [`source:${src.id}`], classification);
+  await setItemClassifications(userId, sourceKey, [`source:${src.id}`], classification);
   try {
-    await indexSource(src.id);
+    await indexSource(userId, src.id);
   } catch (e) {
     console.error(`index custom source ${src.id} failed:`, e);
   }
@@ -504,6 +517,7 @@ export async function ingestCustomFile(
  * deletePhoto), so the agent genuinely forgets the item.
  */
 export async function deleteIngestedItem(
+  userId: string,
   sourceKey: string,
   itemId: string,
 ): Promise<string | null> {
@@ -512,24 +526,24 @@ export async function deleteIngestedItem(
   if (!id) return `Not a deletable item id: "${itemId}".`;
 
   if (model === "source") {
-    const row = await prisma.source.findUnique({ where: { id } });
+    const row = await prisma.source.findFirst({ where: { id, userId } });
     if (!row || row.kind !== mark) return "That item doesn't belong to this source.";
-    await prisma.source.delete({ where: { id } }).catch(() => {});
-    await clearItemClassifications([itemId]);
+    await prisma.source.deleteMany({ where: { id, userId } }).catch(() => {});
+    await clearItemClassifications(userId, [itemId]);
     try {
-      await dropOrigin("source", id);
+      await dropOrigin(userId, "source", id);
     } catch (e) {
       console.error(`dropOrigin(source ${id}) failed:`, e);
     }
     return null;
   }
   if (model === "photo") {
-    const row = await prisma.photo.findUnique({ where: { id } });
+    const row = await prisma.photo.findFirst({ where: { id, userId } });
     if (!row || row.kind !== mark) return "That item doesn't belong to this source.";
-    await prisma.photo.delete({ where: { id } }).catch(() => {});
-    await clearItemClassifications([itemId]);
+    await prisma.photo.deleteMany({ where: { id, userId } }).catch(() => {});
+    await clearItemClassifications(userId, [itemId]);
     try {
-      await dropOrigin("photo", id);
+      await dropOrigin(userId, "photo", id);
     } catch (e) {
       console.error(`dropOrigin(photo ${id}) failed:`, e);
     }
@@ -540,6 +554,7 @@ export async function deleteIngestedItem(
 
 /** Ingest an image into a custom source. Returns an error string or null. */
 export async function ingestCustomImage(
+  userId: string,
   sourceKey: string,
   bytes: Buffer,
   contentType: string,
@@ -547,7 +562,7 @@ export async function ingestCustomImage(
   describe: ImageDescribe = describeImage,
   classification?: string | null,
 ): Promise<string | null> {
-  const refusal = await allows(sourceKey, "image");
+  const refusal = await allows(userId, sourceKey, "image");
   if (refusal) return refusal;
   if (bytes.length === 0) return "Empty image.";
 
@@ -559,11 +574,17 @@ export async function ingestCustomImage(
     // Best-effort, like the Photos tab: an unvisioned image still ingests.
   }
   const photo = await prisma.photo.create({
-    data: { filename, description, caption: caption.trim(), kind: ingestMark(sourceKey) },
+    data: {
+      userId,
+      filename,
+      description,
+      caption: caption.trim(),
+      kind: ingestMark(sourceKey),
+    },
   });
-  await setItemClassifications(sourceKey, [`photo:${photo.id}`], classification);
+  await setItemClassifications(userId, sourceKey, [`photo:${photo.id}`], classification);
   try {
-    await indexPhoto(photo.id);
+    await indexPhoto(userId, photo.id);
   } catch (e) {
     console.error(`index custom photo ${photo.id} failed:`, e);
   }

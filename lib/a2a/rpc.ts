@@ -33,7 +33,12 @@ export type MethodResult =
   | { type: "error"; code: number; message: string; data?: unknown }
   | { type: "stream"; events: AsyncGenerator<StreamResponse> };
 
-export type RpcContext = { version: ProtocolVersion };
+export type RpcContext = {
+  version: ProtocolVersion;
+  /// Whose agent this surface serves — the legacy endpoint binds to the
+  /// founding user (see the route handlers).
+  userId: string;
+};
 
 type Params = Record<string, unknown>;
 
@@ -148,37 +153,47 @@ async function sendMessage(
   if (!message.messageId) message.messageId = newId();
 
   const contextId = message.contextId ?? newId();
-  const priorHistory = await contextHistory(contextId);
+  const priorHistory = await contextHistory(ctx.userId, contextId);
 
   // A finished task is a record of what happened; a follow-up message must not
   // overwrite it. Referencing one continues the conversation in a fresh task,
   // which is also what stops a caller clobbering a task by guessing its id.
   const requested = message.taskId;
-  const existing = requested ? await getTask(requested) : null;
+  const existing = requested ? await getTask(ctx.userId, requested) : null;
   const taskId = requested && existing && !isTerminal(existing.state) ? requested : newId();
 
   message.contextId = contextId;
   message.taskId = taskId;
-  if (taskId !== existing?.id) await createTask({ id: taskId, contextId, history: [] });
+  if (taskId !== existing?.id) {
+    await createTask({ id: taskId, userId: ctx.userId, contextId, history: [] });
+  }
 
   if (streaming) {
-    return { type: "stream", events: streamRun({ taskId, contextId, message, priorHistory }) };
+    return {
+      type: "stream",
+      events: streamRun({ userId: ctx.userId, taskId, contextId, message, priorHistory }),
+    };
   }
 
   if (!wantsBlocking(params, ctx.version)) {
     // Non-blocking: acknowledge now, keep working. The process outlives the
     // response here (a long-lived Node server, not a lambda), and the task row
     // is the caller's handle on it via GetTask.
-    void runTaskToCompletion({ taskId, contextId, userMessage: message, priorHistory }).catch(
-      () => {},
-    );
-    const submitted = await getTask(taskId);
+    void runTaskToCompletion({
+      userId: ctx.userId,
+      taskId,
+      contextId,
+      userMessage: message,
+      priorHistory,
+    }).catch(() => {});
+    const submitted = await getTask(ctx.userId, taskId);
     return submitted
       ? { type: "result", value: sendResult(toWire(submitted, historyLengthOf(params))) }
       : err(A2A_ERRORS.internal);
   }
 
   const finished = await runTaskToCompletion({
+    userId: ctx.userId,
     taskId,
     contextId,
     userMessage: message,
@@ -199,18 +214,25 @@ function sendResult(task: unknown): unknown {
 
 /** Turns the runner's events into A2A stream events (v1.0 oneof shape). */
 async function* streamRun(input: {
+  userId: string;
   taskId: string;
   contextId: string;
   message: A2AMessage;
   priorHistory: A2AMessage[];
 }): AsyncGenerator<StreamResponse> {
-  const { taskId, contextId, message, priorHistory } = input;
+  const { userId, taskId, contextId, message, priorHistory } = input;
 
   // §6.2: the stream opens with the Task itself so the client learns its id.
-  const created = await getTask(taskId);
+  const created = await getTask(userId, taskId);
   if (created) yield { task: toWire(created, 0) };
 
-  for await (const event of runTask({ taskId, contextId, userMessage: message, priorHistory })) {
+  for await (const event of runTask({
+    userId,
+    taskId,
+    contextId,
+    userMessage: message,
+    priorHistory,
+  })) {
     if (event.kind === "status") {
       yield {
         statusUpdate: {
@@ -265,19 +287,17 @@ function nowIso(): string {
 async function getTaskMethod(params: Params, ctx: RpcContext): Promise<MethodResult> {
   const id = typeof params.id === "string" ? params.id : "";
   if (!id) return err(A2A_ERRORS.invalidParams, { field: "id" });
-  const task = await getTask(id);
+  const task = await getTask(ctx.userId, id);
   if (!task) return err(A2A_ERRORS.taskNotFound, { id });
-  void ctx;
   return { type: "result", value: toWire(task, historyLengthOf(params)) };
 }
 
 async function cancelTaskMethod(params: Params, ctx: RpcContext): Promise<MethodResult> {
   const id = typeof params.id === "string" ? params.id : "";
   if (!id) return err(A2A_ERRORS.invalidParams, { field: "id" });
-  const outcome = await requestCancel(id);
+  const outcome = await requestCancel(ctx.userId, id);
   if (outcome === "missing") return err(A2A_ERRORS.taskNotFound, { id });
   if (outcome === "terminal") return err(A2A_ERRORS.taskNotCancelable, { id });
-  void ctx;
   return { type: "result", value: toWire(outcome) };
 }
 
@@ -290,6 +310,7 @@ async function listTasksMethod(params: Params, ctx: RpcContext): Promise<MethodR
       : undefined;
 
   const { tasks, total } = await listTasks({
+    userId: ctx.userId,
     contextId: typeof params.contextId === "string" ? params.contextId : undefined,
     state: stateFilter,
     pageSize,
@@ -332,26 +353,25 @@ function clamp(value: number, min: number, max: number): number {
 async function subscribeMethod(params: Params, ctx: RpcContext): Promise<MethodResult> {
   const id = typeof params.id === "string" ? params.id : "";
   if (!id) return err(A2A_ERRORS.invalidParams, { field: "id" });
-  const task = await getTask(id);
+  const task = await getTask(ctx.userId, id);
   if (!task) return err(A2A_ERRORS.taskNotFound, { id });
   // §9.4.6: subscribing to a finished task is an unsupported operation.
   if (["completed", "failed", "canceled", "rejected"].includes(task.state)) {
     return err(A2A_ERRORS.unsupportedOperation, { id, state: task.state });
   }
-  void ctx;
-  return { type: "stream", events: pollTask(id) };
+  return { type: "stream", events: pollTask(ctx.userId, id) };
 }
 
 const POLL_MS = 400;
 const POLL_TIMEOUT_MS = 120_000;
 
-async function* pollTask(id: string): AsyncGenerator<StreamResponse> {
+async function* pollTask(userId: string, id: string): AsyncGenerator<StreamResponse> {
   let lastState = "";
   let seenArtifacts = 0;
   const deadline = Date.now() + POLL_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    const task = await getTask(id);
+    const task = await getTask(userId, id);
     if (!task) return;
 
     for (const artifact of task.artifacts.slice(seenArtifacts)) {

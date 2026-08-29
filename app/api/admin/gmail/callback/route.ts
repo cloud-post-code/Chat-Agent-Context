@@ -1,4 +1,4 @@
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { exchangeAndStore } from "@/lib/gmail/client";
 import { verifyState } from "@/lib/gmail/state";
 import { siteOrigin } from "@/lib/util";
@@ -25,7 +25,8 @@ function back(req: Request, message: string): Response {
 }
 
 export async function GET(req: Request) {
-  if (!(await isAuthed())) return new Response("Unauthorized", { status: 401 });
+  const user = await currentUser();
+  if (!user) return new Response("Unauthorized", { status: 401 });
 
   const url = new URL(req.url);
   const error = url.searchParams.get("error");
@@ -39,7 +40,7 @@ export async function GET(req: Request) {
   if (!code) return back(req, "Google returned no authorization code.");
 
   try {
-    const problem = await exchangeAndStore(code, siteOrigin(req.headers));
+    const problem = await exchangeAndStore(user.id, code, siteOrigin(req.headers));
     return back(req, problem ?? "Gmail connected.");
   } catch (e) {
     return back(req, e instanceof Error ? e.message : "Token exchange failed.");

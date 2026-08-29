@@ -28,11 +28,14 @@ export default function Chat({
   tagline,
   logo,
   starters,
+  slug,
 }: {
   name: string;
   tagline: string;
   logo?: string | null;
   starters: Starter[];
+  /** Whose agent this page chats with — sent with every /api/chat call. */
+  slug: string;
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -86,6 +89,7 @@ export default function Chat({
         body: JSON.stringify({
           messages: next.map(({ role, content }) => ({ role, content })),
           sessionId: sessionId.current,
+          slug,
         }),
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
@@ -200,6 +204,7 @@ export default function Chat({
                 content={m.content}
                 cards={m.cards}
                 loading={loading && i === messages.length - 1}
+                slug={slug}
               />
             ))}
           </div>
@@ -258,11 +263,13 @@ function Bubble({
   content,
   cards,
   loading,
+  slug,
 }: {
   role: "user" | "assistant";
   content: string;
   cards?: UiBlock[];
   loading: boolean;
+  slug: string;
 }) {
   const isUser = role === "user";
   const hasCards = !!cards && cards.length > 0;
@@ -288,7 +295,7 @@ function Bubble({
       {hasCards && (
         <div style={{ width: "100%", marginTop: 8 }}>
           {cards!.map((c, i) => (
-            <Cards key={i} block={c} />
+            <Cards key={i} block={c} slug={slug} />
           ))}
         </div>
       )}

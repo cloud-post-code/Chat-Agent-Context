@@ -70,15 +70,16 @@ function cardArtifact(taskId: string, seq: number, block: unknown): Artifact {
  * streaming transport; the blocking transport just drains it.
  */
 export async function* runTask(input: {
+  userId: string;
   taskId: string;
   contextId: string;
   userMessage: A2AMessage;
   priorHistory: A2AMessage[];
 }): AsyncGenerator<RunEvent> {
-  const { taskId, contextId, userMessage, priorHistory } = input;
+  const { userId, taskId, contextId, userMessage, priorHistory } = input;
   const question = messageText(userMessage);
 
-  await updateTask(taskId, { state: "working" });
+  await updateTask(userId, taskId, { state: "working" });
   yield { kind: "status", state: "working" };
 
   const artifacts: Artifact[] = [];
@@ -90,6 +91,7 @@ export async function* runTask(input: {
 
   try {
     for await (const event of answer({
+      userId,
       message: question,
       history: toBrainHistory(priorHistory),
       // The context is the conversation, so it doubles as the chat session id:
@@ -99,7 +101,7 @@ export async function* runTask(input: {
     })) {
       // Cancellation can only be honored between events — mid-token there is
       // nothing meaningful to stop.
-      if (await isCancelRequested(taskId)) {
+      if (await isCancelRequested(userId, taskId)) {
         canceled = true;
         break;
       }
@@ -117,7 +119,7 @@ export async function* runTask(input: {
     }
   } catch (e) {
     const reason = e instanceof Error ? e.message : "The agent failed to produce an answer.";
-    await updateTask(taskId, { state: "failed", error: reason });
+    await updateTask(userId, taskId, { state: "failed", error: reason });
     yield { kind: "status", state: "failed" };
     return;
   }
@@ -138,7 +140,7 @@ export async function* runTask(input: {
   };
 
   const state: TaskStateName = canceled ? "canceled" : "completed";
-  await updateTask(taskId, {
+  await updateTask(userId, taskId, {
     state,
     artifacts,
     history: [...priorHistory, userMessage, agentMessage],
@@ -148,11 +150,12 @@ export async function* runTask(input: {
 
 /** Runs a task to completion and returns the final stored row. */
 export async function runTaskToCompletion(input: {
+  userId: string;
   taskId: string;
   contextId: string;
   userMessage: A2AMessage;
   priorHistory: A2AMessage[];
 }): Promise<StoredTask | null> {
   for await (const _event of runTask(input)) void _event;
-  return getTask(input.taskId);
+  return getTask(input.userId, input.taskId);
 }

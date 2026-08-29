@@ -1,5 +1,4 @@
 import { timingSafeEqual } from "node:crypto";
-import { checkPassword } from "@/lib/auth";
 import { clientIp } from "@/lib/util";
 
 /**
@@ -82,6 +81,20 @@ function matchesApiKey(token: string): boolean {
 }
 
 /**
+ * Legacy credential: ADMIN_PASSWORD doubles as an A2A bearer token when no
+ * dedicated A2A_API_KEY is set. Constant-time, and an empty env never matches.
+ * (Admin logins are per-account now — lib/auth.ts — so this env credential
+ * exists only for this surface.)
+ */
+function checkAdminPassword(input: string): boolean {
+  const expected = process.env.ADMIN_PASSWORD || "";
+  if (!expected) return false;
+  const a = Buffer.from(input);
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+/**
  * Checks the caller's credentials. Returns "locked-out" once an IP has burned
  * its failure budget, so a guessing loop stops getting answers long before it
  * could work through a password.
@@ -96,9 +109,10 @@ export function authorize(headers: Headers): AuthResult {
   const [scheme, token] = (headers.get("authorization") ?? "").split(" ");
   const presented = scheme?.toLowerCase() === "bearer" ? (token ?? "") : "";
 
-  // checkPassword is the same constant-time comparison /admin logs in with, so
+  // checkAdminPassword is the same constant-time comparison style the admin
+  // login used before accounts existed, kept for the legacy A2A credential, so
   // there is exactly one place that knows how the admin password is checked.
-  if (presented && (matchesApiKey(presented) || checkPassword(presented))) {
+  if (presented && (matchesApiKey(presented) || checkAdminPassword(presented))) {
     authFailures.delete(ip);
     return "ok";
   }

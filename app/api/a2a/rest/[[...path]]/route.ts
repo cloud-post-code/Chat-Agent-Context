@@ -1,5 +1,6 @@
 import { authorize, clientIp, underRateLimit } from "@/lib/a2a/guard";
 import { dispatch, negotiateVersion } from "@/lib/a2a/rpc";
+import { foundingUser } from "@/lib/users";
 import {
   httpError,
   renderResult,
@@ -95,7 +96,15 @@ async function handle(req: Request, ctx: Ctx, httpMethod: "GET" | "POST" | "DELE
   const query = Object.fromEntries(new URL(req.url).searchParams);
   const params = { ...matched.params, ...query, ...(body as Record<string, unknown>) };
 
-  const outcome = await dispatch(matched.rpc, params, { version }).catch((e: unknown) => ({
+  const founder = await foundingUser();
+  if (!founder) {
+    return Response.json({ error: "No agent is set up yet." }, { status: 503 });
+  }
+
+  const outcome = await dispatch(matched.rpc, params, {
+    version,
+    userId: founder.id,
+  }).catch((e: unknown) => ({
     type: "error" as const,
     code: A2A_ERRORS.internal.code,
     message: e instanceof Error ? e.message : A2A_ERRORS.internal.message,

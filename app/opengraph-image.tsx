@@ -2,6 +2,7 @@ import { ImageResponse } from "next/og";
 import { getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { brand, starterQuestions, themeVarLines, type ThemeColors } from "@/lib/theme";
 import { safeJson } from "@/lib/util";
+import { foundingUser } from "@/lib/users";
 
 // The share thumbnail mirrors the live home hero, so it reads the same
 // admin-editable profile + theme per request instead of baking a build-time look.
@@ -80,9 +81,10 @@ function parseVars(lines: string): Record<string, string> {
 }
 
 export default async function OgImage() {
-  const profile = await getProfile().catch(() => null);
-  const persona = await getPersonaConfig().catch(() => null);
-  const theme = await getThemeConfig().catch(() => null);
+  const founder = await foundingUser().catch(() => null);
+  const profile = founder ? await getProfile(founder.id).catch(() => null) : null;
+  const persona = founder ? await getPersonaConfig(founder.id).catch(() => null) : null;
+  const theme = founder ? await getThemeConfig(founder.id).catch(() => null) : null;
   const name = profile?.company_name || profile?.owner_name || brand.name;
   const tagline = persona?.tagline || brand.tagline;
 

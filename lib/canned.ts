@@ -45,10 +45,12 @@ export function normalizeQuestion(text: string): string {
  * A row must be enabled AND actually written: a blank answer is a to-do on the
  * admin tab, not an empty reply to a visitor.
  */
-export async function findServableCanned(message: string) {
+export async function findServableCanned(userId: string, message: string) {
   const matchKey = normalizeQuestion(message);
   if (!matchKey) return null;
-  const row = await prisma.cannedAnswer.findUnique({ where: { matchKey } });
+  const row = await prisma.cannedAnswer.findUnique({
+    where: { userId_matchKey: { userId, matchKey } },
+  });
   if (!row || !row.enabled || !row.answer.trim()) return null;
   return row;
 }
@@ -60,8 +62,11 @@ export async function recordCannedHit(id: string) {
     .catch(() => {});
 }
 
-export async function listCannedAnswers() {
-  return prisma.cannedAnswer.findMany({ orderBy: [{ order: "asc" }, { createdAt: "asc" }] });
+export async function listCannedAnswers(userId: string) {
+  return prisma.cannedAnswer.findMany({
+    where: { userId },
+    orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+  });
 }
 
 /**
@@ -70,10 +75,11 @@ export async function listCannedAnswers() {
  * table: re-seeding on every load would resurrect rows Blake deliberately
  * deleted, which is worse than an incomplete list.
  */
-export async function seedStarterAnswers() {
-  if ((await prisma.cannedAnswer.count()) > 0) return;
+export async function seedStarterAnswers(userId: string) {
+  if ((await prisma.cannedAnswer.count({ where: { userId } })) > 0) return;
   await prisma.cannedAnswer.createMany({
     data: starterQuestions.map((s, i) => ({
+      userId,
       question: s.q,
       matchKey: normalizeQuestion(s.q),
       order: i,
@@ -83,7 +89,7 @@ export async function seedStarterAnswers() {
 }
 
 /** Write one row from the admin form. A blank id creates. */
-export async function saveCannedAnswer(input: {
+export async function saveCannedAnswer(userId: string, input: {
   id?: string;
   question: string;
   answer: string;
@@ -115,22 +121,30 @@ export async function saveCannedAnswer(input: {
   // the same merge-on-collision the Graph tab does when you rename an entity
   // onto an existing name. Anything else would throw a raw constraint error
   // out of the form.
-  const owner = await prisma.cannedAnswer.findUnique({ where: { matchKey: data.matchKey } });
+  const owner = await prisma.cannedAnswer.findUnique({
+    where: { userId_matchKey: { userId, matchKey: data.matchKey } },
+  });
   if (owner && owner.id !== input.id) {
     await prisma.cannedAnswer.update({ where: { id: owner.id }, data });
-    if (input.id) await prisma.cannedAnswer.delete({ where: { id: input.id } });
+    if (input.id) {
+      await prisma.cannedAnswer.deleteMany({ where: { id: input.id, userId } });
+    }
     return;
   }
 
   if (input.id) {
-    await prisma.cannedAnswer.update({ where: { id: input.id }, data });
+    const updated = await prisma.cannedAnswer.updateMany({
+      where: { id: input.id, userId },
+      data,
+    });
+    if (updated.count === 0) return; // not this user's row
   } else {
-    await prisma.cannedAnswer.create({ data });
+    await prisma.cannedAnswer.create({ data: { ...data, userId } });
   }
 }
 
-export async function deleteCannedAnswer(id: string) {
-  await prisma.cannedAnswer.delete({ where: { id } });
+export async function deleteCannedAnswer(userId: string, id: string) {
+  await prisma.cannedAnswer.deleteMany({ where: { id, userId } });
 }
 
 /** The numbers the admin tab's header reports. */

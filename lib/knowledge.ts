@@ -19,30 +19,35 @@ import { cardCatalog, type CardGuidance } from "./uiCards";
  * catalog Blake edits on the admin A2UI tab (lib/uiCards.ts) — each card's
  * "when to show it" text becomes a line of the USING RICH CARDS section.
  */
-export async function buildSystemPrompt(query?: string): Promise<string> {
+export async function buildSystemPrompt(userId: string, query?: string): Promise<string> {
   const [profile, personaConfig, projects, photos, corrections, chunkCount, directives] = await Promise.all([
-    getProfile(),
-    getPersonaConfig(),
-    prisma.project.findMany({ orderBy: { order: "asc" } }),
+    getProfile(userId),
+    getPersonaConfig(userId),
+    prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
     // The prompt's gallery listing is curated photos only; custom-ingested
     // images (`ingest:*` marks) reach the model through retrieval chunks.
     prisma.photo.findMany({
-      where: { NOT: { kind: { startsWith: "ingest:" } } },
+      where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
       orderBy: { order: "asc" },
     }),
-    // Admin corrections: bad answers Blake flagged with a note on the Activity
-    // tab. These steer the bot away from repeating mistakes.
+    // Admin corrections: bad answers the owner flagged with a note on the
+    // Activity tab. These steer the bot away from repeating mistakes.
     prisma.chatMessage.findMany({
-      where: { role: "assistant", rating: "down", note: { not: null } },
+      where: {
+        role: "assistant",
+        rating: "down",
+        note: { not: null },
+        session: { userId },
+      },
       orderBy: { createdAt: "desc" },
       take: 30,
       select: { note: true },
     }),
-    prisma.chunk.count(),
+    prisma.chunk.count({ where: { userId } }),
     // Goals and rules from the Agent Behavior tabs. One fetch for both kinds;
     // the renderers below split them.
     prisma.agentDirective.findMany({
-      where: { enabled: true },
+      where: { userId, enabled: true },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     }),
   ]);
@@ -64,20 +69,20 @@ export async function buildSystemPrompt(query?: string): Promise<string> {
         .join("\n")
     : "(No projects added yet.)";
 
-  const sourceBlock = await knowledgeBlock(query, chunkCount);
+  const sourceBlock = await knowledgeBlock(userId, query, chunkCount);
 
   const correctionNotes = corrections
     .map((c) => c.note?.trim())
     .filter((n): n is string => !!n);
   const correctionBlock = correctionNotes.length
-    ? `\n\nCORRECTIONS (Blake reviewed past answers and flagged these — follow them strictly, they override nothing factual above but tell you how to behave):\n${correctionNotes
+    ? `\n\nCORRECTIONS (${speakerName(profile)} reviewed past answers and flagged these — follow them strictly, they override nothing factual above but tell you how to behave):\n${correctionNotes
         .map((n) => `- ${n}`)
         .join("\n")}`
     : "";
 
   // The card catalog the admin curates on the A2UI tab: which cards exist and
   // when to show each.
-  const cards = await cardCatalog();
+  const cards = await cardCatalog(userId);
   const cardTools = new Set(cards.map((c) => c.tool));
 
   // Photos are only worth announcing as showable if the gallery card exists.
@@ -114,15 +119,15 @@ ${projectBlock}
 PHOTOS:
 ${photoBlock}
 
-KNOWLEDGE FOR THIS QUESTION (retrieved from everything Blake curates — his
+KNOWLEDGE FOR THIS QUESTION (retrieved from everything ${speaker} curates —
 profile and experience, persona, project write-ups, photo descriptions, saved
-sources, and answers he approved. Each block is labelled with where it came
+sources, and approved answers. Each block is labelled with where it came
 from):
 ${sourceBlock}${cardRulesSection(cards)}${goalsPromptSection(directives)}
 
 RULES:
-- Only state facts present above. If you don't know, say so warmly and point them to how they can connect with Blake directly.
-- For questions about Blake's history, background, or opinions, synthesize naturally from the KNOWLEDGE section — that's where his bio, experience and detail live now.
+- Only state facts present above. If you don't know, say so warmly and point them to how they can connect with ${speaker} directly.
+- For questions about ${speaker}'s history, background, or opinions, synthesize naturally from the KNOWLEDGE section — that's where the bio, experience and detail live now.
 - Keep answers concise and conversational.
 - Never invent projects, jobs, dates, or credentials.${rulesPromptLines(directives)}${correctionBlock}`;
 }
@@ -131,20 +136,25 @@ RULES:
  * The knowledge section: retrieved chunks + entity relations when we have a
  * query and an index; the legacy summary dump otherwise.
  */
-async function knowledgeBlock(query: string | undefined, chunkCount: number): Promise<string> {
+async function knowledgeBlock(
+  userId: string,
+  query: string | undefined,
+  chunkCount: number,
+): Promise<string> {
   if (query?.trim() && chunkCount > 0) {
     try {
-      // Broad questions ("tell me about Blake") get the curated neighborhood
-      // overviews; anything with a selective token falls through to chunks.
-      const broad = await broadOverviews(query);
+      // Broad questions ("tell me about yourself") get the curated
+      // neighborhood overviews; anything with a selective token falls
+      // through to chunks.
+      const broad = await broadOverviews(userId, query);
       if (broad) return broad;
-      return formatContext(await retrieve(query));
+      return formatContext(await retrieve(userId, query));
     } catch {
       // Retrieval trouble shouldn't kill the chat — fall through to the dump.
     }
   }
   const sources = await prisma.source.findMany({
-    where: { status: "scanned" },
+    where: { userId, status: "scanned" },
     orderBy: { createdAt: "desc" },
     take: 60,
   });
@@ -185,6 +195,11 @@ USING RICH CARDS (A2UI):
 You have tools that render visual cards in the chat. Prefer them over plain text lists. When to use each:
 ${lines.join("\n")}
 Always add a short spoken sentence alongside a card — the card supplements your words, it doesn't replace them.`;
+}
+
+/** The person the prompt refers to when citing the owner by name. */
+function speakerName(p: { owner_name: string; company_name: string }): string {
+  return p.owner_name.trim() || p.company_name.trim() || "the owner";
 }
 
 function connectBlock(p: {

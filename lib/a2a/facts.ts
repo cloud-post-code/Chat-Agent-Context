@@ -23,9 +23,9 @@ import { A2A_RPC_PATH, A2A_REST_PATH, agentCardV1 } from "./card";
 
 export type AgentFacts = Record<string, unknown>;
 
-export async function agentFacts(origin: string): Promise<AgentFacts> {
-  const profile = await getProfile();
-  const card = await agentCardV1(origin);
+export async function agentFacts(userId: string, origin: string): Promise<AgentFacts> {
+  const profile = await getProfile(userId);
+  const card = await agentCardV1(userId, origin);
   const name = profile.company_name || profile.owner_name || "Agent";
   const host = safeHost(origin);
   const handle = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "agent";

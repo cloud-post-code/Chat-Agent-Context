@@ -1,5 +1,5 @@
 import { redirect, notFound } from "next/navigation";
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { CardBuilder } from "../../CardBuilder";
 
@@ -12,12 +12,14 @@ export default async function EditCardPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await isAuthed())) redirect("/admin");
+  const user = await currentUser();
+  if (!user) redirect("/admin");
   const { id } = await params;
-  const row = await prisma.uiCard.findUnique({ where: { id } });
+  const row = await prisma.uiCard.findFirst({ where: { id, userId: user.id } });
   if (!row) notFound();
   return (
     <CardBuilder
+      slug={user.slug}
       id={row.id}
       cardKey={row.key}
       initial={{

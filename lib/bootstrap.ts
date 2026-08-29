@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/db";
-import { seedStarterIngestionSources } from "@/lib/ingestionSources";
-import { seedStarterUiCards } from "@/lib/uiCards";
-import { seedStarterAnswers } from "@/lib/canned";
+import { claimFoundingUser, provisionUserDefaults } from "@/lib/users";
 import { PERSONA_SECTIONS } from "@/lib/persona";
 
 /**
@@ -61,8 +59,8 @@ export function foldLegacySections(stored: Record<string, unknown>): string {
  * current single-field shape. A row already in the current shape is left
  * byte-identical (so re-running is a no-op and updatedAt doesn't churn).
  */
-async function migrateLegacyPersona(): Promise<void> {
-  const persona = await prisma.personaConfig.findUnique({ where: { id: 1 } });
+async function migrateLegacyPersona(userId: string): Promise<void> {
+  const persona = await prisma.personaConfig.findUnique({ where: { userId } });
   if (!persona) return;
   let stored: Record<string, unknown>;
   try {
@@ -87,24 +85,41 @@ async function migrateLegacyPersona(): Promise<void> {
     else delete clean.persona;
   }
   await prisma.personaConfig.update({
-    where: { id: 1 },
+    where: { userId },
     data: { personaSections: JSON.stringify(clean) },
   });
 }
 
 /** Run every bootstrap step; each failure logs and moves on. */
 export async function bootstrapDatabase(): Promise<void> {
-  const steps: Array<[string, () => Promise<void>]> = [
-    ["seed ingestion sources", seedStarterIngestionSources],
-    ["seed A2UI cards", seedStarterUiCards],
-    ["seed canned answers", async () => void (await seedStarterAnswers())],
-    ["migrate legacy persona", migrateLegacyPersona],
-  ];
-  for (const [label, run] of steps) {
-    try {
-      await run();
-    } catch (e) {
-      console.error(`bootstrap: ${label} failed:`, e);
+  // Claim the migration-created founder account from env first, so the
+  // pre-existing admin can log in on the very first multi-tenant boot.
+  try {
+    await claimFoundingUser();
+  } catch (e) {
+    console.error("bootstrap: claim founding user failed:", e);
+  }
+
+  // Per-user upkeep: starter rows for anyone with none (same fill-empty-only
+  // rule the old global seeds followed) and legacy-shape rewrites.
+  let users: { id: string }[] = [];
+  try {
+    users = await prisma.user.findMany({ select: { id: true } });
+  } catch (e) {
+    console.error("bootstrap: listing users failed:", e);
+    return;
+  }
+  for (const user of users) {
+    const steps: Array<[string, () => Promise<void>]> = [
+      ["provision defaults", () => provisionUserDefaults(user.id)],
+      ["migrate legacy persona", () => migrateLegacyPersona(user.id)],
+    ];
+    for (const [label, run] of steps) {
+      try {
+        await run();
+      } catch (e) {
+        console.error(`bootstrap: ${label} for ${user.id} failed:`, e);
+      }
     }
   }
 }

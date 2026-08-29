@@ -1,5 +1,6 @@
 import { siteOrigin } from "@/lib/a2a/card";
 import { agentFacts } from "@/lib/a2a/facts";
+import { foundingUser } from "@/lib/users";
 
 /**
  * The hosted AgentFacts document. The NANDA paper is inconsistent about the
@@ -12,7 +13,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const facts = await agentFacts(siteOrigin(req.headers));
+  const founder = await foundingUser();
+  if (!founder) return new Response("No agent is set up yet.", { status: 404 });
+  const facts = await agentFacts(founder.id, siteOrigin(req.headers));
   return new Response(JSON.stringify(facts, null, 2), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",

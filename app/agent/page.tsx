@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { headers } from "next/headers";
+import { notFound } from "next/navigation";
 import { getProfile } from "@/lib/db";
 import { agentCardV1, siteOrigin } from "@/lib/a2a/card";
 import { a2aApiKey } from "@/lib/a2a/guard";
+import { foundingUser } from "@/lib/users";
 
 /**
  * The human-readable side of the agent's identity: the page a person lands on
@@ -16,7 +18,9 @@ import { a2aApiKey } from "@/lib/a2a/guard";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata() {
-  const profile = await getProfile();
+  const founder = await foundingUser();
+  if (!founder) return { title: "Agent card" };
+  const profile = await getProfile(founder.id);
   const name = profile.company_name || profile.owner_name || "Agent";
   return {
     title: `${name} — agent card`,
@@ -25,8 +29,15 @@ export async function generateMetadata() {
 }
 
 export default async function AgentPage() {
+  // The A2A surface (and this page describing it) belongs to the founding
+  // user — the pre-existing single-admin agent.
+  const founder = await foundingUser();
+  if (!founder) notFound();
   const origin = siteOrigin(await headers());
-  const [profile, card] = await Promise.all([getProfile(), agentCardV1(origin)]);
+  const [profile, card] = await Promise.all([
+    getProfile(founder.id),
+    agentCardV1(founder.id, origin),
+  ]);
   const name = profile.company_name || profile.owner_name || "Agent";
   // Always closed now; this only decides which credential to name.
   const hasDedicatedKey = !!a2aApiKey();

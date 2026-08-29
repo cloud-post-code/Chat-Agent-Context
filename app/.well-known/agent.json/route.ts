@@ -1,4 +1,5 @@
 import { agentCardV03, siteOrigin } from "@/lib/a2a/card";
+import { foundingUser } from "@/lib/users";
 
 /**
  * The legacy discovery path. A2A v0.2.x published the card at
@@ -12,7 +13,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  const card = await agentCardV03(siteOrigin(req.headers));
+  const founder = await foundingUser();
+  if (!founder) return new Response("No agent is set up yet.", { status: 404 });
+  const card = await agentCardV03(founder.id, siteOrigin(req.headers));
   return new Response(JSON.stringify(card, null, 2), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",

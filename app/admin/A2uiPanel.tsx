@@ -31,7 +31,7 @@ const SORTS: { key: SortKey; label: string }[] = [
 
 const anchorId = (key: string) => `a2ui-${key}`;
 
-export function A2uiPanel({ rows }: { rows: UiCardRow[] }) {
+export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<SortKey>("default");
   // One card open at a time: opening a card closes the previous one.
@@ -150,7 +150,7 @@ export function A2uiPanel({ rows }: { rows: UiCardRow[] }) {
                   {r.note}
                 </p>
               )}
-              <CardPreview raw={r.sampleBlock} />
+              <CardPreview raw={r.sampleBlock} slug={slug} />
               <Link
                 href={`/admin/cards/${r.id}`}
                 style={{ ...(btnGhost as React.CSSProperties), display: "inline-block", marginTop: 12, textDecoration: "none" }}
@@ -165,7 +165,7 @@ export function A2uiPanel({ rows }: { rows: UiCardRow[] }) {
   );
 }
 
-function CardPreview({ raw }: { raw: string }) {
+function CardPreview({ raw, slug }: { raw: string; slug: string }) {
   const block = parseSampleBlock(raw);
   if (!block) {
     return (
@@ -177,7 +177,7 @@ function CardPreview({ raw }: { raw: string }) {
   }
   return (
     <div style={{ marginTop: 8 }}>
-      <Cards block={block} />
+      <Cards block={block} slug={slug} />
     </div>
   );
 }

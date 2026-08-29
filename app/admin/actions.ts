@@ -11,7 +11,14 @@ if (typeof (globalThis as { File?: unknown }).File === "undefined") {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma, getProfile } from "@/lib/db";
-import { checkPassword, createSession, destroySession, isAuthed } from "@/lib/auth";
+import {
+  createSession,
+  currentUser,
+  destroySession,
+  verifyPassword,
+} from "@/lib/auth";
+import { createUser } from "@/lib/users";
+import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
 import {
@@ -59,8 +66,11 @@ import { saveUpload, saveBytes } from "@/lib/uploads";
 import { describeImage } from "@/lib/vision";
 import path from "node:path";
 
-async function requireAuth() {
-  if (!(await isAuthed())) redirect("/admin");
+/** The logged-in user, or a redirect to the login page. */
+async function requireUser(): Promise<User> {
+  const user = await currentUser();
+  if (!user) redirect("/admin");
+  return user;
 }
 
 /**
@@ -68,8 +78,8 @@ async function requireAuth() {
  * ingest request. Best-effort: an indexing failure must never un-scan the
  * source (retrieval falls back to its summary until a rescan/reindex).
  */
-async function indexScanned(sourceId: string): Promise<void> {
-  await reindex(`source ${sourceId}`, () => indexSource(sourceId));
+async function indexScanned(userId: string, sourceId: string): Promise<void> {
+  await reindex(`source ${sourceId}`, () => indexSource(userId, sourceId));
 }
 
 /**
@@ -109,9 +119,37 @@ function revalidateAll() {
 
 // ── Auth ──
 export async function login(formData: FormData) {
+  const email = String(formData.get("email") ?? "").trim().toLowerCase();
   const pw = String(formData.get("password") ?? "");
-  if (!checkPassword(pw)) redirect("/admin?error=1");
-  await createSession();
+  const user = email
+    ? await prisma.user.findUnique({ where: { email } })
+    : null;
+  // Verify against a constant dummy hash when the email is unknown, so the
+  // response time doesn't reveal which addresses have accounts.
+  const ok = user
+    ? verifyPassword(pw, user.passwordHash)
+    : (verifyPassword(pw, DUMMY_HASH), false);
+  if (!ok || !user) redirect("/admin?error=1");
+  await createSession(user.id);
+  redirect("/admin/dashboard");
+}
+
+// A real scrypt hash of a random throwaway value; never matches anything.
+const DUMMY_HASH =
+  "scrypt:16384:8:1:6c6f67696e2d74696d696e672d70616464696e67:" +
+  "0000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000";
+
+export async function signup(formData: FormData) {
+  const result = await createUser({
+    email: String(formData.get("email") ?? ""),
+    name: String(formData.get("name") ?? ""),
+    password: String(formData.get("password") ?? ""),
+  });
+  if ("error" in result) {
+    redirect(`/signup?error=${encodeURIComponent(result.error)}`);
+  }
+  await createSession(result.user.id);
   redirect("/admin/dashboard");
 }
 
@@ -122,11 +160,11 @@ export async function logout() {
 
 // ── Profile (business identity) ──
 export async function saveProfile(formData: FormData) {
-  await requireAuth();
-  await getProfile();
+  const user = await requireUser();
+  await getProfile(user.id);
 
   await prisma.profile.update({
-    where: { id: 1 },
+    where: { userId: user.id },
     data: {
       company_name: String(formData.get("company_name") ?? ""),
       owner_name: String(formData.get("owner_name") ?? ""),
@@ -136,13 +174,13 @@ export async function saveProfile(formData: FormData) {
       company_hours: String(formData.get("company_hours") ?? ""),
     },
   });
-  await reindex("profile", indexProfile);
+  await reindex("profile", () => indexProfile(user.id));
   revalidateAll();
 }
 
 // ── Persona (the section catalogue in lib/persona.ts) ──
 export async function savePersona(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
 
   // Driven by the catalogue so adding a section can't silently fail to save.
   const sections: Record<string, string> = {};
@@ -151,18 +189,18 @@ export async function savePersona(formData: FormData) {
   }
 
   await prisma.personaConfig.upsert({
-    where: { id: 1 },
+    where: { userId: user.id },
     update: { tagline: String(formData.get("tagline") ?? "") },
-    create: { id: 1, tagline: String(formData.get("tagline") ?? "") },
+    create: { userId: user.id, tagline: String(formData.get("tagline") ?? "") },
   });
-  await writePersonaSections(sections);
-  await reindex("persona", indexPersona);
+  await writePersonaSections(user.id, sections);
+  await reindex("persona", () => indexPersona(user.id));
   revalidateAll();
 }
 
 // ── Theme (aesthetic description + the design tokens the site renders from) ──
 export async function saveTheme(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
 
   // Driven by COLOR_ROLES so adding a role to the design panel can't silently
   // fail to save. Only valid hex values are stored — a blank or malformed entry
@@ -183,37 +221,41 @@ export async function saveTheme(formData: FormData) {
     themeHeadingWeight: String(formData.get("themeHeadingWeight") ?? "").trim(),
     themeColors: JSON.stringify(colors),
   };
-  await prisma.themeConfig.upsert({ where: { id: 1 }, update: theme, create: { id: 1, ...theme } });
+  await prisma.themeConfig.upsert({
+    where: { userId: user.id },
+    update: theme,
+    create: { userId: user.id, ...theme },
+  });
   revalidateAll();
 }
 
 /** Company logo image upload. */
 export async function uploadLogo(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const file = formData.get("file");
   if (!isUpload(file) || file.size === 0) return;
   const filename = await saveUpload(file);
   const company_logo = `/api/uploads/${filename}`;
   await prisma.personaConfig.upsert({
-    where: { id: 1 },
+    where: { userId: user.id },
     update: { company_logo },
-    create: { id: 1, company_logo },
+    create: { userId: user.id, company_logo },
   });
   revalidateAll();
 }
 
 // ── Sources (unified extraction: link / pdf / text) ──
 export async function addSource(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const type = String(formData.get("type") ?? "link");
 
   if (type === "link") {
     const url = String(formData.get("url") ?? "").trim();
     if (!url || !/^https?:\/\//i.test(url)) return;
     const src = await prisma.source.upsert({
-      where: { url },
+      where: { userId_url: { userId: user.id, url } },
       update: { status: "pending", error: null, type: "link" },
-      create: { url, type: "link", status: "pending" },
+      create: { userId: user.id, url, type: "link", status: "pending" },
     });
     try {
       const r = await extractLink(url);
@@ -221,7 +263,7 @@ export async function addSource(formData: FormData) {
         where: { id: src.id },
         data: { ...toData(r), status: "scanned", error: null },
       });
-      await indexScanned(src.id);
+      await indexScanned(user.id, src.id);
     } catch (e) {
       await prisma.source.update({
         where: { id: src.id },
@@ -234,7 +276,12 @@ export async function addSource(formData: FormData) {
     const bytes = Buffer.from(await file.arrayBuffer());
     const isWord = /\.docx$/i.test(file.name);
     const src = await prisma.source.create({
-      data: { type: isWord ? "doc" : "pdf", filename: file.name, status: "pending" },
+      data: {
+        userId: user.id,
+        type: isWord ? "doc" : "pdf",
+        filename: file.name,
+        status: "pending",
+      },
     });
     try {
       const r = await extractDocument(bytes, file.name);
@@ -242,7 +289,7 @@ export async function addSource(formData: FormData) {
         where: { id: src.id },
         data: { ...toData(r), status: "scanned", error: null },
       });
-      await indexScanned(src.id);
+      await indexScanned(user.id, src.id);
     } catch (e) {
       await prisma.source.update({
         where: { id: src.id },
@@ -254,7 +301,7 @@ export async function addSource(formData: FormData) {
     const title = String(formData.get("title") ?? "").trim() || null;
     if (text.length < 2) return;
     const src = await prisma.source.create({
-      data: { type: "text", title, status: "pending" },
+      data: { userId: user.id, type: "text", title, status: "pending" },
     });
     try {
       const r = await extractText(text, title);
@@ -262,7 +309,7 @@ export async function addSource(formData: FormData) {
         where: { id: src.id },
         data: { ...toData(r), status: "scanned", error: null },
       });
-      await indexScanned(src.id);
+      await indexScanned(user.id, src.id);
     } catch (e) {
       await prisma.source.update({
         where: { id: src.id },
@@ -274,9 +321,9 @@ export async function addSource(formData: FormData) {
 }
 
 export async function rescanSource(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  const src = await prisma.source.findUnique({ where: { id } });
+  const src = await prisma.source.findFirst({ where: { id, userId: user.id } });
   if (!src || src.type !== "link" || !src.url) return;
   try {
     const r = await extractLink(src.url);
@@ -284,7 +331,7 @@ export async function rescanSource(formData: FormData) {
       where: { id: src.id },
       data: { ...toData(r), status: "scanned", error: null },
     });
-    await indexScanned(src.id);
+    await indexScanned(user.id, src.id);
   } catch (e) {
     await prisma.source.update({ where: { id: src.id }, data: { status: "failed", error: err(e) } });
   }
@@ -292,31 +339,32 @@ export async function rescanSource(formData: FormData) {
 }
 
 export async function updateSourceSummary(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await prisma.source.update({
-    where: { id },
+  const updated = await prisma.source.updateMany({
+    where: { id, userId: user.id },
     data: { summary: String(formData.get("summary") ?? ""), status: "scanned" },
   });
+  if (updated.count === 0) return;
   // Re-index: for summary-only sources the summary IS the chunked content.
-  await indexScanned(id);
+  await indexScanned(user.id, id);
   revalidateAll();
 }
 
 export async function deleteSource(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (id) await prisma.source.delete({ where: { id } }).catch(() => {});
+  if (id) await prisma.source.deleteMany({ where: { id, userId: user.id } }).catch(() => {});
   // Chunks cascade off the Source row, but the entities and relations extracted
   // from it don't — dropOrigin retracts those too.
-  if (id) await reindex(`source ${id}`, () => dropOrigin("source", id));
+  if (id) await reindex(`source ${id}`, () => dropOrigin(user.id, "source", id));
   revalidateAll();
 }
 
 // ── Projects (github + live links) ──
 export async function addProject(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const name = String(formData.get("name") ?? "").trim();
   let blurb = String(formData.get("blurb") ?? "").trim();
   const githubUrl = String(formData.get("githubUrl") ?? "").trim() || null;
@@ -349,6 +397,7 @@ export async function addProject(formData: FormData) {
 
   const created = await prisma.project.create({
     data: {
+      userId: user.id,
       name,
       blurb,
       githubUrl,
@@ -357,7 +406,7 @@ export async function addProject(formData: FormData) {
       order: Number(formData.get("order") ?? 0) || 0,
     },
   });
-  await reindex(`project ${created.id}`, () => indexProject(created.id));
+  await reindex(`project ${created.id}`, () => indexProject(user.id, created.id));
   revalidateAll();
 }
 
@@ -367,7 +416,7 @@ export async function addProject(formData: FormData) {
  * the repo is pushed to again after the edit.
  */
 export async function updateProject(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "").trim();
   if (!id || !name) return;
@@ -378,8 +427,8 @@ export async function updateProject(formData: FormData) {
     .filter(Boolean)
     .slice(0, 8);
 
-  await prisma.project.update({
-    where: { id },
+  const updated = await prisma.project.updateMany({
+    where: { id, userId: user.id },
     data: {
       name,
       blurb: String(formData.get("blurb") ?? "").trim(),
@@ -390,23 +439,24 @@ export async function updateProject(formData: FormData) {
       order: Number(formData.get("order") ?? 0) || 0,
     },
   });
-  await reindex(`project ${id}`, () => indexProject(id));
+  if (updated.count === 0) return;
+  await reindex(`project ${id}`, () => indexProject(user.id, id));
   revalidateAll();
 }
 
 export async function deleteProject(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (id) {
-    await prisma.project.delete({ where: { id } }).catch(() => {});
-    await reindex(`project ${id}`, () => dropOrigin("project", id));
+    await prisma.project.deleteMany({ where: { id, userId: user.id } }).catch(() => {});
+    await reindex(`project ${id}`, () => dropOrigin(user.id, "project", id));
   }
   revalidateAll();
 }
 
 // ── Photos (vision auto-caption) ──
 export async function uploadPhoto(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const file = formData.get("file");
   if (!isUpload(file) || file.size === 0) return;
 
@@ -419,6 +469,7 @@ export async function uploadPhoto(formData: FormData) {
 
   const photo = await prisma.photo.create({
     data: {
+      userId: user.id,
       filename,
       description,
       caption: String(formData.get("caption") ?? ""),
@@ -426,48 +477,55 @@ export async function uploadPhoto(formData: FormData) {
       order: Number(formData.get("order") ?? 0) || 0,
     },
   });
-  await reindex(`photo ${photo.id}`, () => indexPhoto(photo.id));
+  await reindex(`photo ${photo.id}`, () => indexPhoto(user.id, photo.id));
   revalidateAll();
 }
 
 export async function updatePhoto(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (!id) return;
-  await prisma.photo.update({
-    where: { id },
+  const updated = await prisma.photo.updateMany({
+    where: { id, userId: user.id },
     data: {
       description: String(formData.get("description") ?? ""),
       caption: String(formData.get("caption") ?? ""),
     },
   });
-  await reindex(`photo ${id}`, () => indexPhoto(id));
+  if (updated.count === 0) return;
+  await reindex(`photo ${id}`, () => indexPhoto(user.id, id));
   revalidateAll();
 }
 
 export async function deletePhoto(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (id) {
-    await prisma.photo.delete({ where: { id } }).catch(() => {});
-    await reindex(`photo ${id}`, () => dropOrigin("photo", id));
+    await prisma.photo.deleteMany({ where: { id, userId: user.id } }).catch(() => {});
+    await reindex(`photo ${id}`, () => dropOrigin(user.id, "photo", id));
   }
   revalidateAll();
 }
 
 // ── Contacts (submissions from the in-chat contact form) ──
 export async function toggleContactHandled(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   const handled = String(formData.get("handled") ?? "") === "true";
-  if (id) await prisma.contact.update({ where: { id }, data: { handled: !handled } }).catch(() => {});
+  if (id) {
+    await prisma.contact
+      .updateMany({ where: { id, userId: user.id }, data: { handled: !handled } })
+      .catch(() => {});
+  }
   revalidatePath("/admin/dashboard");
 }
 
 export async function deleteContact(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (id) await prisma.contact.delete({ where: { id } }).catch(() => {});
+  if (id) {
+    await prisma.contact.deleteMany({ where: { id, userId: user.id } }).catch(() => {});
+  }
   revalidatePath("/admin/dashboard");
 }
 
@@ -479,19 +537,21 @@ function clampInt(raw: FormDataEntryValue | null, fallback: number, min: number,
 
 /** Delete one recorded conversation (messages cascade). */
 export async function deleteChatSession(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   if (!id) return revalidatePath("/admin/dashboard");
 
   // Any approved answers in this conversation were indexed as knowledge;
   // chunks don't cascade off ChatMessage, so drop them before the rows go.
   const approved = await prisma.chatMessage.findMany({
-    where: { sessionId: id, role: "assistant", rating: "up" },
+    where: { sessionId: id, role: "assistant", rating: "up", session: { userId: user.id } },
     select: { id: true },
   });
-  await prisma.chatSession.delete({ where: { id } }).catch(() => {});
+  await prisma.chatSession
+    .deleteMany({ where: { id, userId: user.id } })
+    .catch(() => {});
   for (const m of approved) {
-    await reindex(`activity ${m.id}`, () => dropOrigin("activity", m.id));
+    await reindex(`activity ${m.id}`, () => dropOrigin(user.id, "activity", m.id));
   }
   revalidatePath("/admin/dashboard");
 }
@@ -507,7 +567,7 @@ export async function deleteChatSession(formData: FormData) {
  * it here. Clearing or flipping the rating drops it again.
  */
 export async function saveChatFeedback(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   const ratingRaw = String(formData.get("rating") ?? "");
   const rating = ratingRaw === "up" || ratingRaw === "down" ? ratingRaw : null;
@@ -515,9 +575,12 @@ export async function saveChatFeedback(formData: FormData) {
   const note = noteRaw ? noteRaw.slice(0, 2000) : null;
   if (id) {
     await prisma.chatMessage
-      .update({ where: { id }, data: { rating, note } })
+      .updateMany({
+        where: { id, session: { userId: user.id } },
+        data: { rating, note },
+      })
       .catch(() => {});
-    await reindex(`activity ${id}`, () => indexApprovedAnswer(id));
+    await reindex(`activity ${id}`, () => indexApprovedAnswer(user.id, id));
   }
   revalidatePath("/admin/dashboard");
 }
@@ -527,18 +590,18 @@ export async function saveChatFeedback(formData: FormData) {
 
 /** Rename/retype an entity. A name that collides merges the two entities. */
 export async function saveEntity(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
   const name = String(formData.get("name") ?? "");
   const type = String(formData.get("type") ?? "other");
-  if (id && name.trim()) await renameEntity(id, name, type);
+  if (id && name.trim()) await renameEntity(user.id, id, name, type);
   revalidatePath("/admin/dashboard");
 }
 
 export async function removeEntity(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (id) await deleteEntity(id);
+  if (id) await deleteEntity(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -547,9 +610,11 @@ export async function removeEntity(formData: FormData) {
  * 6 Claude calls, so it only runs when Blake presses the button.
  */
 export async function rebuildOverviews() {
-  await requireAuth();
+  const user = await requireUser();
   const { buildClusterOverviews } = await import("@/lib/retrieval/clusters");
-  await buildClusterOverviews().catch((e) => console.error("rebuildOverviews failed:", e));
+  await buildClusterOverviews(user.id).catch((e) =>
+    console.error("rebuildOverviews failed:", e),
+  );
   revalidatePath("/admin/dashboard");
 }
 
@@ -560,21 +625,24 @@ export async function rebuildOverviews() {
  * Graph tab still reporting the gap.
  */
 export async function backfillEmbeddings() {
-  await requireAuth();
-  await embedMissingChunks().catch((e) => console.error("backfillEmbeddings failed:", e));
+  const user = await requireUser();
+  await embedMissingChunks(user.id).catch((e) =>
+    console.error("backfillEmbeddings failed:", e),
+  );
   revalidatePath("/admin/dashboard");
 }
 
 /** Read-only: what retrieve() returns for a question. No revalidate needed. */
 export async function previewRetrieval(query: string): Promise<RetrievalPreview> {
-  await requireAuth();
-  return retrievalPreview(String(query ?? "").slice(0, 500));
+  const user = await requireUser();
+  return retrievalPreview(user.id, String(query ?? "").slice(0, 500));
 }
 
 /** One-click merge for a suggested duplicate pair. Stale ids fail soft. */
 export async function mergeSuggestedEntities(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   await mergeEntities(
+    user.id,
     String(formData.get("fromId") ?? ""),
     String(formData.get("intoId") ?? ""),
   );
@@ -583,8 +651,9 @@ export async function mergeSuggestedEntities(formData: FormData) {
 
 /** "Don't merge": persist that a suggested pair is not the same thing. */
 export async function dismissSuggestedMerge(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   await dismissMerge(
+    user.id,
     String(formData.get("fromId") ?? ""),
     String(formData.get("intoId") ?? ""),
   );
@@ -592,8 +661,9 @@ export async function dismissSuggestedMerge(formData: FormData) {
 }
 
 export async function createEntityEdge(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   await addEdge(
+    user.id,
     String(formData.get("fromId") ?? ""),
     String(formData.get("toId") ?? ""),
     String(formData.get("relation") ?? ""),
@@ -602,9 +672,9 @@ export async function createEntityEdge(formData: FormData) {
 }
 
 export async function removeEntityEdge(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (id) await deleteEdge(id);
+  if (id) await deleteEdge(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -631,8 +701,8 @@ function toData(r: {
 // Thin auth wrappers; the logic lives in lib/canned.ts so it stays testable.
 
 export async function saveCanned(formData: FormData) {
-  await requireAuth();
-  await saveCannedAnswer({
+  const user = await requireUser();
+  await saveCannedAnswer(user.id, {
     id: String(formData.get("id") ?? "").trim() || undefined,
     question: String(formData.get("question") ?? ""),
     answer: String(formData.get("answer") ?? ""),
@@ -645,9 +715,9 @@ export async function saveCanned(formData: FormData) {
 }
 
 export async function deleteCanned(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();
-  if (id) await deleteCannedAnswer(id);
+  if (id) await deleteCannedAnswer(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -655,10 +725,10 @@ export async function deleteCanned(formData: FormData) {
 // Thin auth wrappers; the logic lives in lib/directives.ts so it stays testable.
 
 export async function saveDirectiveAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const kind = String(formData.get("kind") ?? "");
   if (!DIRECTIVE_KINDS.includes(kind as DirectiveKind)) return;
-  await saveDirective({
+  await saveDirective(user.id, {
     id: String(formData.get("id") ?? "").trim() || undefined,
     kind: kind as DirectiveKind,
     text: String(formData.get("text") ?? ""),
@@ -669,9 +739,9 @@ export async function saveDirectiveAction(formData: FormData) {
 }
 
 export async function deleteDirectiveAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();
-  if (id) await deleteDirective(id);
+  if (id) await deleteDirective(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -679,8 +749,8 @@ export async function deleteDirectiveAction(formData: FormData) {
 // Thin auth wrappers; the logic lives in lib/addressBook.ts so it stays testable.
 
 export async function saveAddressBookAction(formData: FormData) {
-  await requireAuth();
-  const error = await saveAddressBookEntry({
+  const user = await requireUser();
+  const error = await saveAddressBookEntry(user.id, {
     id: String(formData.get("id") ?? "").trim() || undefined,
     name: String(formData.get("name") ?? ""),
     details: String(formData.get("details") ?? ""),
@@ -705,13 +775,13 @@ export async function saveAddressBookAction(formData: FormData) {
  * looking complete.
  */
 export async function syncGmailContactsAction() {
-  await requireAuth();
+  const user = await requireUser();
   const { gmailReader } = await import("@/lib/gmail/client");
   const { syncSentContacts } = await import("@/lib/gmail/sync");
 
   let message: string;
   try {
-    const r = await syncSentContacts({ reader: gmailReader });
+    const r = await syncSentContacts({ userId: user.id, reader: gmailReader(user.id) });
     if (!r.ok) {
       message = `Sync failed: ${r.error ?? "unknown error"}`;
     } else {
@@ -732,9 +802,9 @@ export async function syncGmailContactsAction() {
 }
 
 export async function disconnectGmailAction() {
-  await requireAuth();
+  const user = await requireUser();
   const { disconnectGmail } = await import("@/lib/gmail/client");
-  await disconnectGmail();
+  await disconnectGmail(user.id);
   revalidatePath("/admin/dashboard");
   redirect(
     "/admin/dashboard?tab=contacts&gmail=" +
@@ -743,9 +813,9 @@ export async function disconnectGmailAction() {
 }
 
 export async function deleteAddressBookAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();
-  if (id) await deleteAddressBookEntry(id);
+  if (id) await deleteAddressBookEntry(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -755,11 +825,11 @@ export async function deleteAddressBookAction(formData: FormData) {
  * and logs, rather than throwing an error page over the whole dashboard.
  */
 export async function redraftCanned(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();
   if (!id) return;
   try {
-    await redraftAnswer(id);
+    await redraftAnswer(user.id, id);
   } catch (e) {
     console.error(`redraftCanned(${id}) failed:`, e);
   }
@@ -767,9 +837,9 @@ export async function redraftCanned(formData: FormData) {
 }
 
 export async function deleteCard(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();
-  if (id) await deleteUiCard(id);
+  if (id) await deleteUiCard(user.id, id);
   revalidatePath("/admin/dashboard");
 }
 
@@ -783,8 +853,8 @@ export async function saveBuiltCard(input: {
   key?: string;
   draft: CardDraft;
 }): Promise<{ ok: boolean; error?: string }> {
-  await requireAuth();
-  const error = await saveUiCard({
+  const user = await requireUser();
+  const error = await saveUiCard(user.id, {
     id: input.id,
     key: input.key ?? "",
     label: input.draft.label,
@@ -802,8 +872,8 @@ export async function saveBuiltCard(input: {
 
 /** Create a new ingestion source from /admin/sources/new. */
 export async function createIngestionSourceAction(formData: FormData) {
-  await requireAuth();
-  const error = await saveIngestionSource({
+  const user = await requireUser();
+  const error = await saveIngestionSource(user.id, {
     key: String(formData.get("key") ?? ""),
     label: String(formData.get("label") ?? ""),
     description: String(formData.get("description") ?? ""),
@@ -824,8 +894,8 @@ export async function createIngestionSourceAction(formData: FormData) {
 
 /** Ingest pasted text into a custom source's marked rows. */
 export async function ingestCustomTextAction(formData: FormData) {
-  await requireAuth();
-  await ingestCustomText(String(formData.get("sourceKey") ?? ""), {
+  const user = await requireUser();
+  await ingestCustomText(user.id, String(formData.get("sourceKey") ?? ""), {
     title: String(formData.get("title") ?? ""),
     text: String(formData.get("text") ?? ""),
     classification: String(formData.get("classification") ?? ""),
@@ -835,8 +905,9 @@ export async function ingestCustomTextAction(formData: FormData) {
 
 /** Scan a URL into a custom source's marked rows. */
 export async function ingestCustomUrlAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   await ingestCustomUrl(
+    user.id,
     String(formData.get("sourceKey") ?? ""),
     String(formData.get("url") ?? ""),
     undefined,
@@ -848,10 +919,11 @@ export async function ingestCustomUrlAction(formData: FormData) {
 
 /** Ingest an uploaded document into a custom source's marked rows. */
 export async function ingestCustomFileAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const file = formData.get("file");
   if (!isUpload(file) || file.size === 0) return;
   await ingestCustomFile(
+    user.id,
     String(formData.get("sourceKey") ?? ""),
     Buffer.from(await file.arrayBuffer()),
     file.name,
@@ -864,8 +936,9 @@ export async function ingestCustomFileAction(formData: FormData) {
 
 /** Delete one ingested item from a custom source (content, not config). */
 export async function deleteIngestedItemAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   await deleteIngestedItem(
+    user.id,
     String(formData.get("sourceKey") ?? ""),
     String(formData.get("itemId") ?? ""),
   );
@@ -874,10 +947,11 @@ export async function deleteIngestedItemAction(formData: FormData) {
 
 /** Ingest an image into a custom source's marked rows. */
 export async function ingestCustomImageAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const file = formData.get("file");
   if (!isUpload(file) || file.size === 0) return;
   await ingestCustomImage(
+    user.id,
     String(formData.get("sourceKey") ?? ""),
     Buffer.from(await file.arrayBuffer()),
     file.type,
@@ -901,8 +975,8 @@ export async function saveBuiltSourceAction(draft: {
   classification?: string;
   outputMethod: string;
 }): Promise<{ ok: boolean; error?: string; key?: string }> {
-  await requireAuth();
-  const error = await saveIngestionSource({
+  const user = await requireUser();
+  const error = await saveIngestionSource(user.id, {
     key: draft.key,
     label: draft.label,
     description: draft.description,
@@ -918,7 +992,10 @@ export async function saveBuiltSourceAction(draft: {
   revalidateAll();
   // The saved key may differ from the draft's (slugified, collision-suffixed);
   // the newest row is the one this save just created.
-  const saved = await prisma.ingestionSource.findFirst({ orderBy: { createdAt: "desc" } });
+  const saved = await prisma.ingestionSource.findFirst({
+    where: { userId: user.id },
+    orderBy: { createdAt: "desc" },
+  });
   return { ok: true, key: saved?.key };
 }
 
@@ -941,13 +1018,15 @@ export async function updateBuiltSourceAction(draft: {
   classification?: string;
   outputMethod: string;
 }): Promise<{ ok: boolean; error?: string; key?: string }> {
-  await requireAuth();
+  const user = await requireUser();
   if (!(await isEditAuthed())) {
     return { ok: false, error: "The edit session expired — go back and unlock again." };
   }
-  const existing = await prisma.ingestionSource.findUnique({ where: { id: draft.id } });
+  const existing = await prisma.ingestionSource.findFirst({
+    where: { id: draft.id, userId: user.id },
+  });
   if (!existing) return { ok: false, error: "This ingestion source no longer exists." };
-  const error = await saveIngestionSource({
+  const error = await saveIngestionSource(user.id, {
     id: draft.id,
     key: draft.key,
     label: draft.label,
@@ -964,7 +1043,9 @@ export async function updateBuiltSourceAction(draft: {
   });
   if (error) return { ok: false, error };
   revalidateAll();
-  const saved = await prisma.ingestionSource.findUnique({ where: { id: draft.id } });
+  const saved = await prisma.ingestionSource.findFirst({
+    where: { id: draft.id, userId: user.id },
+  });
   return { ok: true, key: saved?.key };
 }
 
@@ -975,7 +1056,7 @@ async function requireEditAuth(key: string) {
 
 /** Check the locally-stored edit password and unlock an edit session. */
 export async function unlockIngestionEditAction(formData: FormData) {
-  await requireAuth();
+  await requireUser();
   const key = String(formData.get("key") ?? "");
   if (!checkEditPassword(String(formData.get("password") ?? ""))) {
     redirect(`/admin/sources/${key}?error=1`);
@@ -990,7 +1071,7 @@ export async function unlockIngestionEditAction(formData: FormData) {
  * zone is the only caller and requires an explicit confirmation checkbox.
  */
 export async function deleteIngestionSourceAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const key = String(formData.get("key") ?? "");
   await requireEditAuth(key);
   // The checkbox is `required` client-side; re-check server-side so a raw
@@ -999,25 +1080,25 @@ export async function deleteIngestionSourceAction(formData: FormData) {
     redirect(`/admin/sources/${key}?error=${encodeURIComponent("Tick the confirmation box to delete this source.")}`);
   }
   const id = String(formData.get("id") ?? "");
-  if (id) await deleteIngestionSourceAndData(id);
+  if (id) await deleteIngestionSourceAndData(user.id, id);
   revalidateAll();
   redirect("/admin/dashboard?tab=content");
 }
 
 /** Hide or show a source's Content tab. Reversible, so admin auth suffices. */
 export async function setIngestionSourceHiddenAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const id = String(formData.get("id") ?? "");
-  if (id) await setIngestionSourceHidden(id, formData.get("hidden") === "1");
+  if (id) await setIngestionSourceHidden(user.id, id, formData.get("hidden") === "1");
   revalidateAll();
 }
 
 /** Save edits to an existing ingestion source (config, not content). */
 export async function updateIngestionSourceAction(formData: FormData) {
-  await requireAuth();
+  const user = await requireUser();
   const key = String(formData.get("key") ?? "");
   await requireEditAuth(key);
-  const error = await saveIngestionSource({
+  const error = await saveIngestionSource(user.id, {
     id: String(formData.get("id") ?? ""),
     key,
     label: String(formData.get("label") ?? ""),

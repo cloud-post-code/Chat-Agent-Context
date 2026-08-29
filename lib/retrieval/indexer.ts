@@ -19,6 +19,9 @@ import {
  * replaced wholesale, entities and edges are upserted, so entities named in
  * two different origins converge on one row and the graph links across them.
  *
+ * Everything is scoped to one user: origin ids like "profile" repeat across
+ * tenants, and one tenant's graph must never link into another's.
+ *
  * Callers treat this as best-effort: a thrown error must not fail the admin
  * save that triggered it, so call sites wrap it in a catch.
  */
@@ -43,10 +46,10 @@ export type OriginInput = {
  * to reach the graph too — a relation whose last owner is gone would otherwise
  * keep being fed to the model as fact long after its source was deleted.
  */
-export async function dropOrigin(kind: string, id: string): Promise<void> {
-  await prisma.chunk.deleteMany({ where: { originKind: kind, originId: id } });
-  await retractEdgeOwnership(kind, id);
-  await pruneUnsupportedEntities();
+export async function dropOrigin(userId: string, kind: string, id: string): Promise<void> {
+  await prisma.chunk.deleteMany({ where: { userId, originKind: kind, originId: id } });
+  await retractEdgeOwnership(userId, kind, id);
+  await pruneUnsupportedEntities(userId);
 }
 
 /**
@@ -57,15 +60,17 @@ export async function dropOrigin(kind: string, id: string): Promise<void> {
  * either hand-added on the Graph tab or predates provenance, and neither may be
  * swept up here.
  */
-async function retractEdgeOwnership(kind: string, id: string): Promise<void> {
+async function retractEdgeOwnership(userId: string, kind: string, id: string): Promise<void> {
   const owned = await prisma.entityEdgeOrigin.findMany({
-    where: { originKind: kind, originId: id },
+    where: { userId, originKind: kind, originId: id },
     select: { edgeId: true },
   });
   if (!owned.length) return;
 
   const edgeIds = [...new Set(owned.map((o) => o.edgeId))];
-  await prisma.entityEdgeOrigin.deleteMany({ where: { originKind: kind, originId: id } });
+  await prisma.entityEdgeOrigin.deleteMany({
+    where: { userId, originKind: kind, originId: id },
+  });
   await prisma.entityEdge.deleteMany({
     where: { id: { in: edgeIds }, origins: { none: {} } },
   });
@@ -77,9 +82,9 @@ async function retractEdgeOwnership(kind: string, id: string): Promise<void> {
  * edge is kept on purpose: the extractor creates edge endpoints it never
  * describes, and they still carry the relation.
  */
-async function pruneUnsupportedEntities(): Promise<void> {
+async function pruneUnsupportedEntities(userId: string): Promise<void> {
   await prisma.entity.deleteMany({
-    where: { mentions: { none: {} }, edgesOut: { none: {} }, edgesIn: { none: {} } },
+    where: { userId, mentions: { none: {} }, edgesOut: { none: {} }, edgesIn: { none: {} } },
   });
 }
 
@@ -93,34 +98,41 @@ async function pruneUnsupportedEntities(): Promise<void> {
  * has actually returned. Retracting them here instead would mean a flaky
  * extraction call silently deletes relations the origin still asserts.
  */
-async function clearOriginChunks(origin: OriginInput): Promise<void> {
+async function clearOriginChunks(userId: string, origin: OriginInput): Promise<void> {
   await prisma.chunk.deleteMany({
-    where: { originKind: origin.kind, originId: origin.id },
+    where: { userId, originKind: origin.kind, originId: origin.id },
   });
   if (origin.sourceId) {
-    await prisma.chunk.deleteMany({ where: { sourceId: origin.sourceId, originId: "" } });
+    await prisma.chunk.deleteMany({
+      where: { userId, sourceId: origin.sourceId, originId: "" },
+    });
   }
 }
 
-export async function indexOrigin(origin: OriginInput, opts: IndexOpts = {}): Promise<void> {
+export async function indexOrigin(
+  userId: string,
+  origin: OriginInput,
+  opts: IndexOpts = {},
+): Promise<void> {
   const text = origin.text.trim();
   // An origin with no text asserts nothing — retract its claims as well as its
   // chunks, the same as if it had been deleted.
   if (!text) {
-    await clearOriginChunks(origin);
-    return dropOrigin(origin.kind, origin.id);
+    await clearOriginChunks(userId, origin);
+    return dropOrigin(userId, origin.kind, origin.id);
   }
 
   const pieces = chunkText(text);
   const { vectors, model } = await embedTexts(pieces);
 
   // Replace this origin's chunks (mentions cascade away with them).
-  await clearOriginChunks(origin);
+  await clearOriginChunks(userId, origin);
   const written: { id: string; text: string }[] = [];
   for (let i = 0; i < pieces.length; i++) {
     const v = vectors[i];
     const c = await prisma.chunk.create({
       data: {
+        userId,
         originKind: origin.kind,
         originId: origin.id,
         originLabel: origin.label,
@@ -141,6 +153,7 @@ export async function indexOrigin(origin: OriginInput, opts: IndexOpts = {}): Pr
   // Best-effort: an empty list only costs dedup quality, never the index.
   const known = await prisma.entity
     .findMany({
+      where: { userId },
       select: { name: true },
       orderBy: { mentions: { _count: "desc" } },
       take: MAX_KNOWN_IN_PROMPT,
@@ -156,16 +169,21 @@ export async function indexOrigin(origin: OriginInput, opts: IndexOpts = {}): Pr
   } catch {
     return;
   }
-  await persistGraph(graph, written, origin);
+  await persistGraph(userId, graph, written, origin);
 }
 
 /** Index one Source (the Knowledge tab's links, PDFs and notes). */
-export async function indexSource(sourceId: string, opts: IndexOpts = {}): Promise<void> {
-  const src = await prisma.source.findUnique({ where: { id: sourceId } });
-  if (!src) return dropOrigin("source", sourceId);
+export async function indexSource(
+  userId: string,
+  sourceId: string,
+  opts: IndexOpts = {},
+): Promise<void> {
+  const src = await prisma.source.findFirst({ where: { id: sourceId, userId } });
+  if (!src) return dropOrigin(userId, "source", sourceId);
 
   const label = src.title ?? src.url ?? src.filename ?? "source";
   await indexOrigin(
+    userId,
     {
       kind: "source",
       id: sourceId,
@@ -190,7 +208,7 @@ export type EmbedBackfill = {
 };
 
 /**
- * Embed the chunks that have no embedding, and nothing else.
+ * Embed one user's chunks that have no embedding, and nothing else.
  *
  * A provider hiccup during indexing leaves chunks unembedded on purpose (see
  * `embed.ts`): the text, its mentions and the graph it fed are all intact and
@@ -211,13 +229,14 @@ export type EmbedBackfill = {
  * rather than discarding the batches that worked.
  */
 export async function embedMissingChunks(
+  userId: string,
   opts: { batchSize?: number; embed?: typeof embedTexts } = {},
 ): Promise<EmbedBackfill> {
   const batchSize = Math.max(1, opts.batchSize ?? EMBED_BACKFILL_BATCH);
   const embed = opts.embed ?? embedTexts;
 
   const pending = await prisma.chunk.findMany({
-    where: { embedding: null },
+    where: { userId, embedding: null },
     select: { id: true, text: true },
   });
 
@@ -242,6 +261,7 @@ export async function embedMissingChunks(
 }
 
 async function persistGraph(
+  userId: string,
   graph: ExtractedGraph,
   chunks: { id: string; text: string }[],
   origin: OriginInput,
@@ -251,12 +271,12 @@ async function persistGraph(
   // captured before the rewrite so the edges can be pruned after it.
   const priorEdgeIds = (
     await prisma.entityEdgeOrigin.findMany({
-      where: { originKind: origin.kind, originId: origin.id },
+      where: { userId, originKind: origin.kind, originId: origin.id },
       select: { edgeId: true },
     })
   ).map((o) => o.edgeId);
   await prisma.entityEdgeOrigin.deleteMany({
-    where: { originKind: origin.kind, originId: origin.id },
+    where: { userId, originKind: origin.kind, originId: origin.id },
   });
 
   // Upsert every named entity — including edge endpoints the extractor didn't
@@ -272,9 +292,9 @@ async function persistGraph(
   const idByKey = new Map<string, string>();
   for (const [key, e] of wanted) {
     const row = await prisma.entity.upsert({
-      where: { key },
+      where: { userId_key: { userId, key } },
       update: {},
-      create: { key, name: e.name, type: e.type },
+      create: { userId, key, name: e.name, type: e.type },
       select: { id: true },
     });
     idByKey.set(key, row.id);
@@ -308,7 +328,7 @@ async function persistGraph(
     // Claim it for this origin. Another origin asserting the same relation
     // keeps its own row, so the edge survives until the last owner is gone.
     await prisma.entityEdgeOrigin.createMany({
-      data: [{ edgeId: edge.id, originKind: origin.kind, originId: origin.id }],
+      data: [{ userId, edgeId: edge.id, originKind: origin.kind, originId: origin.id }],
       skipDuplicates: true,
     });
   }
@@ -319,5 +339,5 @@ async function persistGraph(
       where: { id: { in: priorEdgeIds }, origins: { none: {} } },
     });
   }
-  await pruneUnsupportedEntities();
+  await pruneUnsupportedEntities(userId);
 }

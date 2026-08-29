@@ -145,12 +145,19 @@ export type BuildOverviewOpts = { summarize?: ClusterSummarizer };
  * a provider hiccup would be a regression); overviews whose cluster no longer
  * exists are swept. Returns how many overviews were (re)written.
  */
-export async function buildClusterOverviews(opts: BuildOverviewOpts = {}): Promise<number> {
+export async function buildClusterOverviews(
+  userId: string,
+  opts: BuildOverviewOpts = {},
+): Promise<number> {
   const [entities, edges] = await Promise.all([
     prisma.entity.findMany({
+      where: { userId },
       select: { id: true, name: true, _count: { select: { mentions: true } } },
     }),
-    prisma.entityEdge.findMany({ select: { fromId: true, toId: true } }),
+    prisma.entityEdge.findMany({
+      where: { from: { userId } },
+      select: { fromId: true, toId: true },
+    }),
   ]);
   const clusters = computeClusters(
     entities.map((e) => ({ id: e.id, name: e.name, mentions: e._count.mentions })),
@@ -195,6 +202,7 @@ export async function buildClusterOverviews(opts: BuildOverviewOpts = {}): Promi
     }
 
     await indexOrigin(
+      userId,
       { kind: CLUSTER_KIND, id: originId, label: `Overview — ${c.label}`, text: summary },
       // Empty extraction on purpose: synthetic prose must not feed the graph.
       { extract: async () => ({ entities: [], edges: [] }) },
@@ -204,7 +212,7 @@ export async function buildClusterOverviews(opts: BuildOverviewOpts = {}): Promi
   }
 
   await prisma.chunk.deleteMany({
-    where: { originKind: CLUSTER_KIND, originId: { notIn: keep } },
+    where: { userId, originKind: CLUSTER_KIND, originId: { notIn: keep } },
   });
   return written;
 }
@@ -238,19 +246,19 @@ export function isBroadQuery(
  * The overview block for a broad question, or null when the question is
  * specific (let retrieval handle it) or no overviews exist yet.
  */
-export async function broadOverviews(query: string): Promise<string | null> {
+export async function broadOverviews(userId: string, query: string): Promise<string | null> {
   const q = query.trim();
   if (!q) return null;
 
   const overviews = await prisma.chunk.findMany({
-    where: { originKind: CLUSTER_KIND },
+    where: { userId, originKind: CLUSTER_KIND },
     orderBy: { originLabel: "asc" },
     select: { originLabel: true, text: true },
   });
   if (!overviews.length) return null;
 
   const docs = await prisma.chunk.findMany({
-    where: { originKind: { not: CLUSTER_KIND } },
+    where: { userId, originKind: { not: CLUSTER_KIND } },
     select: { text: true },
   });
   if (!docs.length) return null;
@@ -259,7 +267,7 @@ export async function broadOverviews(query: string): Promise<string | null> {
   for (const d of docs) {
     for (const t of new Set(tokenize(d.text))) df.set(t, (df.get(t) ?? 0) + 1);
   }
-  const ownerProfile = await getProfile();
+  const ownerProfile = await getProfile(userId);
   const owner = new Set(tokenize(`${ownerProfile.company_name} ${ownerProfile.owner_name}`));
   if (!isBroadQuery(tokenize(q), df, docs.length, owner)) return null;
 

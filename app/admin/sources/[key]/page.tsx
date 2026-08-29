@@ -1,7 +1,7 @@
 import React from "react";
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { isAuthed } from "@/lib/auth";
+import { currentUser } from "@/lib/auth";
 import { isEditAuthed } from "@/lib/ingestionAuth";
 import { getIngestionSource, UPLOAD_METHODS, STORAGE_KINDS } from "@/lib/ingestionSources";
 import { listIngestedItems } from "@/lib/ingestedItems";
@@ -34,17 +34,18 @@ export default async function EditIngestionSourcePage({
   params: Promise<{ key: string }>;
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if (!(await isAuthed())) redirect("/admin");
+  const user = await currentUser();
+  if (!user) redirect("/admin");
   const { key } = await params;
   const query = await searchParams;
   const error = Array.isArray(query.error) ? query.error[0] : query.error;
 
-  const row = await getIngestionSource(key);
+  const row = await getIngestionSource(user.id, key);
   if (!row) notFound();
   const unlocked = await isEditAuthed();
   // How much the Danger zone's delete would destroy — counted lazily so a
   // locked page never pays for it.
-  const itemCount = unlocked ? (await listIngestedItems(row.key)).length : 0;
+  const itemCount = unlocked ? (await listIngestedItems(user.id, row.key)).length : 0;
 
   return (
     <main

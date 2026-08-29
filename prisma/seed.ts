@@ -1,35 +1,15 @@
-import { PrismaClient } from "@prisma/client";
-
-const prisma = new PrismaClient();
-
 /**
- * Seeds the three singleton config rows so the site works out of the box.
- * Edit all of this later in the admin portal — it's just a starting point.
+ * Multi-tenant note: per-user starter rows (Profile, PersonaConfig,
+ * ThemeConfig, ingestion sources, A2UI cards, canned answers) are provisioned
+ * at signup and re-checked at boot by lib/bootstrap.ts, so there is nothing
+ * global left to seed. Kept as an explicit no-op so `prisma db seed` stays a
+ * safe command.
  */
 async function main() {
-  await prisma.profile.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
-  await prisma.personaConfig.upsert({
-    where: { id: 1 },
-    update: {},
-    create: {
-      id: 1,
-      tagline: "Here to help. Ask us anything.",
-      personaSections: JSON.stringify({
-        persona:
-          "Warm, helpful, and genuine. Talks like a knowledgeable member of the team, " +
-          "not a brochure. Plainspoken, allergic to buzzwords, and honest about what " +
-          "it doesn't know.",
-      }),
-    },
-  });
-  await prisma.themeConfig.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
-
-  console.log("Seeded Profile, PersonaConfig, and ThemeConfig.");
+  console.log("Nothing to seed: per-user defaults are provisioned at signup/boot.");
 }
 
-main()
-  .catch((e) => {
-    console.error(e);
-    process.exit(1);
-  })
-  .finally(() => prisma.$disconnect());
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});

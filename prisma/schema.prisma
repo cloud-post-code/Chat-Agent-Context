@@ -1,7 +1,6 @@
-// Prisma schema for Blake's personal site.
-// Production/Railway: Postgres. This file is currently in SQLite mode for local
-// dev. At push/deploy time, run `node scripts/use-postgres.mjs` to switch the
-// provider to "postgresql" and re-add long-text annotations.
+// Prisma schema for the multi-tenant agent-page platform.
+// Production/Railway: Postgres. Applied via `prisma migrate deploy` (see
+// scripts/migrate.mjs) — never `db push` against a real database.
 
 generator client {
   provider = "prisma-client-js"
@@ -12,14 +11,54 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/// One account: the owner of exactly one public agent page and the admin
+/// dashboard behind it. Every tenant model below hangs off this row (directly
+/// or through its parent), so deleting a user removes their whole tenant.
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  /// Display name, shown in the directory and the admin header.
+  name         String
+  /// URL slug for the public agent page: /a/<slug>.
+  slug         String   @unique
+  /// scrypt hash, "salt:hex" (see lib/auth.ts). Empty = unclaimed founder
+  /// account created by the migration; lib/bootstrap.ts fills it from env.
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sources             Source[]
+  chunks              Chunk[]
+  entities            Entity[]
+  edgeOrigins         EntityEdgeOrigin[]
+  mergeDismissals     MergeDismissal[]
+  photos              Photo[]
+  projects            Project[]
+  chatSessions        ChatSession[]
+  cannedAnswers       CannedAnswer[]
+  agentDirectives     AgentDirective[]
+  uiCards             UiCard[]
+  ingestionSources    IngestionSource[]
+  itemClassifications ItemClassification[]
+  addressBookEntries  AddressBookEntry[]
+  gmailAuth           GmailAuth?
+  contacts            Contact[]
+  profile             Profile?
+  personaConfig       PersonaConfig?
+  themeConfig         ThemeConfig?
+  a2aTasks            A2ATask[]
+}
+
 /// A unit of knowledge the chatbot can cite. Created from the unified
 /// "extraction" ingest: a URL, an uploaded PDF, or pasted text/markdown.
 model Source {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   /// link | pdf | text
   type      String   @default("link")
-  /// For link sources; unique so re-adding the same URL updates it.
-  url       String?  @unique
+  /// For link sources; unique per user so re-adding the same URL updates it.
+  url       String?
   /// Original filename for pdf/uploaded sources.
   filename  String?
   title     String?
@@ -38,13 +77,19 @@ model Source {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   chunks    Chunk[]
+
+  @@unique([userId, url])
+  @@index([userId])
 }
 
 /// A passage of a Source's raw text, embedded for retrieval. Chunks are
 /// rebuilt wholesale whenever their source is (re)indexed and cascade-delete
-/// with it.
+/// with it. Carries its own userId: chunks also derive from non-Source origins
+/// (profile, persona, projects...), and retrieval scans them per tenant.
 model Chunk {
   id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
   /// Which admin surface this chunk was derived from:
   /// source | profile | persona | project | photo | activity.
   /// Everything the admin curates feeds one index, not just Sources.
@@ -69,25 +114,30 @@ model Chunk {
   mentions   EntityMention[]
 
   @@index([sourceId])
-  @@index([originKind, originId])
+  @@index([userId, originKind, originId])
 }
 
 /// A named thing the knowledge base talks about (person, org, project, ...).
-/// `key` is the normalized lookup form (lowercased, single-spaced).
+/// `key` is the normalized lookup form (lowercased, single-spaced), unique
+/// per user so tenants' graphs never merge.
 model Entity {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   name      String
-  key       String   @unique
+  key       String
   /// person | org | project | skill | place | topic | event | other
   type      String   @default("topic")
   createdAt DateTime @default(now())
   mentions  EntityMention[]
   edgesOut  EntityEdge[] @relation("EdgeFrom")
   edgesIn   EntityEdge[] @relation("EdgeTo")
+
+  @@unique([userId, key])
 }
 
 /// Which chunks mention which entities. Used to hop from retrieved text to
-/// the graph and back.
+/// the graph and back. Scoped through both parents.
 model EntityMention {
   id       String @id @default(cuid())
   chunk    Chunk  @relation(fields: [chunkId], references: [id], onDelete: Cascade)
@@ -100,7 +150,8 @@ model EntityMention {
 }
 
 /// A directed, labeled relation between two entities ("Zephyrwind —developed
-/// at→ Aeolus Labs"). Powers one-hop expansion at retrieval time.
+/// at→ Aeolus Labs"). Powers one-hop expansion at retrieval time. Scoped
+/// through its endpoints (both always belong to one user).
 model EntityEdge {
   id       String @id @default(cuid())
   from     Entity @relation("EdgeFrom", fields: [fromId], references: [id], onDelete: Cascade)
@@ -122,8 +173,13 @@ model EntityEdge {
 /// by hand on the Graph tab and every edge written before provenance existed.
 /// Only an edge whose ownership was recorded and then fully retracted is
 /// deleted, so adding this table can't silently empty an existing graph.
+///
+/// Carries userId directly: origin ids like "profile" repeat across tenants,
+/// so lookups by (originKind, originId) must be scoped here.
 model EntityEdgeOrigin {
   id         String     @id @default(cuid())
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
   edge       EntityEdge @relation(fields: [edgeId], references: [id], onDelete: Cascade)
   edgeId     String
   /// Matches Chunk.originKind / Chunk.originId.
@@ -131,7 +187,7 @@ model EntityEdgeOrigin {
   originId   String
 
   @@unique([edgeId, originKind, originId])
-  @@index([originKind, originId])
+  @@index([userId, originKind, originId])
 }
 
 /// A suggested-merge pair the admin rejected with "Don't merge". Keyed by the
@@ -140,17 +196,21 @@ model EntityEdgeOrigin {
 /// that two *names* are different things must survive that.
 model MergeDismissal {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   keyA      String
   keyB      String
   createdAt DateTime @default(now())
 
-  @@unique([keyA, keyB])
+  @@unique([userId, keyA, keyB])
 }
 
 /// An uploaded photo. On upload we ask Claude vision for a one-paragraph
 /// description; it's editable afterward. Exposed individually or in galleries.
 model Photo {
   id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
   /// Stored filename on the upload volume.
   filename    String
   /// One-paragraph AI (or manual) description.
@@ -160,11 +220,15 @@ model Photo {
   kind        String   @default("gallery")
   order       Int      @default(0)
   createdAt   DateTime @default(now())
+
+  @@index([userId])
 }
 
 /// A curated project. Each has up to two links: a GitHub repo and a live URL.
 model Project {
   id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
   name        String
   blurb       String @db.Text
   /// Longer AI-enriched write-up, shown when a card's "Learn more" expands.
@@ -177,24 +241,32 @@ model Project {
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@index([userId])
 }
 
-/// A single visitor conversation with the chatbot. One row per browser
+/// A single visitor conversation with one user's chatbot. One row per browser
 /// session (the client sends a stable sessionId); messages hang off it so the
 /// admin "Activity" tab can replay what people are asking.
 model ChatSession {
   id         String        @id @default(cuid())
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId     String
   /// Stable id generated client-side and reused across a visitor's turns.
-  visitorKey String        @unique
+  /// Unique per user: the same browser can talk to two agent pages.
+  visitorKey String
   /// First user question — a quick label for the conversation list.
   firstQuery String        @default("") @db.Text
   messages   ChatMessage[]
   createdAt  DateTime      @default(now())
   updatedAt  DateTime      @updatedAt
+
+  @@unique([userId, visitorKey])
 }
 
 /// One message inside a ChatSession: either the visitor's question or the
-/// bot's answer. Text only — rendered cards aren't stored.
+/// bot's answer. Text only — rendered cards aren't stored. Scoped through the
+/// session.
 model ChatMessage {
   id        String      @id @default(cuid())
   session   ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -207,8 +279,8 @@ model ChatMessage {
   // ── Admin feedback (set from the Activity tab, only on assistant messages) ──
   /// null = unrated, "up" = good answer, "down" = bad answer.
   rating    String?
-  /// Blake's correction: what the bot should have done instead. When set on a
-  /// "down"-rated message, it's injected into future system prompts as guidance.
+  /// The owner's correction: what the bot should have done instead. When set
+  /// on a "down"-rated message, it's injected into future system prompts.
   note      String? @db.Text
 
   @@index([sessionId])
@@ -221,21 +293,23 @@ model ChatMessage {
 /// response, so the question falls through to the model until it's filled in.
 model CannedAnswer {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   /// The question as written, shown in the admin list.
   question  String @db.Text
   /// `question` run through normalizeQuestion() — the actual lookup key.
-  matchKey  String   @unique
+  matchKey  String
   /// The answer text. Empty means "not written yet": falls through to the model.
   answer    String   @default("") @db.Text
-  /// True while `answer` is a model-written draft Blake hasn't reviewed. A
+  /// True while `answer` is a model-written draft the owner hasn't reviewed. A
   /// draft is served exactly like a hand-written answer — it comes from the
   /// same retrieval + persona prompt the chatbot would have used — so this is
   /// an admin-facing distinction only: it drives the "unreviewed" marker and is
-  /// cleared the moment Blake saves the row.
+  /// cleared the moment the owner saves the row.
   aiDraft   Boolean  @default(false)
   /// When a draft was last generated for this row. Non-null means the automatic
   /// pass has already spent its one shot here and must never fire again — so a
-  /// row Blake deliberately empties stays empty instead of refilling itself.
+  /// row the owner deliberately empties stays empty instead of refilling itself.
   draftedAt DateTime?
   /// Optional card to render alongside the answer, named by the tool that
   /// would have drawn it: show_projects | show_project | show_gallery |
@@ -250,6 +324,8 @@ model CannedAnswer {
   order     Int      @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, matchKey])
 }
 
 /// One behavioral directive for the chatbot, written on the admin Agent
@@ -259,6 +335,8 @@ model CannedAnswer {
 /// their text but are invisible to the prompt.
 model AgentDirective {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   /// "goal" | "rule" — which Agent Behavior tab owns the row.
   kind      String
   text      String   @db.Text
@@ -268,18 +346,20 @@ model AgentDirective {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([kind])
+  @@index([userId, kind])
 }
 
 /// One A2UI card the admin curates: what it's called, which tool draws it,
 /// when the agent should reach for it, and a stored sample payload the admin
-/// tab renders as a preview. The starter set is seeded once into an empty
-/// table; after that the rows are Blake's to edit, add to, or delete —
+/// tab renders as a preview. The starter set is seeded per user at signup;
+/// after that the rows are the owner's to edit, add to, or delete —
 /// re-seeding would resurrect deliberate deletions.
 model UiCard {
   id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
   /// Stable slug ("gallery-carousel") — the anchor id on the admin tab.
-  key         String   @unique
+  key         String
   /// Human name shown as the card's heading ("Gallery — carousel").
   label       String
   /// The A2UI tool that draws it: show_projects | show_project | show_gallery
@@ -297,20 +377,24 @@ model UiCard {
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  @@unique([userId, key])
 }
 
 /// One admin ingestion source: a Content tab the dashboard renders, stored as
 /// data the way A2UI cards are. The row holds the source's code (key), how
 /// content gets in (uploadMethod), the uniform storage rule (storageKinds:
 /// every ingested piece is text or image), where it lands (outputMethod), and
-/// its own system prompt. The seven built-in tabs are seeded once into an
-/// empty table; after that the rows are Blake's — re-seeding would resurrect
+/// its own system prompt. The seven built-in tabs are seeded per user at
+/// signup; after that the rows are the owner's — re-seeding would resurrect
 /// deliberate deletions.
 model IngestionSource {
   id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
   /// Stable slug ("experience") — the source's code, used for deep links
   /// and panel dispatch.
-  key          String   @unique
+  key          String
   /// Human name shown on the tab ("Experience").
   label        String
   /// One line on what this source ingests.
@@ -345,6 +429,8 @@ model IngestionSource {
   order        Int      @default(0)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@unique([userId, key])
 }
 
 /// A per-item override of its ingestion source's classification: "this one
@@ -352,19 +438,18 @@ model IngestionSource {
 ///
 /// Keyed by `itemId` — the composite "<model>:<rowid>" id that
 /// lib/ingestedItems.ts already assigns every ingested item ("source:<cuid>",
-/// "photo:<cuid>", "experience:3", "persona:voice"). A separate table rather
-/// than a column because ingested items live across four backing tables and
-/// two of them (Experience, Persona) are JSON inside Profile with no row of
-/// their own to carry a column. This keeps the override uniform for every
-/// source, matching the way IngestedItem is a read-time projection.
+/// "photo:<cuid>", "experience:3", "persona:voice") — unique per user, since
+/// non-cuid item ids repeat across tenants.
 ///
 /// Absence of a row means "inherit the source's classification" — the default
 /// is never copied down, so re-classifying a source moves every item that
 /// hasn't been deliberately overridden.
 model ItemClassification {
   id             String   @id @default(cuid())
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
   /// "<model>:<rowid>", matching IngestedItem.id.
-  itemId         String   @unique
+  itemId         String
   /// Which source ingested the item, so a source's overrides can be swept
   /// when its data is deleted.
   sourceKey      String
@@ -373,16 +458,19 @@ model ItemClassification {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  @@index([sourceKey])
+  @@unique([userId, itemId])
+  @@index([userId, sourceKey])
 }
 
-/// One person in Blake's address book, curated on the Agent Behavior →
+/// One person in the owner's address book, curated on the Agent Behavior →
 /// Contacts tab. Distinct from `Contact` (in-chat form submissions): these are
-/// people Blake adds by hand, each reachable by email or phone and carrying a
-/// trust tier that mirrors the ingestion classifications
+/// people the owner adds by hand, each reachable by email or phone and
+/// carrying a trust tier that mirrors the ingestion classifications
 /// (public | co-worker | close-friend | personal).
 model AddressBookEntry {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   name      String
   /// Free-text notes about the person.
   details   String   @default("") @db.Text
@@ -394,11 +482,11 @@ model AddressBookEntry {
   trust     String   @default("public")
   order     Int      @default(0)
   /// Identity key for sent-mail ingestion: the email lowercased, with dots and
-  /// +tags folded ONLY for gmail.com/googlemail.com. Unique, so a re-sync
-  /// enriches the existing person instead of adding a second row. Empty for
-  /// hand-added contacts with no email — "" would collide under a plain
-  /// @unique, so those store null.
-  canonicalEmail String? @unique
+  /// +tags folded ONLY for gmail.com/googlemail.com. Unique per user, so a
+  /// re-sync enriches the existing person instead of adding a second row.
+  /// Empty for hand-added contacts with no email — "" would collide under the
+  /// unique, so those store null.
+  canonicalEmail String?
   /// How this contact arrived: manual | gmail.
   source         String  @default("manual")
   /// Sent messages seen for this person; accumulates across syncs.
@@ -407,25 +495,22 @@ model AddressBookEntry {
   lastContacted  DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@unique([userId, canonicalEmail])
 }
 
-/// The stored Gmail authorization, a fixed-id singleton — this is a
-/// single-admin site, and a table that can hold exactly one row is simpler
-/// than one that pretends otherwise.
+/// The stored Gmail authorization — one row per user.
 ///
 /// The refresh token lives here rather than in an env var so re-consent after
 /// a revoked or expired grant is a button in the dashboard instead of a
-/// redeploy. That matters more than usual here: Google's docs do not settle
-/// whether an unverified-but-Production app keeps a long-lived refresh token
-/// when a *restricted* scope (gmail.readonly) is involved.
-///
-/// Deliberately separate from the calendar credentials in env. Google issues
-/// one refresh token per OAuth client covering every consented scope, so a
-/// shared client would let a Gmail re-consent replace the token the booking
-/// flow depends on.
+/// redeploy. Deliberately separate from the calendar credentials in env:
+/// Google issues one refresh token per OAuth client covering every consented
+/// scope, so a shared client would let a Gmail re-consent replace the token
+/// the booking flow depends on.
 model GmailAuth {
-  /// Always "singleton".
-  id           String    @id @default("singleton")
+  id           String    @id @default(cuid())
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String    @unique
   refreshToken String    @db.Text
   /// The mailbox that granted access, for display in the admin panel.
   emailAddress String    @default("")
@@ -444,18 +529,24 @@ model GmailAuth {
 /// A contact submission captured by the in-chat A2UI contact form.
 model Contact {
   id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   name      String
   email     String
   message   String @db.Text
   handled   Boolean  @default(false)
   createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
-/// The single editable business identity. What the chatbot states as fact
+/// One user's editable business identity. What the chatbot states as fact
 /// about the business lives here; brand voice is PersonaConfig and the site's
 /// look is ThemeConfig.
 model Profile {
-  id                   Int      @id @default(1)
+  id                   Int      @id @default(autoincrement())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String   @unique
   company_name         String   @default("")
   owner_name           String   @default("")
   company_address      String   @default("")
@@ -466,9 +557,11 @@ model Profile {
   updatedAt            DateTime @updatedAt
 }
 
-/// Brand voice: what the chatbot sounds like and the face it shows.
+/// Brand voice: what one user's chatbot sounds like and the face it shows.
 model PersonaConfig {
-  id           Int     @id @default(1)
+  id           Int     @id @default(autoincrement())
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String  @unique
   /// /api/uploads/<file> — shown where the site needs a brand image.
   company_logo String?
   tagline      String  @default("")
@@ -478,9 +571,11 @@ model PersonaConfig {
   updatedAt    DateTime @updatedAt
 }
 
-/// Theme (drives the live site's CSS variables), edited on the Theme tab.
+/// Theme (drives one user's agent page CSS variables), edited on the Theme tab.
 model ThemeConfig {
-  id            Int    @id @default(1)
+  id            Int    @id @default(autoincrement())
+  user          User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String @unique
   /// Curated heading font key (see lib/fonts).
   themeFont     String @default("space-grotesk")
   /// Curated body/text font key (see lib/fonts).
@@ -498,8 +593,12 @@ model ThemeConfig {
   updatedAt     DateTime @updatedAt
 }
 
+/// An agent-to-agent task. The legacy A2A endpoint serves the founding user's
+/// agent; tasks are scoped so a future per-slug A2A surface slots in.
 model A2ATask {
   id        String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
   /// Groups tasks into one conversation. Reused as the chat sessionId, so an
   /// agent-to-agent conversation shows up in Activity like any visitor's.
   contextId String
@@ -522,4 +621,5 @@ model A2ATask {
   @@index([contextId])
   @@index([state])
   @@index([createdAt])
+  @@index([userId])
 }

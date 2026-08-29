@@ -9,10 +9,12 @@ import { prisma } from "@/lib/db";
  * reuses), so a whole conversation lands under a single ChatSession row.
  */
 export async function recordTurn({
+  userId,
   sessionId,
   question,
   answer,
 }: {
+  userId: string;
   sessionId: string;
   question: string;
   answer: string;
@@ -25,8 +27,8 @@ export async function recordTurn({
   const key = sessionId.trim() || `anon-${Date.now()}`;
 
   const session = await prisma.chatSession.upsert({
-    where: { visitorKey: key },
-    create: { visitorKey: key, firstQuery: q.slice(0, 300) },
+    where: { userId_visitorKey: { userId, visitorKey: key } },
+    create: { userId, visitorKey: key, firstQuery: q.slice(0, 300) },
     update: { updatedAt: new Date() },
   });
 

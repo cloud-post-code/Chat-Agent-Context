@@ -40,6 +40,7 @@ const BM25_K1 = 1.4;
 const BM25_B = 0.6;
 
 export async function retrieve(
+  userId: string,
   query: string,
   opts: { seedLimit?: number; graphLimit?: number; charBudget?: number } = {},
 ): Promise<Retrieval> {
@@ -50,7 +51,7 @@ export async function retrieve(
   // compete here would serve the same facts twice and crowd out primary
   // sources under the char budget.
   const chunks = await prisma.chunk.findMany({
-    where: { originKind: { not: "cluster" } },
+    where: { userId, originKind: { not: "cluster" } },
     include: { mentions: { select: { entityId: true } } },
   });
   if (chunks.length === 0) return { chunks: [], relations: [] };
@@ -105,6 +106,7 @@ export async function retrieve(
   const seedEntityIds = new Set(seeds.flatMap((s) => s.c.mentions.map((m) => m.entityId)));
   const q = query.toLowerCase();
   const allEntities = await prisma.entity.findMany({
+    where: { userId },
     select: { id: true, name: true, key: true },
   });
   for (const e of allEntities) if (q.includes(e.key)) seedEntityIds.add(e.id);

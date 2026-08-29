@@ -6,7 +6,8 @@ import { indexOrigin, dropOrigin, type IndexOpts } from "./indexer";
 
 /**
  * Turns every admin surface into indexable text, so one graph covers
- * everything Blake curates instead of just the Knowledge tab's sources.
+ * everything a user curates instead of just the Knowledge tab's sources.
+ * Every function is scoped to the owning user.
  *
  * Each function is best-effort at the call site: an indexing failure must
  * never fail the admin save that triggered it.
@@ -14,8 +15,8 @@ import { indexOrigin, dropOrigin, type IndexOpts } from "./indexer";
  * ACTIVITY IS DELIBERATELY APPROVAL-GATED. Visitors type into the public chat
  * box, so their words are untrusted input. Indexing raw conversations would let
  * anyone write into the knowledge base and have it retrieved later as fact.
- * Only an assistant answer Blake has rated "up" is indexed, so nothing crosses
- * from a visitor into knowledge without him endorsing it.
+ * Only an assistant answer the owner has rated "up" is indexed, so nothing
+ * crosses from a visitor into knowledge without the owner endorsing it.
  */
 
 export const ORIGIN_KINDS = [
@@ -36,8 +37,8 @@ export const ORIGIN_LABELS: Record<string, string> = {
 };
 
 /** The business identity from the Profile tab, as indexable prose. */
-export async function indexProfile(opts: IndexOpts = {}): Promise<void> {
-  const p = await getProfile();
+export async function indexProfile(userId: string, opts: IndexOpts = {}): Promise<void> {
+  const p = await getProfile(userId);
   const lines: string[] = [];
   if (p.company_name) lines.push(`The business is ${p.company_name}.`);
   if (p.owner_name) lines.push(`It is owned and run by ${p.owner_name}.`);
@@ -47,6 +48,7 @@ export async function indexProfile(opts: IndexOpts = {}): Promise<void> {
   if (p.company_hours) lines.push(`Hours: ${p.company_hours}.`);
 
   await indexOrigin(
+    userId,
     { kind: "profile", id: "profile", label: "Profile", text: lines.join("\n\n") },
     opts,
   );
@@ -75,8 +77,8 @@ export type PersonaIndexOpts = IndexOpts & { split?: PersonaSplitter };
  * This does not change the always-on PERSONA block in the system prompt; the
  * full paragraph still ships verbatim on every message.
  */
-export async function indexPersona(opts: PersonaIndexOpts = {}): Promise<void> {
-  const p = await getPersonaConfig();
+export async function indexPersona(userId: string, opts: PersonaIndexOpts = {}): Promise<void> {
+  const p = await getPersonaConfig(userId);
   const prose = personaPromptBlock(p.personaSections);
   const facts = await (opts.split ?? splitPersonaFacts)(prose);
 
@@ -84,6 +86,7 @@ export async function indexPersona(opts: PersonaIndexOpts = {}): Promise<void> {
   for (const f of facts) {
     const id = `${PERSONA_FACT_PREFIX}${f.slug}`;
     await indexOrigin(
+      userId,
       { kind: "persona", id, label: `Persona — ${f.topic}`, text: f.text },
       opts,
     );
@@ -92,13 +95,14 @@ export async function indexPersona(opts: PersonaIndexOpts = {}): Promise<void> {
   if (!facts.length) {
     // Empty prose lands here too, where indexOrigin retracts the origin.
     await indexOrigin(
+      userId,
       { kind: "persona", id: PERSONA_WHOLE_ID, label: "Persona", text: prose },
       opts,
     );
     written.push(PERSONA_WHOLE_ID);
   }
 
-  await sweepPersonaOrigins(written);
+  await sweepPersonaOrigins(userId, written);
 }
 
 /**
@@ -106,26 +110,30 @@ export async function indexPersona(opts: PersonaIndexOpts = {}): Promise<void> {
  *
  * The set of claims changes shape whenever the paragraph is edited, and
  * indexOrigin only ever replaces the id it was handed. Without this sweep a
- * claim Blake deleted keeps its chunks and its graph edges forever — and
- * retrieve() scans the whole chunk table, so the deleted text would go on being
- * fed to the model as fact. Lives here rather than in the admin action so
- * scripts/reindex.ts and indexEverything are cleaned up too.
+ * claim the owner deleted keeps its chunks and its graph edges forever — and
+ * retrieve() scans the whole per-user chunk table, so the deleted text would
+ * go on being fed to the model as fact. Lives here rather than in the admin
+ * action so scripts/reindex.ts and indexEverything are cleaned up too.
  */
-async function sweepPersonaOrigins(keep: string[]): Promise<void> {
+async function sweepPersonaOrigins(userId: string, keep: string[]): Promise<void> {
   const rows = await prisma.chunk.findMany({
-    where: { originKind: "persona" },
+    where: { userId, originKind: "persona" },
     distinct: ["originId"],
     select: { originId: true },
   });
   for (const r of rows) {
-    if (!keep.includes(r.originId)) await dropOrigin("persona", r.originId);
+    if (!keep.includes(r.originId)) await dropOrigin(userId, "persona", r.originId);
   }
 }
 
 /** One project card: name, blurb, the longer write-up, and its tags. */
-export async function indexProject(id: string, opts: IndexOpts = {}): Promise<void> {
-  const proj = await prisma.project.findUnique({ where: { id } });
-  if (!proj) return dropOrigin("project", id);
+export async function indexProject(
+  userId: string,
+  id: string,
+  opts: IndexOpts = {},
+): Promise<void> {
+  const proj = await prisma.project.findFirst({ where: { id, userId } });
+  if (!proj) return dropOrigin(userId, "project", id);
 
   const tags = safeTags(proj.tags);
   const text = [
@@ -139,39 +147,51 @@ export async function indexProject(id: string, opts: IndexOpts = {}): Promise<vo
     .join("\n\n");
 
   await indexOrigin(
+    userId,
     { kind: "project", id, label: `Project: ${proj.name}`, text },
     opts,
   );
 }
 
 /** A photo's caption and its vision-generated description. */
-export async function indexPhoto(id: string, opts: IndexOpts = {}): Promise<void> {
-  const photo = await prisma.photo.findUnique({ where: { id } });
-  if (!photo) return dropOrigin("photo", id);
+export async function indexPhoto(
+  userId: string,
+  id: string,
+  opts: IndexOpts = {},
+): Promise<void> {
+  const photo = await prisma.photo.findFirst({ where: { id, userId } });
+  if (!photo) return dropOrigin(userId, "photo", id);
 
   const text = [photo.caption?.trim() ?? "", photo.description?.trim() ?? ""]
     .filter(Boolean)
     .join("\n\n");
 
   await indexOrigin(
+    userId,
     { kind: "photo", id, label: `Photo: ${photo.filename}`, text },
     opts,
   );
 }
 
 /**
- * An answer Blake approved with 👍, indexed with the question it answered so
- * the pair reads as a self-contained fact. Any other rating drops it —
+ * An answer the owner approved with 👍, indexed with the question it answered
+ * so the pair reads as a self-contained fact. Any other rating drops it —
  * un-approving an answer removes it from knowledge.
  */
-export async function indexApprovedAnswer(messageId: string, opts: IndexOpts = {}): Promise<void> {
-  const msg = await prisma.chatMessage.findUnique({ where: { id: messageId } });
+export async function indexApprovedAnswer(
+  userId: string,
+  messageId: string,
+  opts: IndexOpts = {},
+): Promise<void> {
+  const msg = await prisma.chatMessage.findFirst({
+    where: { id: messageId, session: { userId } },
+  });
   if (!msg || msg.role !== "assistant" || msg.rating !== "up") {
-    return dropOrigin("activity", messageId);
+    return dropOrigin(userId, "activity", messageId);
   }
 
-  // The visitor's question is included only as context for an answer Blake
-  // already vouched for — it is never indexed on its own.
+  // The visitor's question is included only as context for an answer the
+  // owner already vouched for — it is never indexed on its own.
   const question = await prisma.chatMessage.findFirst({
     where: { sessionId: msg.sessionId, role: "user", createdAt: { lt: msg.createdAt } },
     orderBy: { createdAt: "desc" },
@@ -183,13 +203,14 @@ export async function indexApprovedAnswer(messageId: string, opts: IndexOpts = {
     .join("\n\n");
 
   await indexOrigin(
+    userId,
     { kind: "activity", id: messageId, label: "Approved answer", text },
     opts,
   );
 }
 
 /**
- * Re-index every origin. Used by scripts/reindex.ts.
+ * Re-index every origin one user owns. Used by scripts/reindex.ts.
  *
  * Paced: a backfill fires one embedding request per origin back to back, which
  * trips entry-tier per-minute limits and leaves chunks unembedded. The pause
@@ -198,6 +219,7 @@ export async function indexApprovedAnswer(messageId: string, opts: IndexOpts = {
  * Override with EMBED_PACE_MS (0 disables) when on a higher-limit plan.
  */
 export async function indexEverything(
+  userId: string,
   opts: IndexOpts & { onProgress?: (label: string) => void; paceMs?: number } = {},
 ): Promise<number> {
   const { onProgress, paceMs, ...indexOpts } = opts;
@@ -210,21 +232,27 @@ export async function indexEverything(
     onProgress?.(label);
   };
 
-  await step("Profile", () => indexProfile(indexOpts));
-  await step("Persona", () => indexPersona(indexOpts));
+  await step("Profile", () => indexProfile(userId, indexOpts));
+  await step("Persona", () => indexPersona(userId, indexOpts));
 
-  for (const p of await prisma.project.findMany({ select: { id: true, name: true } })) {
-    await step(`Project: ${p.name}`, () => indexProject(p.id, indexOpts));
+  for (const p of await prisma.project.findMany({
+    where: { userId },
+    select: { id: true, name: true },
+  })) {
+    await step(`Project: ${p.name}`, () => indexProject(userId, p.id, indexOpts));
   }
-  for (const ph of await prisma.photo.findMany({ select: { id: true, filename: true } })) {
-    await step(`Photo: ${ph.filename}`, () => indexPhoto(ph.id, indexOpts));
+  for (const ph of await prisma.photo.findMany({
+    where: { userId },
+    select: { id: true, filename: true },
+  })) {
+    await step(`Photo: ${ph.filename}`, () => indexPhoto(userId, ph.id, indexOpts));
   }
   const approved = await prisma.chatMessage.findMany({
-    where: { role: "assistant", rating: "up" },
+    where: { role: "assistant", rating: "up", session: { userId } },
     select: { id: true },
   });
   for (const m of approved) {
-    await step("Approved answer", () => indexApprovedAnswer(m.id, indexOpts));
+    await step("Approved answer", () => indexApprovedAnswer(userId, m.id, indexOpts));
   }
   return done;
 }

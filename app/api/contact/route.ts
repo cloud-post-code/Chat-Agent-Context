@@ -2,13 +2,23 @@ import { prisma } from "@/lib/db";
 
 export const runtime = "nodejs";
 
-/** Records a contact submission from the in-chat A2UI contact form. */
+/**
+ * Records a contact submission from the in-chat A2UI contact form. `slug`
+ * names whose agent page the form was on, so the submission lands in that
+ * owner's Contacts tab.
+ */
 export async function POST(req: Request) {
-  let body: { name?: string; email?: string; message?: string };
+  let body: { name?: string; email?: string; message?: string; slug?: string };
   try {
     body = await req.json();
   } catch {
     return Response.json({ ok: false, error: "Bad request" }, { status: 400 });
+  }
+
+  const slug = String(body.slug ?? "").trim();
+  const user = slug ? await prisma.user.findUnique({ where: { slug } }) : null;
+  if (!user) {
+    return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
   }
 
   const name = String(body.name ?? "").trim().slice(0, 200);
@@ -23,7 +33,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    await prisma.contact.create({ data: { name, email, message } });
+    await prisma.contact.create({ data: { userId: user.id, name, email, message } });
   } catch {
     return Response.json({ ok: false, error: "Could not save. Try again." }, { status: 500 });
   }

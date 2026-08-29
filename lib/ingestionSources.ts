@@ -125,18 +125,24 @@ export function ingestFormsFor(uploadMethod: string, storageKinds: string): Inge
   }
 }
 
-export async function listIngestionSources(): Promise<IngestionSourceRow[]> {
+export async function listIngestionSources(userId: string): Promise<IngestionSourceRow[]> {
   return prisma.ingestionSource.findMany({
+    where: { userId },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
   });
 }
 
-export async function getIngestionSource(key: string): Promise<IngestionSourceRow | null> {
-  return prisma.ingestionSource.findUnique({ where: { key } });
+export async function getIngestionSource(
+  userId: string,
+  key: string,
+): Promise<IngestionSourceRow | null> {
+  return prisma.ingestionSource.findUnique({
+    where: { userId_key: { userId, key } },
+  });
 }
 
 /** Write one row from the admin form. A blank id creates. */
-export async function saveIngestionSource(input: {
+export async function saveIngestionSource(userId: string, input: {
   id?: string;
   key: string;
   label: string;
@@ -187,11 +193,17 @@ export async function saveIngestionSource(input: {
   // whose derived key is taken gets a suffixed key — silently overwriting the
   // owner is how an existing tab's config vanishes while its panel keeps
   // rendering.
-  const owner = await prisma.ingestionSource.findUnique({ where: { key } });
+  const owner = await prisma.ingestionSource.findUnique({
+    where: { userId_key: { userId, key } },
+  });
   if (owner && owner.id !== input.id) {
     for (let n = 2; ; n++) {
       const candidate = `${key}-${n}`;
-      if (!(await prisma.ingestionSource.findUnique({ where: { key: candidate } }))) {
+      if (
+        !(await prisma.ingestionSource.findUnique({
+          where: { userId_key: { userId, key: candidate } },
+        }))
+      ) {
         key = candidate;
         break;
       }
@@ -213,29 +225,42 @@ export async function saveIngestionSource(input: {
   };
 
   if (input.id) {
-    await prisma.ingestionSource.update({
-      where: { id: input.id },
+    const updated = await prisma.ingestionSource.updateMany({
+      where: { id: input.id, userId },
       data: { ...data, order: input.order ?? 0 },
     });
+    if (updated.count === 0) return "That ingestion source no longer exists.";
   } else {
     // New sources go to the end of the tab strip, where "just added" is
     // findable. Custom rows are never builtin: they render the generic panel.
-    const last = await prisma.ingestionSource.aggregate({ _max: { order: true } });
+    const last = await prisma.ingestionSource.aggregate({
+      where: { userId },
+      _max: { order: true },
+    });
     await prisma.ingestionSource.create({
-      data: { ...data, builtin: false, order: input.order ?? (last._max.order ?? -1) + 1 },
+      data: {
+        ...data,
+        userId,
+        builtin: false,
+        order: input.order ?? (last._max.order ?? -1) + 1,
+      },
     });
   }
   return null;
 }
 
-export async function deleteIngestionSource(id: string) {
-  await prisma.ingestionSource.delete({ where: { id } });
+export async function deleteIngestionSource(userId: string, id: string) {
+  await prisma.ingestionSource.deleteMany({ where: { id, userId } });
 }
 
 /** Hide (or show) a source's Content tab. Config and ingested data untouched. */
-export async function setIngestionSourceHidden(id: string, hidden: boolean): Promise<void> {
+export async function setIngestionSourceHidden(
+  userId: string,
+  id: string,
+  hidden: boolean,
+): Promise<void> {
   await prisma.ingestionSource
-    .update({ where: { id }, data: { enabled: !hidden } })
+    .updateMany({ where: { id, userId }, data: { enabled: !hidden } })
     .catch(() => {});
 }
 
@@ -339,12 +364,12 @@ export const STARTER_INGESTION_SOURCES: Array<
  * would resurrect the deletion. Failure degrades to "no rows yet", never a
  * crashed dashboard.
  */
-export async function seedStarterIngestionSources(): Promise<void> {
+export async function seedStarterIngestionSources(userId: string): Promise<void> {
   try {
-    const count = await prisma.ingestionSource.count();
+    const count = await prisma.ingestionSource.count({ where: { userId } });
     if (count > 0) return;
     await prisma.ingestionSource.createMany({
-      data: STARTER_INGESTION_SOURCES.map((s) => ({ ...s })),
+      data: STARTER_INGESTION_SOURCES.map((s) => ({ ...s, userId })),
     });
   } catch {
     // Best-effort: the dashboard renders whatever list() returns.

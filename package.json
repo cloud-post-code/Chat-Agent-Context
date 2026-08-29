@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next build",
-    "start": "prisma db push --accept-data-loss --skip-generate && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next start -p ${PORT:-3000}",
+    "start": "node scripts/migrate.mjs && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next start -p ${PORT:-3000}",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
