@@ -1,0 +1,21 @@
+# Railway (Nixpacks) build config.
+#
+# Installs Playwright's Chromium headless shell + its system libraries into
+# the deploy image so the guided-onboarding crawler (lib/onboarding/crawl.ts)
+# renders JS-built sites in production instead of silently falling back to
+# plain fetch. Only the headless shell is installed (--only-shell): the
+# crawler launches with { headless: true }, which uses the shell on
+# Playwright >= 1.49, and skipping full Chromium keeps the image smaller.
+
+[variables]
+# Fixed path inside the app dir so the runtime finds the browsers no matter
+# what HOME resolves to; applies at build (install target) and at runtime.
+PLAYWRIGHT_BROWSERS_PATH = "/app/.playwright"
+# Railway containers run as root, where Chromium's setuid sandbox cannot
+# start; without this the launch fails and the crawler degrades to fetch.
+# Local dev does not set it, so the sandbox stays on outside the image.
+CRAWLER_NO_SANDBOX = "1"
+
+[phases.playwright]
+dependsOn = ["install"]
+cmds = ["npx playwright install --with-deps --only-shell chromium"]

@@ -351,6 +351,12 @@
       "priority": 14,
       "status": "passing",
       "notes": "Guided first-login onboarding live: /admin/onboarding (URL-extraction + manual paths, 3 collapsible steps), lib/onboarding/* (Playwright crawler w/ fetch fallback, deterministic extractors, in-memory jobs), 4 API routes, User.onboardedAt + migration 20260829180000. Proof docs/features/guided-onboarding/proof.ts green (47 assertions vs local fixture site); real-site run vs joelonsoftware.com reported honestly (91 posts, no testimonials/team recorded as absent, 36 sweep pages, 1205 chunks). Gate PASS. Known gap: Railway image has no Chromium \u2014 prod extraction uses the fetch fallback (JS-only sites degrade)."
+    },
+    {
+      "id": "railway-playwright-chromium",
+      "title": "Railway build installs Playwright Chromium so onboarding extraction renders JS sites in production",
+      "status": "done",
+      "notes": "nixpacks.toml installs chromium headless shell --with-deps into /app/.playwright; CRAWLER_NO_SANDBOX=1 lets it launch as root; crawl.ts logs the fetch fallback instead of staying silent. Proof: docs/features/railway-playwright-chromium/proof.ts. Image size/build time to be eyeballed on next deploy."
     }
   ]
 }

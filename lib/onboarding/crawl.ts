@@ -37,9 +37,16 @@ export class Crawler {
       this.browserTried = true;
       try {
         const { chromium } = await import("playwright");
-        this.browser = await chromium.launch({ headless: true });
-      } catch {
+        this.browser = await chromium.launch({
+          headless: true,
+          // Deploy containers run as root, where Chromium's sandbox can't
+          // start; the image sets CRAWLER_NO_SANDBOX=1 (see nixpacks.toml).
+          chromiumSandbox: process.env.CRAWLER_NO_SANDBOX !== "1",
+        });
+      } catch (err) {
         this.browser = null; // fetch fallback below
+        const detail = err instanceof Error ? err.message.split("\n")[0] : String(err);
+        console.warn(`[onboarding] Chromium unavailable, extracting via plain fetch: ${detail}`);
       }
     }
     if (!this.browser) return null;
