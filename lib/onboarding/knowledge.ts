@@ -1,0 +1,327 @@
+import { prisma } from "@/lib/db";
+import { chunkText } from "@/lib/retrieval/chunking";
+import { embedTexts, vecToBytes } from "@/lib/retrieval/embed";
+import type { Crawler, Page } from "./crawl";
+
+/**
+ * Step 3 of guided onboarding: four extractions against the entered site,
+ * saved through the app's existing knowledge storage — Source rows chunked
+ * and embedded exactly like admin-ingested links (embedTexts picks Voyage or
+ * the local hash embedder; no new provider). Entity extraction is skipped
+ * here: it costs a model call per origin and the graph back-fills the next
+ * time each source is reindexed from the dashboard.
+ *
+ * Dedup rules the report asserts: a blog post is saved once no matter how
+ * many index/category/feed pages list it; a testimonial repeated on the
+ * homepage is one record; an identical bio block is one record.
+ */
+
+export type BlogReport = {
+  existed: boolean;
+  postsSaved: number;
+  uniqueUrls: number;
+  feedCount: number | null;
+  paginationPages: string[];
+};
+export type TestimonialItem = {
+  quote: string;
+  author: string;
+  title: string;
+  sourceUrl: string;
+  imageUrl: string;
+};
+export type KnowledgeReport = {
+  blog: BlogReport;
+  testimonials: { count: number; items: TestimonialItem[]; pagesChecked: string[] };
+  team: { existed: boolean; blocks: number; embeddingDim: number; pagesChecked: string[] };
+  sweep: { pages: string[] };
+};
+
+const norm = (s: string) => s.replace(/\s+/g, " ").trim();
+
+// Upper bounds so onboarding a very large site finishes in one sitting.
+// Pagination/archives are walked fully up to these; a capped run is visible
+// in the report (uniqueUrls > postsSaved, sweep stops at the cap).
+const MAX_POSTS = 100;
+const MAX_LISTING_PAGES = 50;
+const MAX_SWEEP_PAGES = 40;
+
+/** Main text of a page with nav / comments / widgets stripped. */
+function mainText(page: Page): string {
+  const $ = page.$;
+  const scope = $("article").length ? $("article").first() : $("main").length ? $("main").first() : $("body");
+  const clone = scope.clone();
+  clone.find("nav, header, footer, aside, script, style, .comments, #comments, form").remove();
+  return norm(clone.text());
+}
+
+/** One Source row + one Chunk per piece, through the existing pipeline. */
+async function saveRecord(
+  userId: string,
+  src: { url: string; title: string; kind: string; summary?: string; rawText: string },
+  pieces: string[],
+): Promise<{ chunks: number; dim: number }> {
+  const texts = pieces.map(norm).filter(Boolean);
+  if (!texts.length) return { chunks: 0, dim: 0 };
+  const { vectors, model } = await embedTexts(texts);
+
+  const source = await prisma.source.upsert({
+    where: { userId_url: { userId, url: src.url } },
+    update: { title: src.title, rawText: src.rawText, summary: src.summary ?? "", status: "scanned" },
+    create: {
+      userId, type: "link", url: src.url, title: src.title, kind: src.kind,
+      rawText: src.rawText, summary: src.summary ?? "", status: "scanned",
+    },
+  });
+  await prisma.chunk.deleteMany({ where: { userId, originKind: "source", originId: source.id } });
+  for (let i = 0; i < texts.length; i++) {
+    const v = vectors[i];
+    await prisma.chunk.create({
+      data: {
+        userId, originKind: "source", originId: source.id, originLabel: src.title,
+        sourceId: source.id, seq: i, text: texts[i],
+        embedding: v ? vecToBytes(v) : null, embedModel: v ? model : null,
+      },
+    });
+  }
+  return { chunks: texts.length, dim: vectors[0]?.length ?? 0 };
+}
+
+function linksMatching(crawler: Crawler, home: Page, words: RegExp, paths: string[]): string[] {
+  const found = crawler
+    .navLinks(home)
+    .filter((l) => words.test(l.text))
+    .map((l) => l.url);
+  for (const p of paths) {
+    const abs = crawler.resolve(p);
+    if (abs) found.push(abs);
+  }
+  return [...new Set(found)];
+}
+
+// ── (a) Blog ──
+
+async function feedPostUrls(crawler: Crawler, home: Page): Promise<string[] | null> {
+  const candidates = [
+    home.$('link[rel="alternate"][type*="rss"], link[rel="alternate"][type*="atom"]').attr("href"),
+    "/feed", "/rss.xml", "/atom.xml", "/feed.xml",
+  ].filter(Boolean) as string[];
+  for (const c of candidates) {
+    const xml = await crawler.loadText(c);
+    if (!xml || !/<(rss|feed)[\s>]/.test(xml)) continue;
+    const urls = [...xml.matchAll(/<link(?:\s[^>]*href="([^"]+)"[^>]*)?>([^<]*)/g)]
+      .map((m) => m[1] || m[2])
+      .map((u) => crawler.resolve(norm(u)))
+      .filter((u): u is string => !!u && u !== crawler.resolve("/blog/index.html"));
+    if (urls.length) return [...new Set(urls)];
+  }
+  return null;
+}
+
+export async function extractBlog(
+  crawler: Crawler, home: Page, userId: string,
+): Promise<{ report: BlogReport; chunks: number; covered: Set<string> }> {
+  const covered = new Set<string>();
+  const listPages = linksMatching(crawler, home, /blog|news|articles?|insights|resources/i,
+    ["/blog", "/blog/index.html", "/news", "/articles", "/posts"]);
+  const feed = await feedPostUrls(crawler, home);
+
+  // Walk every listing page: pagination fully, category/tag pages for
+  // discovery only. Post links accumulate; listing pages never get saved.
+  const postUrls = new Set<string>(feed ?? []);
+  const queue = [...listPages];
+  const seenLists = new Set<string>();
+  const paginationPages: string[] = [];
+  while (queue.length && seenLists.size < MAX_LISTING_PAGES) {
+    const url = queue.shift()!;
+    if (seenLists.has(url)) continue;
+    seenLists.add(url);
+    const page = await crawler.load(url);
+    if (!page) continue;
+    covered.add(page.url);
+    page.$("a").each((_, el) => {
+      const href = page.$(el).attr("href");
+      const abs = href ? crawler.resolve(href, page.url) : null;
+      if (!abs || seenLists.has(abs)) return;
+      const label = page.$(el).text() + " " + (page.$(el).attr("class") || "") + " " + abs;
+      if (/category|tag/i.test(abs)) queue.push(abs);
+      else if (/page[/=-]?\d|pagination|older|newer|archive/i.test(label)) {
+        queue.push(abs);
+        if (!/index\.html$|\/blog\/?$/.test(abs)) paginationPages.push(abs);
+      } else if (/\/(blog|news|articles|posts)\//.test(abs) && page.$(el).parents("li,article").length) {
+        postUrls.add(abs);
+      }
+    });
+  }
+
+  const existed = seenLists.size > 0 && (postUrls.size > 0 || !!feed);
+  let chunks = 0;
+  let postsSaved = 0;
+  for (const url of [...postUrls].slice(0, MAX_POSTS)) {
+    const page = await crawler.load(url);
+    if (!page) continue;
+    covered.add(page.url);
+    const $ = page.$;
+    const title = norm($("article h1").first().text() || $("h1").first().text() ||
+      ($("title").text() || "").split(/[—|]/)[0]);
+    const date = $("time[datetime]").attr("datetime") || "";
+    const author = norm($(".meta, .byline").text()).match(/by\s+([^·|,]+)/i)?.[1]?.trim() || "";
+    const body = mainText(page);
+    if (!title || !body) continue;
+    const header = [title, author && `By ${author}`, date && `Published ${date}`]
+      .filter(Boolean).join(". ");
+    const saved = await saveRecord(userId,
+      { url: page.url, title, kind: "article", summary: header, rawText: body },
+      chunkText(`${header}\n\n${body}`));
+    chunks += saved.chunks;
+    if (saved.chunks) postsSaved++;
+  }
+
+  return {
+    report: {
+      existed, postsSaved, uniqueUrls: postUrls.size,
+      feedCount: feed ? feed.length : null,
+      paginationPages: [...new Set(paginationPages)],
+    },
+    chunks, covered,
+  };
+}
+
+// ── (b) Testimonials ──
+
+export async function extractTestimonials(
+  crawler: Crawler, home: Page, userId: string,
+): Promise<{ report: KnowledgeReport["testimonials"]; chunks: number; covered: Set<string> }> {
+  const pages = [home.url, ...linksMatching(crawler, home,
+    /testimonials?|reviews?|customers?|case stud|wall of love/i,
+    ["/testimonials", "/reviews", "/customers"])];
+
+  const items: TestimonialItem[] = [];
+  const seen = new Set<string>();
+  const pagesChecked: string[] = [];
+  const covered = new Set<string>();
+  for (const url of new Set(pages)) {
+    const page = await crawler.load(url);
+    if (!page) continue;
+    pagesChecked.push(page.url);
+    if (page.url !== home.url) covered.add(page.url);
+    // Genuine customer quotes only: a quote block with an attribution. Press
+    // mentions and marketing copy don't carry a <cite>/attribution pattern.
+    page.$("blockquote").each((_, el) => {
+      const q = page.$(el);
+      if (q.parents("aside").length) return; // press/widget rails
+      const quote = norm(q.find("p").first().text() || q.clone().children("cite,img").remove().end().text());
+      const cite = norm(q.find("cite, .author, footer").first().text());
+      if (!quote || !cite) return;
+      const [author, ...rest] = cite.split(",").map(norm);
+      const img = q.find("img").attr("src");
+      const imageUrl = img ? crawler.resolve(img, page.url) || "" : "";
+      const key = quote.toLowerCase();
+      const existing = seen.has(key) ? items.find((t) => t.quote.toLowerCase() === key) : null;
+      if (existing) {
+        // Same testimonial on two pages is ONE record; keep the richer copy's
+        // details (the homepage teaser often drops the photo or title).
+        if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
+        if (!existing.title && rest.length) existing.title = rest.join(", ");
+        return;
+      }
+      seen.add(key);
+      items.push({ quote, author, title: rest.join(", "), sourceUrl: page.url, imageUrl });
+    });
+  }
+
+  let chunks = 0;
+  if (items.length) {
+    const url = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) || pagesChecked[0];
+    const pieces = items.map((t) =>
+      `Customer testimonial from ${t.author}${t.title ? ` (${t.title})` : ""}: "${t.quote}"`);
+    const saved = await saveRecord(userId, {
+      url, title: "Customer testimonials", kind: "other",
+      summary: `${items.length} customer testimonials extracted during onboarding.`,
+      rawText: pieces.join("\n\n"),
+    }, pieces);
+    chunks = saved.chunks;
+  }
+  return { report: { count: items.length, items, pagesChecked }, chunks, covered };
+}
+
+// ── (c) Team / about ──
+
+export async function extractTeam(
+  crawler: Crawler, home: Page, userId: string,
+): Promise<{ report: KnowledgeReport["team"]; chunks: number; covered: Set<string> }> {
+  const candidates = linksMatching(crawler, home,
+    /team|about( us)?|our people|leadership/i,
+    ["/team", "/about", "/about-us", "/people", "/leadership"]);
+
+  const pagesChecked: string[] = [];
+  const covered = new Set<string>();
+  const blocks: { name: string; bio: string }[] = [];
+  const seen = new Set<string>();
+  for (const url of candidates) {
+    const page = await crawler.load(url);
+    if (!page) continue;
+    pagesChecked.push(page.url);
+    const sections = page.$("section, .bio, .team-member, li").toArray();
+    for (const el of sections) {
+      const s = page.$(el);
+      const name = norm(s.find("h2, h3, .name").first().text());
+      const bio = norm(s.find("p").first().text());
+      if (!name || !bio || name.split(" ").length > 6) continue; // headings, not people
+      const key = `${name}::${bio}`.toLowerCase();
+      if (seen.has(key)) continue; // duplicate block
+      seen.add(key);
+      blocks.push({ name, bio });
+    }
+    if (blocks.length) {
+      // First real team page wins; only a page that yielded bios is "covered"
+      // — an about page with no extractable blocks still deserves the sweep.
+      covered.add(page.url);
+      break;
+    }
+  }
+
+  let chunks = 0;
+  let embeddingDim = 0;
+  if (blocks.length) {
+    const pieces = blocks.map((b) => `${b.name} — ${b.bio}`);
+    const saved = await saveRecord(userId, {
+      url: pagesChecked[pagesChecked.length - 1], title: "Team", kind: "other",
+      summary: `Team bios for ${blocks.map((b) => b.name).join(", ")}.`,
+      rawText: pieces.join("\n\n"),
+    }, pieces);
+    chunks = saved.chunks;
+    embeddingDim = saved.dim;
+  }
+  return {
+    report: { existed: pagesChecked.length > 0 && blocks.length > 0, blocks: blocks.length, embeddingDim, pagesChecked },
+    chunks, covered,
+  };
+}
+
+// ── (d) Sitemap sweep ──
+
+export async function sweepSitemap(
+  crawler: Crawler, userId: string, covered: Set<string>,
+): Promise<{ report: KnowledgeReport["sweep"]; chunks: number }> {
+  const urls = (await crawler.sitemap())
+    .filter((u) => !covered.has(u))
+    .slice(0, MAX_SWEEP_PAGES);
+  const pages: string[] = [];
+  let chunks = 0;
+  for (const url of urls) {
+    const page = await crawler.load(url);
+    if (!page) continue;
+    const body = mainText(page);
+    if (body.split(" ").length < 30) continue; // nothing substantive to keep
+    const title = norm(page.$("h1").first().text() || page.$("title").text() || url);
+    const saved = await saveRecord(userId, {
+      url: page.url, title: title || page.url, kind: "other", rawText: body,
+    }, chunkText(body));
+    if (saved.chunks) {
+      chunks += saved.chunks;
+      pages.push(page.url);
+    }
+  }
+  return { report: { pages }, chunks };
+}

@@ -68,6 +68,8 @@ export default async function Dashboard({
 }) {
   const user = await currentUser();
   if (!user) redirect("/admin");
+  // First login: the guided onboarding flow owns the panel until completed.
+  if (!user.onboardedAt) redirect("/admin/onboarding");
 
   const query = await searchParams;
   const one = (k: string) => (Array.isArray(query[k]) ? query[k][0] : query[k]);

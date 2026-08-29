@@ -91,6 +91,13 @@ async function signup(name: string, email: string, password: string): Promise<Ja
   const { res } = await postForm(jar, "/signup", { [action]: "", name, email, password });
   check(`signup ${email}`, res.status === 303, `status ${res.status}`);
   check(`signup ${email} sets a session`, jar.cookies.has("agent_session"));
+  // New accounts land in guided onboarding first (docs/features/guided-onboarding).
+  // This proof's tenants take the manual path so the dashboard is reachable.
+  await fetch(`${BASE}/api/admin/onboarding/complete`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Cookie: jar.header() },
+    body: JSON.stringify({ mode: "manual" }),
+  });
   return jar;
 }
 

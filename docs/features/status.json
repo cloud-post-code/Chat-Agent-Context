@@ -343,6 +343,14 @@
       "title": "Multi-tenant conversion: per-user auth, data ownership, /a/[slug] agent pages, public directory",
       "status": "done",
       "notes": "User model with scrypt passwords + HMAC session cookie; required userId on every tenant model with compound per-user uniques; zero-data-loss backfill migration (founder account claimed at boot from ADMIN_EMAIL/ADMIN_PASSWORD); npm start moved from db push --accept-data-loss to baseline-aware prisma migrate deploy; per-user public page at /a/[slug] with per-tenant theme; directory at /. Proof: scripts/proof-multi-tenant.ts (PROOF PASS). Legacy A2A surface binds to the founding user."
+    },
+    {
+      "id": "guided-onboarding",
+      "feature_dir": "docs/features/guided-onboarding",
+      "proof": "docs/features/guided-onboarding/PROOF.md",
+      "priority": 14,
+      "status": "passing",
+      "notes": "Guided first-login onboarding live: /admin/onboarding (URL-extraction + manual paths, 3 collapsible steps), lib/onboarding/* (Playwright crawler w/ fetch fallback, deterministic extractors, in-memory jobs), 4 API routes, User.onboardedAt + migration 20260829180000. Proof docs/features/guided-onboarding/proof.ts green (47 assertions vs local fixture site); real-site run vs joelonsoftware.com reported honestly (91 posts, no testimonials/team recorded as absent, 36 sweep pages, 1205 chunks). Gate PASS. Known gap: Railway image has no Chromium \u2014 prod extraction uses the fetch fallback (JS-only sites degrade)."
     }
   ]
 }

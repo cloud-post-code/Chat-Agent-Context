@@ -24,6 +24,10 @@ model User {
   /// scrypt hash, "salt:hex" (see lib/auth.ts). Empty = unclaimed founder
   /// account created by the migration; lib/bootstrap.ts fills it from env.
   passwordHash String
+  /// Set when the guided onboarding flow completes (site-extracted or manual).
+  /// Null routes the admin panel to /admin/onboarding. Pre-existing accounts
+  /// are stamped by the migration so they never see the flow.
+  onboardedAt  DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

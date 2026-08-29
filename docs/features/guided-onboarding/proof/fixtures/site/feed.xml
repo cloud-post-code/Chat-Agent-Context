@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+<channel>
+  <title>Acme Rivet Co. Blog</title>
+  <link>/blog/index.html</link>
+  <item>
+    <title>Why titanium rivets fatigue differently</title>
+    <link>/blog/titanium-fatigue.html</link>
+    <pubDate>Thu, 14 May 2026 09:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Inside our 1,000-hour salt spray rig</title>
+    <link>/blog/salt-spray-testing.html</link>
+    <pubDate>Mon, 02 Mar 2026 09:00:00 GMT</pubDate>
+  </item>
+  <item>
+    <title>Restoring our first forming line</title>
+    <link>/blog/first-forming-line.html</link>
+    <pubDate>Thu, 20 Nov 2025 09:00:00 GMT</pubDate>
+  </item>
+</channel>
+</rss>
