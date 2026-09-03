@@ -85,6 +85,17 @@ website URL with Playwright, or manually via the same forms left empty.
   missing fields stay empty rather than fabricated; content appearing on
   multiple pages is deduplicated.
 
+- Revision (2026-08-29b, user-requested): a company can have MULTIPLE
+  locations, each its own sub-form (address, phone, per-day hours) populated
+  by extraction — one location first, then more (labeled "Location N" blocks
+  and bare footer addresses both count; the copy that knows its hours wins a
+  duplicate-address merge). A "no in-person location" option covers
+  online-only businesses. On save, locations serialize AS TEXT into the
+  existing Profile fields (one line per location). The theme review is the
+  dashboard's own ThemePicker panel, pre-filled by extraction. The Profile
+  tab ends with a "Restart onboarding" button that clears the profile and
+  re-enters the flow.
+
 ## Scope
 - New onboarding page in the admin panel, first-login routing, and a
   persisted per-user onboarded flag.

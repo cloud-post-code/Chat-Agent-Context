@@ -29,18 +29,49 @@ export async function POST(req: Request) {
 
   if (body.profile) {
   const p = body.profile;
-  const rawHours = p.company_hours;
-  const company_hours =
-    typeof rawHours === "string"
-      ? rawHours.trim()
-      : rawHours && typeof rawHours === "object"
+  const toHours = (v: unknown): string =>
+    typeof v === "string"
+      ? v.trim()
+      : v && typeof v === "object"
         ? serializeHours(Object.fromEntries(
-            DAYS.map((d) => [d, str((rawHours as Record<string, unknown>)[d])])) as Hours)
+            DAYS.map((d) => [d, str((v as Record<string, unknown>)[d])])) as Hours)
         : "";
+
+  // Locations arrive as structured form entries and are stored AS TEXT in
+  // the existing Profile fields — one line per location — so the import /
+  // prompt side reads them like any other profile text.
+  const locations = (Array.isArray(p.locations) ? p.locations : [])
+    .map((l) => {
+      const loc = (l ?? {}) as Record<string, unknown>;
+      return { address: str(loc.address), phone: str(loc.phone), hours: toHours(loc.hours) };
+    })
+    .filter((l) => l.address || l.hours);
+  const noInPerson = p.no_in_person === true;
+
+  let company_address: string;
+  let company_hours: string;
+  if (noInPerson) {
+    company_address = "Online only — no in-person location";
+    company_hours = toHours(p.company_hours);
+  } else if (locations.length > 1) {
+    company_address = locations
+      .map((l, i) => `Location ${i + 1}: ${l.address}${l.phone ? ` (${l.phone})` : ""}`)
+      .join("\n");
+    company_hours = locations
+      .map((l, i) => `Location ${i + 1} — ${l.hours || "hours not listed"}`)
+      .join("\n");
+  } else if (locations.length === 1) {
+    company_address = locations[0].address;
+    company_hours = locations[0].hours || toHours(p.company_hours);
+  } else {
+    company_address = str(p.company_address);
+    company_hours = toHours(p.company_hours);
+  }
+
   const profile = {
     company_name: str(p.company_name),
     owner_name: str(p.owner_name),
-    company_address: str(p.company_address),
+    company_address,
     company_phone_number: str(p.company_phone_number),
     company_email: str(p.company_email),
     company_hours,
@@ -62,6 +93,7 @@ export async function POST(req: Request) {
     if (HEXISH.test(String(v))) colors[k] = String(v);
   }
   const theme = {
+    themeFont: str(t.themeFont) || "space-grotesk",
     themeBodyFont: str(t.themeBodyFont) || "inter",
     themeColors: JSON.stringify(colors),
     themeRadius: RADII.has(str(t.themeRadius)) ? str(t.themeRadius) : "rounded",

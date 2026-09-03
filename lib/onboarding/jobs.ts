@@ -140,7 +140,14 @@ async function runCore(job: Job): Promise<void> {
   log(job, s1.company_name ? `Company name: ${s1.company_name}` : "No company name found");
   log(job, s1.company_phone_number ? `Phone: ${s1.company_phone_number}` : "No phone number listed");
   log(job, s1.company_email ? `Email: ${s1.company_email}` : "No email address listed");
-  log(job, s1.company_address ? `Address: ${s1.company_address}` : "No street address listed — leaving it blank");
+  if (s1.locations.length === 0) {
+    log(job, "No street address listed — this may be an online-only business");
+  } else {
+    for (const [i, loc] of s1.locations.entries()) {
+      log(job, `Location ${i + 1}: ${loc.address}`);
+    }
+    if (s1.locations.length > 1) log(job, `Found ${s1.locations.length} locations, each with its own hours`);
+  }
   const hasHours = Object.values(s1.company_hours).some(Boolean);
   log(job, hasHours ? "Opening hours found" : "No opening hours listed");
   job.phase = "core-done";

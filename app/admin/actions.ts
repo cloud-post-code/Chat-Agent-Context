@@ -178,6 +178,27 @@ export async function saveProfile(formData: FormData) {
   revalidateAll();
 }
 
+/**
+ * Wipe the profile and send the user back through guided onboarding. The
+ * button lives at the bottom of the Profile tab; clearing onboardedAt is what
+ * routes the next admin visit into the flow again.
+ */
+export async function restartOnboarding() {
+  const user = await requireUser();
+  await prisma.profile.upsert({
+    where: { userId: user.id },
+    update: {
+      company_name: "", owner_name: "", company_address: "",
+      company_phone_number: "", company_email: "", company_hours: "",
+    },
+    create: { userId: user.id },
+  });
+  await reindex("profile", () => indexProfile(user.id));
+  await prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } });
+  revalidateAll();
+  redirect("/admin/onboarding");
+}
+
 // ── Persona (the section catalogue in lib/persona.ts) ──
 export async function savePersona(formData: FormData) {
   const user = await requireUser();

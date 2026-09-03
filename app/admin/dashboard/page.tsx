@@ -11,6 +11,7 @@ import { RADIUS_OPTIONS } from "@/lib/theme";
 import {
   logout,
   saveProfile,
+  restartOnboarding,
   savePersona,
   saveTheme,
   uploadLogo,
@@ -183,6 +184,15 @@ export default async function Dashboard({
         </div>
 
         <SaveButton>Save profile</SaveButton>
+      </form>
+
+      <form action={restartOnboarding} style={{ marginTop: 26, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <PendingButton pendingLabel="Clearing…" style={btnDanger}>
+          Restart onboarding — clears this profile
+        </PendingButton>
+        <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 12, marginTop: 6 }}>
+          Empties every field above and walks you through setup again.
+        </p>
       </form>
     </section>
   );

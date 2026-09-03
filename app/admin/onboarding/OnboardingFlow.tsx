@@ -2,23 +2,25 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { panel, btn, btnGhost } from "../ui";
+import { panel, btn, btnGhost, Label } from "../ui";
 import { card as a2uiCard, cf as a2uiField } from "@/app/cards/Cards";
-import { BODY_FONT_OPTIONS } from "@/lib/fonts";
+import { FONT_OPTIONS, BODY_FONT_OPTIONS } from "@/lib/fonts";
+import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
+import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
- * walks through the stages one message at a time — contact info, theme, then
- * a pick-what-you-have knowledge extraction that keeps running while the user
- * heads to the dashboard. Each stage's extraction runs only when the chat
- * reaches it, so the first editable form appears seconds after the URL is in.
- *
- * The contact and theme reviews are the SAME component (FormCard) with
- * different field specs; extraction pre-fills each form before it is shown.
+ * walks through the stages one message at a time — contact info (with one
+ * form per location), theme (the dashboard's own ThemePicker), then a
+ * pick-what-you-have knowledge extraction that keeps running while the user
+ * heads to the dashboard. Extraction pre-fills every form before it shows,
+ * and the loading state streams the job's REAL activity log.
  */
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
+
+type LocationForm = { address: string; phone: string } & Record<string, string>;
 
 type Status = {
   phase: string; progress: number; log?: string[]; error?: string;
@@ -32,30 +34,24 @@ type Step =
   | "theme-running" | "review-theme"
   | "select-knowledge" | "knowledge-running";
 
-const CONTACT_FIELDS: FieldSpec[] = [
+const COMPANY_FIELDS: FieldSpec[] = [
   { kind: "text", key: "company_name", label: "Company name" },
   { kind: "text", key: "owner_name", label: "Owner name" },
-  { kind: "text", key: "company_address", label: "Company address" },
   { kind: "text", key: "company_phone_number", label: "Company phone number" },
   { kind: "text", key: "company_email", label: "Company email" },
+];
+
+const locationFields = (): FieldSpec[] => [
+  { kind: "text", key: "address", label: "Address" },
+  { kind: "text", key: "phone", label: "Phone (this location)" },
   ...DAYS.map<FieldSpec>((d) => ({
     kind: "text", key: `hours_${d}`,
     label: `Hours — ${d[0].toUpperCase()}${d.slice(1)}`, placeholder: "closed",
   })),
 ];
 
-const THEME_FIELDS: FieldSpec[] = [
-  { kind: "select", key: "themeBodyFont", label: "Body font",
-    options: BODY_FONT_OPTIONS.map((f) => ({ value: f.key, label: f.label })) },
-  { kind: "select", key: "themeRadius", label: "Corners",
-    options: ["sharp", "rounded", "pill"].map((r) => ({ value: r, label: r })) },
-  { kind: "select", key: "themeHeadingWeight", label: "Heading weight",
-    options: [{ value: "", label: "default" },
-      ...["500", "600", "700", "800"].map((w) => ({ value: w, label: w }))] },
-  { kind: "text", key: "color_bg", label: "Background color", placeholder: "#hex" },
-  { kind: "text", key: "color_text", label: "Text color", placeholder: "#hex" },
-  { kind: "text", key: "color_primary", label: "Brand color", placeholder: "#hex" },
-];
+const emptyLocation = (): LocationForm =>
+  ({ address: "", phone: "", ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, ""])) }) as LocationForm;
 
 const EXTRACTOR_OPTIONS = [
   { key: "blog", label: "Blog / news posts" },
@@ -63,6 +59,15 @@ const EXTRACTOR_OPTIONS = [
   { key: "team", label: "Team / about page" },
   { key: "sweep", label: "Everything else on the sitemap" },
 ];
+
+type ThemeInitial = {
+  themeFont: string; themeBodyFont: string; themeRadius: string;
+  themeFontSize: string; themeHeadingWeight: string; colors: ThemeColors;
+};
+const defaultTheme = (): ThemeInitial => ({
+  themeFont: "space-grotesk", themeBodyFont: "inter", themeRadius: "rounded",
+  themeFontSize: "16", themeHeadingWeight: "700", colors: {},
+});
 
 /** Lemonade-style letter-by-letter text for assistant messages. */
 function Typewriter({ text, speed = 14 }: { text: string; speed?: number }) {
@@ -113,7 +118,7 @@ function Bubble({ who, children }: { who: "assistant" | "user"; children: React.
       <div
         style={{
           ...panel,
-          maxWidth: 560,
+          maxWidth: mine ? 560 : 680,
           marginBottom: 14,
           ...(mine ? { background: "var(--primary)", color: "var(--on-primary, #fff)", border: "none" } : {}),
         }}
@@ -131,12 +136,15 @@ export function OnboardingFlow() {
   const [url, setUrl] = useState("");
   const [jobId, setJobId] = useState<string | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
-  const [contact, setContact] = useState<Record<string, string>>({});
-  const [theme, setTheme] = useState<Record<string, string>>({ themeBodyFont: "inter", themeRadius: "rounded" });
+  const [company, setCompany] = useState<Record<string, string>>({});
+  const [locations, setLocations] = useState<LocationForm[]>([emptyLocation()]);
+  const [noInPerson, setNoInPerson] = useState(false);
+  const [themeInitial, setThemeInitial] = useState<ThemeInitial>(defaultTheme());
   const [logo, setLogo] = useState("");
   const [picked, setPicked] = useState<string[]>(EXTRACTOR_OPTIONS.map((o) => o.key));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const themeFormRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
   const running = step === "core-running" || step === "theme-running" || step === "knowledge-running";
@@ -157,28 +165,41 @@ export function OnboardingFlow() {
       if (s.phase === "failed") return;
       if (step === "core-running" && s.phase === "core-done" && s.step1) {
         const p = s.step1 as Record<string, unknown>;
-        const hours = (p.company_hours ?? {}) as Record<string, string>;
-        setContact({
+        setCompany({
           company_name: String(p.company_name ?? ""),
           owner_name: String(p.owner_name ?? ""),
-          company_address: String(p.company_address ?? ""),
           company_phone_number: String(p.company_phone_number ?? ""),
           company_email: String(p.company_email ?? ""),
-          ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, hours[d] ?? ""])),
         });
+        const found = Array.isArray(p.locations) ? (p.locations as Record<string, unknown>[]) : [];
+        if (found.length) {
+          setLocations(found.map((l) => {
+            const hours = (l.hours ?? {}) as Record<string, string>;
+            return {
+              address: String(l.address ?? ""),
+              phone: String(l.phone ?? ""),
+              ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, hours[d] ?? ""])),
+            } as LocationForm;
+          }));
+        }
         setStep("review-contact");
       }
       if (step === "theme-running" && s.phase === "theme-done" && s.step2) {
         const t2 = s.step2 as Record<string, unknown>;
         const colors = (t2.themeColors ?? {}) as Record<string, string>;
-        setTheme({
+        setThemeInitial({
+          themeFont: "space-grotesk",
           themeBodyFont: String(t2.themeBodyFont ?? "inter"),
           themeRadius: String(t2.themeRadius ?? "rounded"),
-          themeHeadingWeight: String(t2.themeHeadingWeight ?? ""),
-          themeFontSize: String(t2.themeFontSize ?? ""),
-          color_bg: colors.bg ?? "",
-          color_text: colors.text ?? "",
-          color_primary: colors.primary ?? "",
+          themeFontSize: String(t2.themeFontSize ?? "") || "16",
+          themeHeadingWeight: String(t2.themeHeadingWeight ?? "") || "700",
+          // The extractor's "primary" is the brand color; surface is the fill
+          // cards and primary buttons share, so it lands there.
+          colors: {
+            ...(colors.bg ? { bg: colors.bg } : {}),
+            ...(colors.text ? { text: colors.text } : {}),
+            ...(colors.primary ? { surface: colors.primary } : {}),
+          },
         });
         setLogo(String(t2.themeLogo ?? ""));
         setStep("review-theme");
@@ -202,8 +223,8 @@ export function OnboardingFlow() {
       setError(await res.text());
       return;
     }
-    const { jobId: id } = await res.json();
-    setJobId(id);
+    const started = (await res.json()) as { jobId: string };
+    setJobId(started.jobId);
     setStep("core-running");
   }
 
@@ -211,12 +232,16 @@ export function OnboardingFlow() {
     setBusy(true);
     setError("");
     const profile = {
-      company_name: contact.company_name ?? "",
-      owner_name: contact.owner_name ?? "",
-      company_address: contact.company_address ?? "",
-      company_phone_number: contact.company_phone_number ?? "",
-      company_email: contact.company_email ?? "",
-      company_hours: Object.fromEntries(DAYS.map((d) => [d, contact[`hours_${d}`] ?? ""])),
+      company_name: company.company_name ?? "",
+      owner_name: company.owner_name ?? "",
+      company_phone_number: company.company_phone_number ?? "",
+      company_email: company.company_email ?? "",
+      no_in_person: noInPerson,
+      locations: noInPerson ? [] : locations.map((l) => ({
+        address: l.address,
+        phone: l.phone,
+        hours: Object.fromEntries(DAYS.map((d) => [d, l[`hours_${d}`] ?? ""])),
+      })),
     };
     const res = await post("/api/admin/onboarding/save", { profile });
     if (!res.ok) {
@@ -234,23 +259,31 @@ export function OnboardingFlow() {
   }
 
   async function saveTheme() {
+    const form = themeFormRef.current;
+    if (!form) return;
     setBusy(true);
     setError("");
-    const body = {
+    // ThemePicker maintains hidden inputs for every value — read them back
+    // exactly as the dashboard's save action would.
+    const fd = new FormData(form);
+    const v = (k: string) => String(fd.get(k) ?? "");
+    const colorKeys = ["bg", "text", "surface", "surfaceText", "accent", "accentText", "border"];
+    const themeColors: Record<string, string> = {};
+    for (const k of colorKeys) {
+      const val = v(`color_${k}`);
+      if (val) themeColors[k] = val;
+    }
+    const res = await post("/api/admin/onboarding/save", {
       theme: {
-        themeBodyFont: theme.themeBodyFont,
-        themeRadius: theme.themeRadius,
-        themeHeadingWeight: theme.themeHeadingWeight ?? "",
-        themeFontSize: theme.themeFontSize ?? "",
-        themeColors: {
-          ...(theme.color_bg ? { bg: theme.color_bg } : {}),
-          ...(theme.color_text ? { text: theme.color_text } : {}),
-          ...(theme.color_primary ? { primary: theme.color_primary } : {}),
-        },
+        themeFont: v("themeFont"),
+        themeBodyFont: v("themeBodyFont"),
+        themeRadius: v("themeRadius"),
+        themeFontSize: v("themeFontSize"),
+        themeHeadingWeight: v("themeHeadingWeight"),
+        themeColors,
         themeLogo: logo,
       },
-    };
-    const res = await post("/api/admin/onboarding/save", body);
+    });
     if (!res.ok) {
       setError(await res.text());
       setBusy(false);
@@ -286,36 +319,6 @@ export function OnboardingFlow() {
     await post("/api/admin/onboarding/complete", { mode });
     router.push("/admin/dashboard");
   }
-
-  const themePreview = (
-    <div
-      style={{
-        background: theme.color_bg || "var(--bg)",
-        color: theme.color_text || "inherit",
-        border: "1px solid var(--border)",
-        borderRadius: theme.themeRadius === "pill" ? 24 : theme.themeRadius === "sharp" ? 0 : 10,
-        padding: 20, marginBottom: 16,
-      }}
-    >
-      {logo && (
-        // eslint-disable-next-line @next/next/no-img-element -- data-dir upload, unoptimized preview
-        <img src={logo} alt="logo" style={{ height: 36, marginBottom: 10 }} />
-      )}
-      <div style={{ fontWeight: Number(theme.themeHeadingWeight || 700), fontSize: "1.4em" }}>
-        {contact.company_name || "Your company"}
-      </div>
-      <p style={{ opacity: 0.8, margin: "6px 0 12px" }}>This is how your public agent page will feel.</p>
-      <span
-        style={{
-          background: theme.color_primary || "var(--primary)", color: "#fff",
-          padding: "6px 14px", fontSize: 13,
-          borderRadius: theme.themeRadius === "pill" ? 999 : theme.themeRadius === "sharp" ? 0 : 10,
-        }}
-      >
-        Ask me anything
-      </span>
-    </div>
-  );
 
   return (
     <div>
@@ -376,13 +379,56 @@ export function OnboardingFlow() {
             />
           </p>
           <FormCard
-            fields={CONTACT_FIELDS}
-            values={contact}
-            onChange={(k, v) => setContact({ ...contact, [k]: v })}
-            onDone={saveContact}
-            doneLabel="Done — looks right"
+            fields={COMPANY_FIELDS}
+            values={company}
+            onChange={(k, v) => setCompany({ ...company, [k]: v })}
             busy={busy}
           />
+          <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "4px 0 14px", fontSize: 14 }}>
+            <input
+              type="checkbox"
+              checked={noInPerson}
+              onChange={(e) => setNoInPerson(e.target.checked)}
+            />
+            No in-person location (online only)
+          </label>
+          {!noInPerson && locations.map((loc, i) => (
+            <div key={i} style={{ ...a2uiCard, marginBottom: 12 }} data-fill="bg-soft">
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
+                  Location {i + 1}
+                </strong>
+                {locations.length > 1 && (
+                  <button
+                    style={btnGhost}
+                    onClick={() => setLocations(locations.filter((_, j) => j !== i))}
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+              <FormCard
+                fields={locationFields()}
+                values={loc}
+                onChange={(k, v) =>
+                  setLocations(locations.map((l, j) => (j === i ? { ...l, [k]: v } : l)))}
+                busy={busy}
+              />
+            </div>
+          ))}
+          {!noInPerson && (
+            <button
+              style={{ ...btnGhost, marginBottom: 14 }}
+              onClick={() => setLocations([...locations, emptyLocation()])}
+            >
+              + Add another location
+            </button>
+          )}
+          <div>
+            <button style={btn} onClick={saveContact} disabled={busy}>
+              {busy ? "Saving…" : "Done — looks right"}
+            </button>
+          </div>
         </Bubble>
       )}
 
@@ -404,16 +450,26 @@ export function OnboardingFlow() {
                 : "Here's the look I pulled from your site — tweak it to taste."}
             />
           </p>
-          <FormCard
-            fields={THEME_FIELDS}
-            values={theme}
-            onChange={(k, v) => setTheme({ ...theme, [k]: v })}
-            onDone={saveTheme}
-            doneLabel="Done — use this theme"
-            busy={busy}
-          >
-            {themePreview}
-          </FormCard>
+          {logo && (
+            <p style={{ fontSize: 13, opacity: 0.75 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element -- data-dir upload, unoptimized preview */}
+              <img src={logo} alt="Imported logo" style={{ height: 32, verticalAlign: "middle", marginRight: 8 }} />
+              Logo imported from your site.
+            </p>
+          )}
+          {/* The dashboard's own Theme panel, pre-filled by extraction. */}
+          <form ref={themeFormRef} onSubmit={(e) => { e.preventDefault(); void saveTheme(); }}>
+            <ThemePicker
+              key={JSON.stringify(themeInitial)}
+              fontOptions={FONT_OPTIONS}
+              bodyFontOptions={BODY_FONT_OPTIONS}
+              radiusOptions={RADIUS_OPTIONS}
+              initial={themeInitial}
+            />
+            <button type="submit" style={{ ...btn, marginTop: 14 }} disabled={busy}>
+              {busy ? "Saving…" : "Done — use this theme"}
+            </button>
+          </form>
         </Bubble>
       )}
 

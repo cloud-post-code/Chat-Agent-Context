@@ -169,6 +169,15 @@ async function main() {
       !hours.saturday && !/saturday.*\d/i.test(String(s1.company_hours || "")));
     check("owner name empty — site never states one (anti-fabrication)",
       !s1.owner_name, s1.owner_name);
+    // Multi-location: the contact page lists two labeled locations; one
+    // location first, then a second, each with its own hours.
+    const locs = s1.locations || [];
+    check("two locations found (contact page lists both)", locs.length === 2, String(locs.length));
+    check("location 1 is the primary address", /412 Foundry Lane/.test(locs[0]?.address || ""), locs[0]?.address);
+    check("location 2 extracted with its own address", /227 Harbor Street/.test(locs[1]?.address || ""), locs[1]?.address);
+    check("location 2 has its own hours", /10/.test(locs[1]?.hours?.monday || ""), JSON.stringify(locs[1]?.hours?.monday));
+    check("location 2 saturday differs from location 1's (closed)",
+      /10/.test(locs[1]?.hours?.saturday || "") && !locs[0]?.hours?.saturday, `${locs[1]?.hours?.saturday} vs ${locs[0]?.hours?.saturday}`);
 
     console.log("== contact review saves first, edited value wins");
     const edited = { ...s1, owner_name: "Priya Raman (edited in review)" };
@@ -233,6 +242,13 @@ async function main() {
     const profile = await prisma.profile.findUnique({ where: { userId: user!.id } });
     check("Profile.company_name persisted", profile?.company_name === "Acme Rivet Co.");
     check("Profile.owner_name is the edited value", profile?.owner_name === "Priya Raman (edited in review)");
+    check("both locations persisted AS TEXT in company_address",
+      /Location 1: 412 Foundry Lane/.test(profile?.company_address || "") &&
+      /Location 2: 227 Harbor Street/.test(profile?.company_address || ""),
+      profile?.company_address);
+    check("per-location hours persisted AS TEXT in company_hours",
+      /Location 2 — /.test(profile?.company_hours || "") && /10:00am/.test(profile?.company_hours || ""),
+      profile?.company_hours);
     const theme = await prisma.themeConfig.findUnique({ where: { userId: user!.id } });
     check("ThemeConfig persisted with supported radius", ["sharp", "rounded", "pill"].includes(theme?.themeRadius || ""));
     const persona = await prisma.personaConfig.findUnique({ where: { userId: user!.id } });

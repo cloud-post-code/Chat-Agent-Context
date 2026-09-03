@@ -25,7 +25,8 @@ export function FormCard({
   fields: FieldSpec[];
   values: Record<string, string>;
   onChange: (key: string, value: string) => void;
-  onDone: () => void;
+  /** Omit to render fields only — a sub-form inside a larger card. */
+  onDone?: () => void;
   doneLabel?: string;
   busy?: boolean;
   children?: React.ReactNode;
@@ -58,9 +59,11 @@ export function FormCard({
           )}
         </div>
       ))}
-      <button style={{ ...btn, marginTop: 6 }} onClick={onDone} disabled={busy}>
-        {busy ? "Saving…" : doneLabel}
-      </button>
+      {onDone && (
+        <button style={{ ...btn, marginTop: 6 }} onClick={onDone} disabled={busy}>
+          {busy ? "Saving…" : doneLabel}
+        </button>
+      )}
     </div>
   );
 }
