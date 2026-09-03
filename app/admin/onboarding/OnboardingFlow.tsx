@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { panel, field, btn, btnGhost } from "../ui";
+import { panel, btn, btnGhost } from "../ui";
+import { card as a2uiCard, cf as a2uiField } from "@/app/cards/Cards";
 import { BODY_FONT_OPTIONS } from "@/lib/fonts";
 import { FormCard, type FieldSpec } from "./FormCard";
 
@@ -318,21 +319,27 @@ export function OnboardingFlow() {
           website link? I&apos;ll read it and fill everything in for you.
         </p>
         {step === "ask-url" && (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ display: "flex", gap: 10 }}>
-              <input
-                style={{ ...field, marginBottom: 0 }}
-                placeholder="https://your-current-site.com"
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && url.trim() && startExtraction()}
-              />
-              <button style={btn} onClick={startExtraction} disabled={!url.trim()}>
-                Extract my site
-              </button>
-            </div>
+          // The link entry is an A2UI card element, the same idiom (and the
+          // same exported styles) the agent's in-chat cards use.
+          <div data-fill="bg-soft" style={{ ...a2uiCard, maxWidth: 440, marginTop: 14 }}>
+            <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
+              Add your website
+            </strong>
+            <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 12px" }}>
+              Paste the link to your existing site and I&apos;ll read it for you.
+            </p>
+            <input
+              style={a2uiField}
+              placeholder="https://your-current-site.com"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && url.trim() && startExtraction()}
+            />
+            <button style={btn} onClick={startExtraction} disabled={!url.trim()}>
+              Extract my site
+            </button>
             <button
-              style={{ ...btnGhost, marginTop: 12 }}
+              style={{ ...btnGhost, marginLeft: 10 }}
               onClick={() => { setManual(true); setStep("review-contact"); }}
             >
               I don&apos;t have a site — set up manually

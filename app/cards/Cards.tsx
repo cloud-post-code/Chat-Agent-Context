@@ -488,7 +488,9 @@ const grid: React.CSSProperties = {
   gap: 12,
   gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
 };
-const card: React.CSSProperties = {
+// Exported: the onboarding chat renders its own entry elements in this exact
+// A2UI card idiom (same styles, not a copy).
+export const card: React.CSSProperties = {
   background: "var(--bg-soft)",
   border: "1px solid var(--border)",
   borderRadius: "var(--radius-md)",
@@ -504,7 +506,7 @@ const linkBtn: React.CSSProperties = {
   background: "var(--surface)",
   textDecoration: "none",
 };
-const cf: React.CSSProperties = {
+export const cf: React.CSSProperties = {
   width: "100%",
   padding: "10px 12px",
   background: "var(--surface)",
