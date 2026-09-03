@@ -1,8 +1,10 @@
 # Proof Plan
 
 ## Definition Of Done
-- A fresh user's first admin login lands on the onboarding page; the entry
-  screen offers the site-link path and the manual path.
+- A fresh user's first admin login lands on the onboarding page — a chat that
+  asks for the website link and offers the manual path. Extraction is STAGED
+  (core → theme → user-selected knowledge, via /start, /advance, /status);
+  each stage's assertions below are unchanged, they just run per stage.
 - Entering a site URL fills the step-1 form and step-2 preview with editable
   extracted values; step 3 completes with a visible chunk count.
 - A value edited in review wins over the extracted value on save.

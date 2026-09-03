@@ -19,9 +19,16 @@ website URL with Playwright, or manually via the same forms left empty.
   - Assumption (from the original request's "with a past site" phrasing): a
     past/existing site is the same as option 1, not a third option. If a third
     option was intended, only the entry screen changes.
-- The page is structured as three collapsible step sections. Steps 1 and 2
-  render editable forms the user reviews and corrects before saving; step 3
-  shows only a progress bar and a final chunk count.
+- Revision (2026-08-29, user-requested): the page is a CHAT conversation, not
+  a form page. The assistant asks for the website link; extraction runs in
+  STAGES so the first editable card appears seconds after the URL is entered
+  (slow origins made the all-at-once crawl feel frozen): contact info first,
+  then theme on request, then only the knowledge extractions the user selects
+  (blog / testimonials / team / sitemap sweep) — which keep running in the
+  background while the user continues to the dashboard. Contact and theme
+  reviews are the same shared FormCard component with different field specs,
+  pre-filled by the agents before being shown. Bare domains that answer only
+  on plain http fall back from the https normalization automatically.
 
 ### Step 1 — Core information (Playwright extraction)
 - Crawl the entered site, including its full sitemap, and extract:

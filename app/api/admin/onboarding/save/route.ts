@@ -9,9 +9,10 @@ const WEIGHTS = new Set(["", "500", "600", "700", "800"]);
 const HEXISH = /^#[0-9a-fA-F]{3,8}$/;
 
 /**
- * Persist the reviewed step-1 and step-2 values into their real tables.
- * The user's edits arrive here, not the raw extraction — whatever is in the
- * form wins. Theme values are clamped to the presets the app supports.
+ * Persist the reviewed values into their real tables. The chat flow saves in
+ * stages, so `profile` and `theme` are each optional — only what the request
+ * carries is written. The user's edits arrive here, not the raw extraction —
+ * whatever is in the form wins. Theme values are clamped to supported presets.
  */
 export async function POST(req: Request) {
   const user = await currentUser();
@@ -24,8 +25,10 @@ export async function POST(req: Request) {
     return new Response("Bad request", { status: 400 });
   }
 
-  const p = body.profile ?? {};
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
+
+  if (body.profile) {
+  const p = body.profile;
   const rawHours = p.company_hours;
   const company_hours =
     typeof rawHours === "string"
@@ -47,8 +50,10 @@ export async function POST(req: Request) {
     update: profile,
     create: { userId: user.id, ...profile },
   });
+  }
 
-  const t = body.theme ?? {};
+  if (body.theme) {
+  const t = body.theme;
   const colorsIn = (typeof t.themeColors === "string"
     ? safeParse(t.themeColors)
     : t.themeColors) as Record<string, unknown> | null;
@@ -76,6 +81,7 @@ export async function POST(req: Request) {
       update: { company_logo: logo },
       create: { userId: user.id, company_logo: logo },
     });
+  }
   }
 
   return Response.json({ ok: true });

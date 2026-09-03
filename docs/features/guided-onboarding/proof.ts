@@ -12,15 +12,19 @@
  * persistence into the right tables, the manual path, and that a completed
  * user never sees onboarding again. Prints PROOF PASS or exits 1.
  *
- * Expected HTTP contract (pinned here; the implementation must satisfy it):
- *   GET  /admin/onboarding                          -> onboarding page (200) for a
+ * Expected HTTP contract (pinned here; the implementation must satisfy it).
+ * The flow is STAGED, mirroring the chat UI: core info first (fast), then
+ * theme on request, then only the knowledge extractions the user selected.
+ *   GET  /admin/onboarding                          -> chat onboarding page (200) for a
  *                                                      logged-in, not-yet-onboarded user
- *   GET  /admin (dashboard route)                   -> routes/links a not-yet-onboarded
+ *   GET  /admin (dashboard route)                   -> routes a not-yet-onboarded
  *                                                      user to onboarding
- *   POST /api/admin/onboarding/start   {url}        -> { jobId }
+ *   POST /api/admin/onboarding/start   {url}        -> { jobId }; runs the core stage
  *   GET  /api/admin/onboarding/status?jobId=...     -> { phase, progress, step1?, step2?,
- *                                                      chunkCount?, report? }
- *   POST /api/admin/onboarding/save    {profile, theme} -> 200; persists edited values
+ *                                                      chunkCount?, report? }; phases
+ *                                                      core-done / theme-done / done
+ *   POST /api/admin/onboarding/advance {jobId, stage: "theme" | "knowledge", extractors?}
+ *   POST /api/admin/onboarding/save    {profile?, theme?} -> 200; persists what's sent
  *   POST /api/admin/onboarding/complete {mode}      -> 200; marks user onboarded
  * `report` must include per-extraction details (see assertions below).
  */
@@ -107,16 +111,17 @@ async function signupForm(jar: Jar, fields: Record<string, string>) {
   jar.absorb(res);
   return res;
 }
-async function pollJob(jar: Jar, jobId: string, timeoutMs = 180_000): Promise<any> {
+/** Poll until the job reaches one of the wanted phases (or fails). */
+async function pollJob(jar: Jar, jobId: string, want: string[], timeoutMs = 180_000): Promise<any> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const { json } = await postJson(jar, `/api/admin/onboarding/status`, { jobId });
     const status = json ?? (await get(jar, `/api/admin/onboarding/status?jobId=${jobId}`)).text;
     const s = typeof status === "string" ? JSON.parse(status) : status;
-    if (s?.phase === "done" || s?.phase === "failed") return s;
+    if (want.includes(s?.phase) || s?.phase === "failed") return s;
     await new Promise((r) => setTimeout(r, 1500));
   }
-  throw new Error("onboarding job did not finish in time");
+  throw new Error(`onboarding job did not reach ${want.join("/")} in time`);
 }
 
 async function main() {
@@ -139,17 +144,19 @@ async function main() {
       [307, 302, 303].includes(dash.res.status)
         ? /onboarding/.test(dash.res.headers.get("location") || "")
         : /onboarding/i.test(dash.text));
-    check("entry offers site-link and manual options",
-      /existing site|enter a link/i.test(onboardingPage.text) && /manually/i.test(onboardingPage.text));
+    check("chat entry asks for the website link and offers manual setup",
+      /website link/i.test(onboardingPage.text) && /manually/i.test(onboardingPage.text));
 
-    console.log("== extraction run against fixture site");
+    console.log("== staged extraction run against fixture site");
     const start = await postJson(jar, "/api/admin/onboarding/start", { url: SITE });
     check("start returns a jobId", !!start.json?.jobId, JSON.stringify(start.json));
-    const final = await pollJob(jar, start.json.jobId);
-    check("job finished successfully", final.phase === "done", final.error || "");
+    const jobId = start.json.jobId;
+    const core = await pollJob(jar, jobId, ["core-done"]);
+    check("core stage finished first (contact form before any crawl)",
+      core.phase === "core-done", core.error || core.phase);
 
     console.log("== step 1: core info (no fabrication)");
-    const s1 = final.step1 || {};
+    const s1 = core.step1 || {};
     check("company name", s1.company_name === "Acme Rivet Co.", s1.company_name);
     check("address", /412 Foundry Lane/.test(s1.company_address || ""), s1.company_address);
     check("phone", /218.*555.*0147/.test(s1.company_phone_number || ""), s1.company_phone_number);
@@ -161,8 +168,17 @@ async function main() {
     check("owner name empty — site never states one (anti-fabrication)",
       !s1.owner_name, s1.owner_name);
 
-    console.log("== step 2: theme constrained to supported options");
-    const s2 = final.step2 || {};
+    console.log("== contact review saves first, edited value wins");
+    const edited = { ...s1, owner_name: "Priya Raman (edited in review)" };
+    const saveProfile = await postJson(jar, "/api/admin/onboarding/save", { profile: edited });
+    check("profile-only save accepted", saveProfile.res.status === 200, String(saveProfile.res.status));
+
+    console.log("== step 2: theme stage runs on request, constrained to supported options");
+    const adv1 = await postJson(jar, "/api/admin/onboarding/advance", { jobId, stage: "theme" });
+    check("advance to theme accepted", adv1.res.status === 200, String(adv1.res.status));
+    const themed = await pollJob(jar, jobId, ["theme-done"]);
+    check("theme stage finished", themed.phase === "theme-done", themed.error || themed.phase);
+    const s2 = themed.step2 || {};
     // lib/fonts.ts can't be imported outside Next (next/font). The curated
     // keys are read from the FontKey union in the source instead.
     const fontsSrc = await readFile(join(__dirname, "..", "..", "..", "lib", "fonts.ts"), "utf8");
@@ -176,7 +192,15 @@ async function main() {
     check("brand color extracted from the fixture css", JSON.stringify(colors).toLowerCase().includes("0f4c81"));
     check("logo stored via app uploads", /^\/api\/uploads\//.test(s2.themeLogo || ""), s2.themeLogo);
 
-    console.log("== step 3: knowledge extraction report");
+    console.log("== step 3: user-selected knowledge extraction");
+    const saveTheme = await postJson(jar, "/api/admin/onboarding/save", { theme: s2 });
+    check("theme-only save accepted", saveTheme.res.status === 200, String(saveTheme.res.status));
+    const adv2 = await postJson(jar, "/api/admin/onboarding/advance", {
+      jobId, stage: "knowledge", extractors: ["blog", "testimonials", "team", "sweep"],
+    });
+    check("advance to knowledge accepted", adv2.res.status === 200, String(adv2.res.status));
+    const final = await pollJob(jar, jobId, ["done"]);
+    check("knowledge stage finished", final.phase === "done", final.error || final.phase);
     const rep = final.report || {};
     check("chunk count reported and > 0", (final.chunkCount ?? 0) > 0, String(final.chunkCount));
     // (a) blog: 3 unique posts, feed reconciliation, pagination walked, no double-saves
@@ -201,10 +225,7 @@ async function main() {
     check("sitemap sweep captured the services page",
       JSON.stringify(rep.sweep?.pages || rep.sweep || {}).includes("services"));
 
-    console.log("== edit-before-save wins, then persistence in the right tables");
-    const edited = { ...s1, owner_name: "Priya Raman (edited in review)" };
-    const save = await postJson(jar, "/api/admin/onboarding/save", { profile: edited, theme: s2 });
-    check("save accepted", save.res.status === 200, String(save.res.status));
+    console.log("== persistence in the right tables");
     const done = await postJson(jar, "/api/admin/onboarding/complete", { mode: "site" });
     check("complete accepted", done.res.status === 200, String(done.res.status));
     const profile = await prisma.profile.findUnique({ where: { userId: user!.id } });

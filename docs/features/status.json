@@ -350,7 +350,7 @@
       "proof": "docs/features/guided-onboarding/PROOF.md",
       "priority": 14,
       "status": "passing",
-      "notes": "Guided first-login onboarding live: /admin/onboarding (URL-extraction + manual paths, 3 collapsible steps), lib/onboarding/* (Playwright crawler w/ fetch fallback, deterministic extractors, in-memory jobs), 4 API routes, User.onboardedAt + migration 20260829180000. Proof docs/features/guided-onboarding/proof.ts green (47 assertions vs local fixture site); real-site run vs joelonsoftware.com reported honestly (91 posts, no testimonials/team recorded as absent, 36 sweep pages, 1205 chunks). Gate PASS. Known gap: Railway image has no Chromium \u2014 prod extraction uses the fetch fallback (JS-only sites degrade)."
+      "notes": "Chat-style staged onboarding (rev 2): assistant asks for the site link; core info extracts first (editable FormCard in seconds), then theme on request (same FormCard, extracted logo/colors), then user-selected knowledge extractors run in background while the user continues to dashboard. lib/onboarding/jobs.ts staged (start/advance), save accepts partial profile/theme, https->http fallback for TLS-less sites. Proof green (staged contract, 50 assertions); verified live vs beautinailbar.com (slow ~5s/page host that previously appeared frozen)."
     },
     {
       "id": "new-source-subtab",
