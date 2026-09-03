@@ -21,7 +21,7 @@ import { FormCard, type FieldSpec } from "./FormCard";
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
 
 type Status = {
-  phase: string; progress: number; error?: string;
+  phase: string; progress: number; log?: string[]; error?: string;
   step1?: Record<string, unknown>; step2?: Record<string, unknown>;
   chunkCount?: number;
   report?: { blog?: { postsSaved: number }; testimonials?: { count: number }; team?: { blocks: number } };
@@ -64,22 +64,47 @@ const EXTRACTOR_OPTIONS = [
   { key: "sweep", label: "Everything else on the sitemap" },
 ];
 
-const STAGE_LINES: Record<string, string[]> = {
-  core: [
-    "Core info agent: loading your homepage…",
-    "Core info agent: reading your contact and about pages…",
-    "Core info agent: looking for address, phone, email, and hours…",
-  ],
-  theme: [
-    "Theme agent: reading your site's CSS…",
-    "Theme agent: matching your fonts and colors to supported options…",
-    "Theme agent: importing your logo…",
-  ],
-  blog: ["Blog agent: walking posts, archives, and the RSS feed…"],
-  testimonials: ["Testimonials agent: collecting genuine customer quotes…"],
-  team: ["Team agent: reading the bios on your about pages…"],
-  sweep: ["Sitemap agent: sweeping remaining pages into knowledge…"],
-};
+/** Lemonade-style letter-by-letter text for assistant messages. */
+function Typewriter({ text, speed = 14 }: { text: string; speed?: number }) {
+  const [shown, setShown] = useState(0);
+  useEffect(() => {
+    setShown(0);
+    const t = setInterval(() => {
+      setShown((n) => {
+        if (n >= text.length) {
+          clearInterval(t);
+          return n;
+        }
+        return n + 1;
+      });
+    }, speed);
+    return () => clearInterval(t);
+  }, [text, speed]);
+  return <>{text.slice(0, shown)}</>;
+}
+
+/**
+ * The live extraction feed: REAL activity lines from the job (pages being
+ * read, values found, sections that don't exist), streamed in order. The
+ * newest line types in; earlier ones stay dimmed above it.
+ */
+function ActivityStream({ lines, progress }: { lines: string[]; progress: number }) {
+  const tail = lines.slice(-5);
+  return (
+    <div aria-live="polite">
+      <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10, minHeight: 22 }}>
+        {tail.map((l, i) => (
+          <div key={`${lines.length - tail.length + i}`} style={{ opacity: i === tail.length - 1 ? 1 : 0.55 }}>
+            {i === tail.length - 1 ? <Typewriter text={l} /> : l}
+          </div>
+        ))}
+      </div>
+      <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
+        <div style={{ width: `${Math.max(progress, 3)}%`, height: "100%", background: "var(--primary)", transition: "width .6s" }} />
+      </div>
+    </div>
+  );
+}
 
 function Bubble({ who, children }: { who: "assistant" | "user"; children: React.ReactNode }) {
   const mine = who === "user";
@@ -99,18 +124,6 @@ function Bubble({ who, children }: { who: "assistant" | "user"; children: React.
   );
 }
 
-function Progress({ stage, progress, rotIdx }: { stage: string; progress: number; rotIdx: number }) {
-  const lines = STAGE_LINES[stage] ?? STAGE_LINES.core;
-  return (
-    <div aria-live="polite">
-      <p style={{ margin: "0 0 10px", fontSize: 14 }}>{lines[rotIdx % lines.length]}</p>
-      <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
-        <div style={{ width: `${Math.max(progress, 3)}%`, height: "100%", background: "var(--primary)", transition: "width .6s" }} />
-      </div>
-    </div>
-  );
-}
-
 export function OnboardingFlow() {
   const router = useRouter();
   const [step, setStep] = useState<Step>("ask-url");
@@ -124,16 +137,9 @@ export function OnboardingFlow() {
   const [picked, setPicked] = useState<string[]>(EXTRACTOR_OPTIONS.map((o) => o.key));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const [rotIdx, setRotIdx] = useState(0);
   const endRef = useRef<HTMLDivElement>(null);
 
   const running = step === "core-running" || step === "theme-running" || step === "knowledge-running";
-
-  useEffect(() => {
-    if (!running) return;
-    const t = setInterval(() => setRotIdx((i) => i + 1), 2200);
-    return () => clearInterval(t);
-  }, [running]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -314,9 +320,8 @@ export function OnboardingFlow() {
   return (
     <div>
       <Bubble who="assistant">
-        <p style={{ margin: 0 }}>
-          Hi! I&apos;ll set up your agent page with you right here. First: what&apos;s your
-          website link? I&apos;ll read it and fill everything in for you.
+        <p style={{ margin: 0, minHeight: 42 }}>
+          <Typewriter text="Hi! I'll set up your agent page with you right here. First: what's your website link? I'll read it and fill everything in for you." />
         </p>
         {step === "ask-url" && (
           // The link entry is an A2UI card element, the same idiom (and the
@@ -354,17 +359,21 @@ export function OnboardingFlow() {
 
       {step === "core-running" && (
         <Bubble who="assistant">
-          <p style={{ margin: "0 0 10px" }}>On it — extracting your contact info now.</p>
-          <Progress stage="core" progress={status?.progress ?? 0} rotIdx={rotIdx} />
+          <p style={{ margin: "0 0 10px" }}>
+            <Typewriter text="On it — extracting your contact info now." />
+          </p>
+          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
         </Bubble>
       )}
 
       {step === "review-contact" && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 12px" }}>
-            {manual
-              ? "No problem — fill in your business details below."
-              : "Here's what I found. Fix anything that's off, then hit Done."}
+            <Typewriter
+              text={manual
+                ? "No problem — fill in your business details below."
+                : "Here's what I found. Fix anything that's off, then hit Done."}
+            />
           </p>
           <FormCard
             fields={CONTACT_FIELDS}
@@ -380,18 +389,20 @@ export function OnboardingFlow() {
       {step === "theme-running" && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
-            Saved. I&apos;ll now extract your theme — colors, fonts, corners, and logo.
+            <Typewriter text="Saved. I'll now extract your theme — colors, fonts, corners, and logo." />
           </p>
-          <Progress stage="theme" progress={status?.progress ?? 0} rotIdx={rotIdx} />
+          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
         </Bubble>
       )}
 
       {step === "review-theme" && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 12px" }}>
-            {manual
-              ? "Pick the look for your agent page."
-              : "Here's the look I pulled from your site — tweak it to taste."}
+            <Typewriter
+              text={manual
+                ? "Pick the look for your agent page."
+                : "Here's the look I pulled from your site — tweak it to taste."}
+            />
           </p>
           <FormCard
             fields={THEME_FIELDS}
@@ -409,8 +420,7 @@ export function OnboardingFlow() {
       {step === "select-knowledge" && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 12px" }}>
-            Last step: which of these does your site have? I&apos;ll extract what you
-            pick into your agent&apos;s knowledge.
+            <Typewriter text="Last step: which of these does your site have? I'll extract what you pick into your agent's knowledge." />
           </p>
           {EXTRACTOR_OPTIONS.map((o) => (
             <label key={o.key} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8, fontSize: 14 }}>
@@ -446,14 +456,9 @@ export function OnboardingFlow() {
           ) : (
             <div style={{ marginBottom: 12 }}>
               <p style={{ margin: "0 0 10px" }}>
-                Extracting now. This can take a few minutes on a big site — you don&apos;t
-                need to wait, I&apos;ll keep going in the background.
+                <Typewriter text="Extracting now. This can take a few minutes on a big site — you don't need to wait, I'll keep going in the background." />
               </p>
-              <Progress
-                stage={status?.phase && STAGE_LINES[status.phase] ? status.phase : "blog"}
-                progress={status?.progress ?? 0}
-                rotIdx={rotIdx}
-              />
+              <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
             </div>
           )}
           <button style={{ ...btn, marginTop: 10 }} onClick={() => router.push("/admin/dashboard")}>

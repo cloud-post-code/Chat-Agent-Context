@@ -144,8 +144,10 @@ async function main() {
       [307, 302, 303].includes(dash.res.status)
         ? /onboarding/.test(dash.res.headers.get("location") || "")
         : /onboarding/i.test(dash.text));
+    // The greeting types in client-side; the A2UI entry card is what the
+    // server renders, so it anchors this assertion.
     check("chat entry asks for the website link and offers manual setup",
-      /website link/i.test(onboardingPage.text) && /manually/i.test(onboardingPage.text));
+      /add your website/i.test(onboardingPage.text) && /manually/i.test(onboardingPage.text));
 
     console.log("== staged extraction run against fixture site");
     const start = await postJson(jar, "/api/admin/onboarding/start", { url: SITE });

@@ -15,9 +15,12 @@ export class Crawler {
   private cache = new Map<string, Page | null>();
   private browser: import("playwright").Browser | null = null;
   private browserTried = false;
+  /** Real-time activity callback — the onboarding chat streams these lines. */
+  onEvent?: (msg: string) => void;
 
-  constructor(entryUrl: string) {
+  constructor(entryUrl: string, onEvent?: (msg: string) => void) {
     this.origin = new URL(entryUrl).origin;
+    this.onEvent = onEvent;
   }
 
   /** Resolve a possibly-relative href against the site; null when offsite. */
@@ -35,6 +38,12 @@ export class Crawler {
   private async page(): Promise<import("playwright").Page | null> {
     if (!this.browserTried) {
       this.browserTried = true;
+      // Playwright's import self-checks the Node version and can hard-exit
+      // the process on <20 — never even import it there (deploy safety).
+      if (Number(process.versions.node.split(".")[0]) < 20) {
+        this.browser = null;
+        return null;
+      }
       try {
         const { chromium } = await import("playwright");
         this.browser = await chromium.launch({ headless: true });
@@ -55,6 +64,7 @@ export class Crawler {
     const abs = this.resolve(url);
     if (!abs) return null;
     if (this.cache.has(abs)) return this.cache.get(abs)!;
+    this.onEvent?.(`Reading ${abs.replace(this.origin, "") || "/"}`);
 
     let html: string | null = null;
     const p = await this.page();

@@ -37,6 +37,8 @@ export type Job = {
   step2?: ThemeExtract;
   chunkCount?: number;
   report?: Partial<KnowledgeReport>;
+  /** Real activity lines, appended as work happens — the chat streams these. */
+  log: string[];
   error?: string;
   /** @internal crawl state carried between stages; never serialized. */
   crawler?: Crawler;
@@ -66,8 +68,13 @@ function fail(job: Job, err: unknown) {
   job.error = err instanceof Error ? err.message : String(err);
 }
 
+function log(job: Job, msg: string) {
+  job.log.push(msg);
+  if (job.log.length > 400) job.log.splice(0, job.log.length - 400);
+}
+
 export function startJob(userId: string, url: string): Job {
-  const job: Job = { id: randomUUID(), userId, url, phase: "core", progress: 0, busy: true };
+  const job: Job = { id: randomUUID(), userId, url, phase: "core", progress: 0, busy: true, log: [] };
   jobs.set(job.id, job);
   void runCore(job)
     .catch((err) => fail(job, err))
@@ -98,15 +105,17 @@ export function advanceJob(job: Job, stage: "theme" | "knowledge", extractors?: 
 }
 
 async function runCore(job: Job): Promise<void> {
-  let crawler = new Crawler(job.url);
+  const onEvent = (m: string) => log(job, m);
+  let crawler = new Crawler(job.url, onEvent);
   job.crawler = crawler;
   let home = await crawler.load(job.url);
   // Some small-business sites answer only on plain http (no TLS at all);
   // a bare pasted domain gets normalized to https, so fall back once.
   if (!home && job.url.startsWith("https://")) {
+    log(job, "No answer over https — trying plain http");
     await crawler.close();
     job.url = job.url.replace(/^https:/, "http:");
-    crawler = new Crawler(job.url);
+    crawler = new Crawler(job.url, onEvent);
     job.crawler = crawler;
     home = await crawler.load(job.url);
   }
@@ -120,17 +129,32 @@ async function runCore(job: Job): Promise<void> {
     .filter((l) => /about|contact|team/i.test(l.text))
     .map((l) => l.url)
     .slice(0, 4);
+  log(job, extraUrls.length
+    ? `Found ${extraUrls.length} contact/about page${extraUrls.length > 1 ? "s" : ""} to check`
+    : "No separate contact page — reading the homepage");
   job.extras = (await Promise.all(extraUrls.map((u) => crawler.load(u))))
     .filter((p): p is Page => !!p);
   job.progress = 80;
   job.step1 = await extractCoreInfo(crawler, [home, ...job.extras]);
+  const s1 = job.step1;
+  log(job, s1.company_name ? `Company name: ${s1.company_name}` : "No company name found");
+  log(job, s1.company_phone_number ? `Phone: ${s1.company_phone_number}` : "No phone number listed");
+  log(job, s1.company_email ? `Email: ${s1.company_email}` : "No email address listed");
+  log(job, s1.company_address ? `Address: ${s1.company_address}` : "No street address listed — leaving it blank");
+  const hasHours = Object.values(s1.company_hours).some(Boolean);
+  log(job, hasHours ? "Opening hours found" : "No opening hours listed");
   job.phase = "core-done";
   job.progress = 100;
 }
 
 async function runTheme(job: Job): Promise<void> {
   job.progress = 20;
+  log(job, "Reading your site's CSS for colors, fonts, and corners");
   job.step2 = await extractTheme(job.crawler!, [job.home!, ...(job.extras ?? [])]);
+  const s2 = job.step2;
+  if (s2.themeColors.primary) log(job, `Brand color: ${s2.themeColors.primary}`);
+  log(job, `Body font matched: ${s2.themeBodyFont}; corners: ${s2.themeRadius}`);
+  log(job, s2.themeLogo ? "Logo imported from your site" : "No importable logo found");
   job.phase = "theme-done";
   job.progress = 100;
 }
@@ -148,36 +172,51 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     if (picked.includes("blog")) {
       job.phase = "blog";
       job.progress = Math.round(stepShare * stepsDone++);
+      log(job, "Looking for a blog — nav links, common paths, and RSS feeds");
       const blog = await extractBlog(crawler, home, job.userId);
       blog.covered.forEach((u) => covered.add(u));
       report.blog = blog.report;
       chunks += blog.chunks;
+      log(job, blog.report.existed
+        ? `Blog: saved ${blog.report.postsSaved} post${blog.report.postsSaved === 1 ? "" : "s"}${blog.report.feedCount != null ? ` (feed listed ${blog.report.feedCount})` : ""}`
+        : "No blog found on this site");
     }
     if (picked.includes("testimonials")) {
       job.phase = "testimonials";
       job.progress = Math.round(stepShare * stepsDone++);
+      log(job, "Checking for customer testimonials and reviews");
       const t = await extractTestimonials(crawler, home, job.userId);
       t.covered.forEach((u) => covered.add(u));
       report.testimonials = t.report;
       chunks += t.chunks;
+      log(job, t.report.count
+        ? `Testimonials: found ${t.report.count}`
+        : "No customer testimonials found");
     }
     if (picked.includes("team")) {
       job.phase = "team";
       job.progress = Math.round(stepShare * stepsDone++);
+      log(job, "Reading your team and about pages");
       const team = await extractTeam(crawler, home, job.userId);
       team.covered.forEach((u) => covered.add(u));
       report.team = team.report;
       chunks += team.chunks;
+      log(job, team.report.blocks
+        ? `Team: saved ${team.report.blocks} bio${team.report.blocks === 1 ? "" : "s"}`
+        : "No team bios found");
     }
     if (picked.includes("sweep")) {
       job.phase = "sweep";
       job.progress = Math.round(stepShare * stepsDone++);
+      log(job, "Sweeping the sitemap for remaining pages");
       const sweep = await sweepSitemap(crawler, job.userId, covered);
       report.sweep = sweep.report;
       chunks += sweep.chunks;
+      log(job, `Sitemap sweep: kept ${sweep.report.pages.length} page${sweep.report.pages.length === 1 ? "" : "s"}`);
     }
     job.report = report;
     job.chunkCount = chunks;
+    log(job, `All done — saved ${chunks} knowledge chunk${chunks === 1 ? "" : "s"}`);
     job.phase = "done";
     job.progress = 100;
   } finally {
