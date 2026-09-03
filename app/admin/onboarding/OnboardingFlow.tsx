@@ -116,6 +116,7 @@ function Bubble({ who, children }: { who: "assistant" | "user"; children: React.
   return (
     <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
       <div
+        className="onboard-phase-in"
         style={{
           ...panel,
           maxWidth: mine ? 560 : 680,
@@ -328,12 +329,17 @@ export function OnboardingFlow() {
         </p>
         {step === "ask-url" && (
           // The link entry is an A2UI card element, the same idiom (and the
-          // same exported styles) the agent's in-chat cards use.
-          <div data-fill="bg-soft" style={{ ...a2uiCard, maxWidth: 440, marginTop: 14 }}>
+          // same exported styles) the agent's in-chat cards use. It phases in
+          // after the greeting starts typing, on the bubble's own background
+          // so the chat reads as one surface.
+          <div
+            className="onboard-phase-in-late"
+            style={{ ...a2uiCard, background: "transparent", color: "inherit", maxWidth: 440, marginTop: 14 }}
+          >
             <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
               Add your website
             </strong>
-            <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 12px" }}>
+            <p style={{ fontStyle: "italic", fontSize: 13, margin: "6px 0 12px", opacity: 0.8 }}>
               Paste the link to your existing site and I&apos;ll read it for you.
             </p>
             <input
@@ -393,7 +399,11 @@ export function OnboardingFlow() {
             No in-person location (online only)
           </label>
           {!noInPerson && locations.map((loc, i) => (
-            <div key={i} style={{ ...a2uiCard, marginBottom: 12 }} data-fill="bg-soft">
+            <div
+              key={i}
+              className="onboard-phase-in"
+              style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
+            >
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                 <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
                   Location {i + 1}

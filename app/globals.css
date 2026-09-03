@@ -291,3 +291,16 @@ select {
     border-color: var(--border);
   }
 }
+
+/* Onboarding chat: bubbles and A2UI card elements phase in — the same
+   arrive-as-you-watch feel as the typed letters. */
+@keyframes onboard-phase-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.onboard-phase-in {
+  animation: onboard-phase-in 0.45s ease both;
+}
+.onboard-phase-in-late {
+  animation: onboard-phase-in 0.45s ease 0.9s both;
+}
