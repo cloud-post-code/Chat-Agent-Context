@@ -133,11 +133,11 @@ async function main() {
       both.includes("proof-cis note") && /<img[^>]+\/api\/uploads\//.test(both));
 
     // 7. Wiring (source-level).
-    const newPage = readFileSync(path.join(root, "app/admin/sources/new/page.tsx"), "utf8");
+    const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
     check("create page posts to the create action", newPage.includes("createIngestionSourceAction"));
     const dash = readFileSync(path.join(root, "app/admin/dashboard/page.tsx"), "utf8");
     check("dashboard renders GenericIngestPanel for custom rows", dash.includes("GenericIngestPanel"));
-    check("dashboard links to /admin/sources/new", dash.includes("/admin/sources/new"));
+    check("dashboard mounts the new-source builder sub-tab", dash.includes("NewSourcePanel"));
     const knowledge = readFileSync(path.join(root, "lib/knowledge.ts"), "utf8");
     const imageGen = readFileSync(path.join(root, "lib/imageGen.ts"), "utf8");
     check("knowledge + imageGen exclude ingest: marks",

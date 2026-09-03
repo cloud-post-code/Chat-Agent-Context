@@ -121,7 +121,7 @@ async function main() {
 
   // 6. UI wiring.
   const editPage = readFileSync(path.join(root, "app/admin/sources/[key]/page.tsx"), "utf8");
-  const newPage = readFileSync(path.join(root, "app/admin/sources/new/page.tsx"), "utf8");
+  const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   check("edit + create forms post splitMode",
     editPage.includes('name="splitMode"') && newPage.includes('name="splitMode"'));
   const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");

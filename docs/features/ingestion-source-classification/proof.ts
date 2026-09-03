@@ -132,7 +132,7 @@ async function main() {
 
   // 7. The selector sits on every source config form, and actions forward it.
   const selectSrc = readFileSync(path.join(root, "app/admin/ClassificationSelect.tsx"), "utf8");
-  const newPage = readFileSync(path.join(root, "app/admin/sources/new/page.tsx"), "utf8");
+  const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   const editPage = readFileSync(path.join(root, "app/admin/sources/[key]/page.tsx"), "utf8");
   const builder = readFileSync(path.join(root, "app/admin/SourceBuilder.tsx"), "utf8");
   const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");

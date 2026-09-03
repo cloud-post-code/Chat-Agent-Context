@@ -351,6 +351,12 @@
       "priority": 14,
       "status": "passing",
       "notes": "Guided first-login onboarding live: /admin/onboarding (URL-extraction + manual paths, 3 collapsible steps), lib/onboarding/* (Playwright crawler w/ fetch fallback, deterministic extractors, in-memory jobs), 4 API routes, User.onboardedAt + migration 20260829180000. Proof docs/features/guided-onboarding/proof.ts green (47 assertions vs local fixture site); real-site run vs joelonsoftware.com reported honestly (91 posts, no testimonials/team recorded as absent, 36 sweep pages, 1205 chunks). Gate PASS. Known gap: Railway image has no Chromium \u2014 prod extraction uses the fetch fallback (JS-only sites degrade)."
+    },
+    {
+      "id": "new-source-subtab",
+      "title": "New ingestion source builder as a Content sub-tab",
+      "status": "passing",
+      "notes": "Builder (SourceBuilder chat + manual form) extracted to app/admin/NewSourcePanel.tsx and mounted as the Content strip's last sub-tab (key new-source, deep-linkable via ?tab=new-source). /admin/sources/new redirects there; create-action error redirect follows. Proof green; verified in dev browser."
     }
   ]
 }

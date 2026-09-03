@@ -116,7 +116,7 @@ async function main() {
   check("persistence goes through saveBuiltSourceAction", src.includes("saveBuiltSourceAction"));
 
   // 7. Wiring.
-  const page = readFileSync(path.join(root, "app/admin/sources/new/page.tsx"), "utf8");
+  const page = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   check("new-source page renders SourceBuilder", page.includes("SourceBuilder"));
   check("manual fallback form kept", page.includes("createIngestionSourceAction"));
   const route = readFileSync(path.join(root, "app/api/admin/build-source/route.ts"), "utf8");

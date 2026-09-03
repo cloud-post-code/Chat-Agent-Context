@@ -46,7 +46,8 @@ import { draftBlankAnswers } from "@/lib/answerDrafts";
 import { ProjectRow } from "../ProjectRow";
 import { Tabs } from "../Tabs";
 import { SubTabs } from "../SubTabs";
-import { contentTabsFromSources, resolveAdminTab } from "../contentTabs";
+import { contentTabsFromSources, resolveAdminTab, NEW_SOURCE_TAB_KEY } from "../contentTabs";
+import { NewSourcePanel } from "../NewSourcePanel";
 import { listIngestionSources } from "@/lib/ingestionSources";
 import { listIngestedItemsClassified } from "@/lib/ingestedItems";
 import { GenericIngestPanel } from "../GenericIngestPanel";
@@ -588,6 +589,15 @@ export default async function Dashboard({
     ),
   }));
 
+  // The builder rides the same strip as the source tabs it creates: last, so
+  // the first real source stays the default panel. A failed create redirects
+  // back here with ?error, echoed above the builder.
+  contentTabs.push({
+    key: NEW_SOURCE_TAB_KEY,
+    label: "+ New ingestion source",
+    content: <NewSourcePanel error={one("error")} />,
+  });
+
   // Hidden sources stay reachable: listed above the tab strip with a Show
   // button each, so hiding is always reversible from the dashboard.
   const hiddenSources = ingestionSources.filter((s) => !s.enabled);
@@ -677,16 +687,7 @@ export default async function Dashboard({
                     ))}
                   </div>
                 ) : null}
-                <SubTabs
-                  initial={initialSub}
-                  tabs={contentTabs}
-                  trailingFirst
-                  trailing={
-                    <Link href="/admin/sources/new" style={btnGhost as React.CSSProperties}>
-                      + New ingestion source
-                    </Link>
-                  }
-                />
+                <SubTabs initial={initialSub} tabs={contentTabs} />
               </>
             ),
           },

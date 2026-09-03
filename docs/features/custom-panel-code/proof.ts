@@ -108,7 +108,7 @@ async function main() {
 
   // 6. Form wiring.
   const editPage = readFileSync(path.join(root, "app/admin/sources/[key]/page.tsx"), "utf8");
-  const newPage = readFileSync(path.join(root, "app/admin/sources/new/page.tsx"), "utf8");
+  const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   check("edit + create forms post panelHtml",
     editPage.includes('name="panelHtml"') && newPage.includes('name="panelHtml"'));
   const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");

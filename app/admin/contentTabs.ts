@@ -9,6 +9,13 @@ export const CONTENT_TAB_KEYS = [
 ] as const;
 export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
 
+/**
+ * Key of the Content sub-tab that hosts the new-ingestion-source builder.
+ * Not an IngestionSource row — the dashboard appends it after the source
+ * tabs — but it deep-links like one (`?tab=new-source`).
+ */
+export const NEW_SOURCE_TAB_KEY = "new-source";
+
 /** Keys of the sub-tabs inside the combined Activity section. */
 export const ACTIVITY_TAB_KEYS = ["activity"] as const;
 export type ActivityTabKey = (typeof ACTIVITY_TAB_KEYS)[number];
@@ -47,7 +54,7 @@ export function resolveAdminTab(
   nav: string | undefined;
   sub: string | undefined;
 } {
-  if (tab && contentKeys.includes(tab)) {
+  if (tab && (tab === NEW_SOURCE_TAB_KEY || contentKeys.includes(tab))) {
     return { nav: "content", sub: tab };
   }
   if (tab && (ACTIVITY_TAB_KEYS as readonly string[]).includes(tab)) {

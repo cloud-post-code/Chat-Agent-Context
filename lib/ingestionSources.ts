@@ -196,7 +196,10 @@ export async function saveIngestionSource(userId: string, input: {
   const owner = await prisma.ingestionSource.findUnique({
     where: { userId_key: { userId, key } },
   });
-  if (owner && owner.id !== input.id) {
+  // "new-source" belongs to the dashboard's builder sub-tab (NEW_SOURCE_TAB_KEY
+  // in app/admin/contentTabs.ts) — a source keyed that would shadow it, so it
+  // suffixes like any taken key.
+  if (key === "new-source" || (owner && owner.id !== input.id)) {
     for (let n = 2; ; n++) {
       const candidate = `${key}-${n}`;
       if (

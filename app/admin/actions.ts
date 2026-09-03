@@ -870,7 +870,7 @@ export async function saveBuiltCard(input: {
 
 // ── Ingestion sources (the Content tabs, stored as data) ──
 
-/** Create a new ingestion source from /admin/sources/new. */
+/** Create a new ingestion source from the Content "+ New ingestion source" sub-tab. */
 export async function createIngestionSourceAction(formData: FormData) {
   const user = await requireUser();
   const error = await saveIngestionSource(user.id, {
@@ -887,7 +887,7 @@ export async function createIngestionSourceAction(formData: FormData) {
       String(formData.get("outputMethod") ?? "").trim() ||
       "Source/Photo rows, read back as unified text/image items",
   });
-  if (error) redirect(`/admin/sources/new?error=${encodeURIComponent(error)}`);
+  if (error) redirect(`/admin/dashboard?tab=new-source&error=${encodeURIComponent(error)}`);
   revalidateAll();
   redirect("/admin/dashboard?tab=content");
 }
