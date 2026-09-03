@@ -39,6 +39,29 @@ const emptyStep2 = (): Step2 => ({
   themeFontSize: "", themeHeadingWeight: "", themeLogo: "",
 });
 
+/**
+ * The extraction agents in the order the job runs them, for the rotating
+ * status line. Mirrors the job's phase keys (a display concern only — the
+ * API contract is untouched).
+ */
+const AGENTS = [
+  { phase: "step1", name: "Core info agent", doing: "reading contact details, address, and opening hours" },
+  { phase: "step2", name: "Theme agent", doing: "matching your colors, fonts, corners, and logo" },
+  { phase: "blog", name: "Blog agent", doing: "walking posts, archives, and the RSS feed" },
+  { phase: "testimonials", name: "Testimonials agent", doing: "collecting genuine customer quotes" },
+  { phase: "team", name: "Team agent", doing: "reading the bios on your about pages" },
+  { phase: "sweep", name: "Sitemap agent", doing: "sweeping remaining pages into knowledge" },
+];
+
+function agentLine(rotIdx: number, phase: string): string {
+  const agent = AGENTS[rotIdx % AGENTS.length];
+  const current = AGENTS.findIndex((a) => a.phase === phase);
+  const idx = AGENTS.indexOf(agent);
+  if (idx < current) return `${agent.name}: finished`;
+  if (idx > current) return `${agent.name}: waiting its turn`;
+  return `${agent.name}: ${agent.doing}…`;
+}
+
 export function OnboardingFlow() {
   const router = useRouter();
   const [mode, setMode] = useState<"" | "site" | "manual">("");
@@ -49,6 +72,16 @@ export function OnboardingFlow() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [jobId, setJobId] = useState<string | null>(null);
+  const [rotIdx, setRotIdx] = useState(0);
+
+  const extracting =
+    mode === "site" && !!jobId && status?.phase !== "done" && status?.phase !== "failed";
+
+  useEffect(() => {
+    if (!extracting) return;
+    const t = setInterval(() => setRotIdx((i) => i + 1), 2200);
+    return () => clearInterval(t);
+  }, [extracting]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -126,12 +159,30 @@ export function OnboardingFlow() {
     );
   }
 
-  const extracting = mode === "site" && status?.phase !== "done" && status?.phase !== "failed";
   const knowledgePhases = ["blog", "testimonials", "team", "sweep"];
   const inKnowledge = knowledgePhases.includes(status?.phase || "");
 
   return (
     <div>
+      {extracting && (
+        <div style={panel} aria-live="polite">
+          <p style={{ margin: "0 0 10px", fontSize: 14 }}>
+            {agentLine(rotIdx, status?.phase || "step1")}
+          </p>
+          <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
+            <div
+              style={{
+                width: `${Math.max(status?.progress ?? 0, 3)}%`, height: "100%",
+                background: "var(--primary)", transition: "width .6s",
+              }}
+            />
+          </div>
+          <p style={{ fontSize: 13, opacity: 0.7, margin: "8px 0 0" }}>
+            Extracting your site — the fields below fill in as each agent reports back.
+          </p>
+        </div>
+      )}
+
       {status?.phase === "failed" && (
         <div style={{ ...panel, borderColor: "var(--danger, #f66)" }}>
           <p>{status.error || "Extraction failed."}</p>
@@ -141,7 +192,9 @@ export function OnboardingFlow() {
         </div>
       )}
 
-      <details open style={panel}>
+      {/* During extraction the sections open in job order, each as its data
+          lands; manual mode and the finished state show everything open. */}
+      <details open={!extracting || !!status?.step1} style={panel}>
         <summary style={{ cursor: "pointer", fontWeight: 700, marginBottom: 12 }}>
           Step 1 — Core information {extracting && !status?.step1 ? "(extracting…)" : ""}
         </summary>
@@ -158,6 +211,7 @@ export function OnboardingFlow() {
             <Label>{label}</Label>
             <input
               style={field}
+              disabled={extracting}
               value={step1[key]}
               onChange={(e) => setStep1({ ...step1, [key]: e.target.value })}
             />
@@ -170,6 +224,7 @@ export function OnboardingFlow() {
             <input
               style={{ ...field, marginBottom: 6 }}
               placeholder="closed"
+              disabled={extracting}
               value={step1.company_hours[d]}
               onChange={(e) =>
                 setStep1({ ...step1, company_hours: { ...step1.company_hours, [d]: e.target.value } })}
@@ -178,7 +233,7 @@ export function OnboardingFlow() {
         ))}
       </details>
 
-      <details open style={panel}>
+      <details open={!extracting || !!status?.step2} style={panel}>
         <summary style={{ cursor: "pointer", fontWeight: 700, marginBottom: 12 }}>
           Step 2 — Theme {extracting && !status?.step2 ? "(extracting…)" : ""}
         </summary>
@@ -186,6 +241,7 @@ export function OnboardingFlow() {
         <Label>Body font</Label>
         <select
           style={field}
+          disabled={extracting}
           value={step2.themeBodyFont}
           onChange={(e) => setStep2({ ...step2, themeBodyFont: e.target.value })}
         >
@@ -196,6 +252,7 @@ export function OnboardingFlow() {
         <Label>Corners</Label>
         <select
           style={field}
+          disabled={extracting}
           value={step2.themeRadius}
           onChange={(e) => setStep2({ ...step2, themeRadius: e.target.value })}
         >
@@ -207,6 +264,7 @@ export function OnboardingFlow() {
             <input
               style={field}
               placeholder="#hex"
+              disabled={extracting}
               value={step2.themeColors[role] || ""}
               onChange={(e) =>
                 setStep2({ ...step2, themeColors: { ...step2.themeColors, [role]: e.target.value } })}
@@ -221,8 +279,10 @@ export function OnboardingFlow() {
       </details>
 
       {mode === "site" && (
-        <section style={panel}>
-          <h3 style={{ marginTop: 0 }}>Step 3 — Knowledge extraction</h3>
+        <details open={inKnowledge || status?.phase === "done"} style={panel}>
+          <summary style={{ cursor: "pointer", fontWeight: 700, marginBottom: 12 }}>
+            Step 3 — Knowledge extraction
+          </summary>
           {status?.phase === "done" ? (
             <p>
               Saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
@@ -245,7 +305,7 @@ export function OnboardingFlow() {
               </p>
             </div>
           )}
-        </section>
+        </details>
       )}
 
       <button
