@@ -18,7 +18,12 @@ export async function POST(req: Request) {
   const user = await currentUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
 
-  let body: { profile?: Record<string, unknown>; theme?: Record<string, unknown> };
+  let body: {
+    profile?: Record<string, unknown>;
+    locations?: Record<string, unknown>;
+    gallery?: Record<string, unknown>;
+    theme?: Record<string, unknown>;
+  };
   try {
     body = await req.json();
   } catch {
@@ -26,9 +31,6 @@ export async function POST(req: Request) {
   }
 
   const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
-
-  if (body.profile) {
-  const p = body.profile;
   const toHours = (v: unknown): string =>
     typeof v === "string"
       ? v.trim()
@@ -37,50 +39,83 @@ export async function POST(req: Request) {
             DAYS.map((d) => [d, str((v as Record<string, unknown>)[d])])) as Hours)
         : "";
 
-  // Locations arrive as structured form entries and are stored AS TEXT in
-  // the existing Profile fields — one line per location — so the import /
-  // prompt side reads them like any other profile text.
-  const locations = (Array.isArray(p.locations) ? p.locations : [])
-    .map((l) => {
-      const loc = (l ?? {}) as Record<string, unknown>;
-      return { address: str(loc.address), phone: str(loc.phone), hours: toHours(loc.hours) };
-    })
-    .filter((l) => l.address || l.hours);
-  const noInPerson = p.no_in_person === true;
-
-  let company_address: string;
-  let company_hours: string;
-  if (noInPerson) {
-    company_address = "Online only — no in-person location";
-    company_hours = toHours(p.company_hours);
-  } else if (locations.length > 1) {
-    company_address = locations
-      .map((l, i) => `Location ${i + 1}: ${l.address}${l.phone ? ` (${l.phone})` : ""}`)
-      .join("\n");
-    company_hours = locations
-      .map((l, i) => `Location ${i + 1} — ${l.hours || "hours not listed"}`)
-      .join("\n");
-  } else if (locations.length === 1) {
-    company_address = locations[0].address;
-    company_hours = locations[0].hours || toHours(p.company_hours);
-  } else {
-    company_address = str(p.company_address);
-    company_hours = toHours(p.company_hours);
+  if (body.profile) {
+    const p = body.profile;
+    const profile = {
+      company_name: str(p.company_name),
+      owner_name: str(p.owner_name),
+      company_phone_number: str(p.company_phone_number),
+      company_email: str(p.company_email),
+    };
+    await prisma.profile.upsert({
+      where: { userId: user.id },
+      update: profile,
+      create: { userId: user.id, ...profile },
+    });
   }
 
-  const profile = {
-    company_name: str(p.company_name),
-    owner_name: str(p.owner_name),
-    company_address,
-    company_phone_number: str(p.company_phone_number),
-    company_email: str(p.company_email),
-    company_hours,
-  };
-  await prisma.profile.upsert({
-    where: { userId: user.id },
-    update: profile,
-    create: { userId: user.id, ...profile },
-  });
+  // The locations review saves separately (its own chat question). The
+  // structured entries are stored AS TEXT in the existing Profile fields —
+  // one line per location — so the import / prompt side reads them like any
+  // other profile text.
+  if (body.locations) {
+    const L = body.locations;
+    const locations = (Array.isArray(L.locations) ? L.locations : [])
+      .map((l: unknown) => {
+        const loc = (l ?? {}) as Record<string, unknown>;
+        return { address: str(loc.address), phone: str(loc.phone), hours: toHours(loc.hours) };
+      })
+      .filter((l: { address: string; hours: string }) => l.address || l.hours);
+    const noInPerson = L.no_in_person === true;
+
+    let company_address: string;
+    let company_hours: string;
+    if (noInPerson || locations.length === 0) {
+      company_address = noInPerson ? "Online only — no in-person location" : "";
+      company_hours = "";
+    } else if (locations.length === 1) {
+      company_address = locations[0].address;
+      company_hours = locations[0].hours;
+    } else {
+      company_address = locations
+        .map((l: { address: string; phone: string }, i: number) =>
+          `Location ${i + 1}: ${l.address}${l.phone ? ` (${l.phone})` : ""}`)
+        .join("\n");
+      company_hours = locations
+        .map((l: { hours: string }, i: number) =>
+          `Location ${i + 1} — ${l.hours || "hours not listed"}`)
+        .join("\n");
+    }
+    await prisma.profile.upsert({
+      where: { userId: user.id },
+      update: { company_address, company_hours },
+      create: { userId: user.id, company_address, company_hours },
+    });
+  }
+
+  // The gallery review: the extraction stage already stored each photo in
+  // the upload store, so saving is row creation over reviewed captions. Only
+  // app-upload paths are accepted (same rule as the imported logo). Replace
+  // semantics keep an onboarding restart from stacking duplicates.
+  if (body.gallery) {
+    const images = (Array.isArray(body.gallery.images) ? body.gallery.images : [])
+      .map((i: unknown) => {
+        const img = (i ?? {}) as Record<string, unknown>;
+        return { src: str(img.src), caption: str(img.caption) };
+      })
+      .filter((i) => /^\/api\/uploads\//.test(i.src))
+      .slice(0, 25);
+    await prisma.photo.deleteMany({ where: { userId: user.id, kind: "gallery" } });
+    await prisma.photo.createMany({
+      data: images.map((img, order) => ({
+        userId: user.id,
+        filename: img.src.replace(/^\/api\/uploads\//, ""),
+        caption: img.caption || null,
+        description: img.caption,
+        kind: "gallery",
+        order,
+      })),
+    });
   }
 
   if (body.theme) {

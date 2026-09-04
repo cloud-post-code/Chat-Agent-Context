@@ -23,8 +23,10 @@
  *   GET  /api/admin/onboarding/status?jobId=...     -> { phase, progress, step1?, step2?,
  *                                                      chunkCount?, report? }; phases
  *                                                      core-done / theme-done / done
- *   POST /api/admin/onboarding/advance {jobId, stage: "theme" | "knowledge", extractors?}
- *   POST /api/admin/onboarding/save    {profile?, theme?} -> 200; persists what's sent
+ *   POST /api/admin/onboarding/advance {jobId, stage: "locations" | "images" |
+ *                                       "theme" | "knowledge", extractors?}
+ *   POST /api/admin/onboarding/save    {profile?, locations?, gallery?, theme?}
+ *                                                   -> 200; persists what's sent
  *   POST /api/admin/onboarding/complete {mode}      -> 200; marks user onboarded
  * `report` must include per-extraction details (see assertions below).
  */
@@ -144,10 +146,11 @@ async function main() {
       [307, 302, 303].includes(dash.res.status)
         ? /onboarding/.test(dash.res.headers.get("location") || "")
         : /onboarding/i.test(dash.text));
-    // The greeting types in client-side; the A2UI entry card is what the
-    // server renders, so it anchors this assertion.
-    check("chat entry asks for the website link and offers manual setup",
-      /add your website/i.test(onboardingPage.text) && /manually/i.test(onboardingPage.text));
+    // The entry card renders client-side after the greeting finishes typing,
+    // so the SSR anchor is the assistant greeting's text (its Typewriter prop
+    // is server-rendered). The manual path is exercised end-to-end below.
+    check("onboarding chat page renders for a new user",
+      /set up your agent/i.test(onboardingPage.text));
 
     console.log("== staged extraction run against fixture site");
     const start = await postJson(jar, "/api/admin/onboarding/start", { url: SITE });
@@ -160,29 +163,65 @@ async function main() {
     console.log("== step 1: core info (no fabrication)");
     const s1 = core.step1 || {};
     check("company name", s1.company_name === "Acme Rivet Co.", s1.company_name);
-    check("address", /412 Foundry Lane/.test(s1.company_address || ""), s1.company_address);
     check("phone", /218.*555.*0147/.test(s1.company_phone_number || ""), s1.company_phone_number);
     check("email", s1.company_email === "hello@acmerivet.example", s1.company_email);
-    const hours = s1.company_hours || {};
-    check("weekday hours extracted", /8/.test(String(hours.monday ?? hours.Monday ?? s1.company_hours ?? "")));
-    check("saturday empty (site says closed)",
-      !hours.saturday && !/saturday.*\d/i.test(String(s1.company_hours || "")));
     check("owner name empty — site never states one (anti-fabrication)",
       !s1.owner_name, s1.owner_name);
-    // Multi-location: the contact page lists two labeled locations; one
-    // location first, then a second, each with its own hours.
-    const locs = s1.locations || [];
-    check("two locations found (contact page lists both)", locs.length === 2, String(locs.length));
-    check("location 1 is the primary address", /412 Foundry Lane/.test(locs[0]?.address || ""), locs[0]?.address);
-    check("location 2 extracted with its own address", /227 Harbor Street/.test(locs[1]?.address || ""), locs[1]?.address);
-    check("location 2 has its own hours", /10/.test(locs[1]?.hours?.monday || ""), JSON.stringify(locs[1]?.hours?.monday));
-    check("location 2 saturday differs from location 1's (closed)",
-      /10/.test(locs[1]?.hours?.saturday || "") && !locs[0]?.hours?.saturday, `${locs[1]?.hours?.saturday} vs ${locs[0]?.hours?.saturday}`);
 
     console.log("== contact review saves first, edited value wins");
     const edited = { ...s1, owner_name: "Priya Raman (edited in review)" };
     const saveProfile = await postJson(jar, "/api/admin/onboarding/save", { profile: edited });
     check("profile-only save accepted", saveProfile.res.status === 200, String(saveProfile.res.status));
+
+    console.log("== locations stage: its own question, its own extraction");
+    const advL = await postJson(jar, "/api/admin/onboarding/advance", { jobId, stage: "locations" });
+    check("advance to locations accepted", advL.res.status === 200, String(advL.res.status));
+    const located = await pollJob(jar, jobId, ["locations-done"]);
+    check("locations stage finished", located.phase === "locations-done", located.error || located.phase);
+    const locs = located.stepLoc?.locations || [];
+    check("two locations found (contact page lists both)", locs.length === 2, String(locs.length));
+    check("location 1 is the primary address", /412 Foundry Lane/.test(locs[0]?.address || ""), locs[0]?.address);
+    check("weekday hours extracted for location 1", /8/.test(locs[0]?.hours?.monday || ""), locs[0]?.hours?.monday);
+    check("location 1 saturday empty (site says closed)", !locs[0]?.hours?.saturday, locs[0]?.hours?.saturday);
+    check("location 2 extracted with its own address", /227 Harbor Street/.test(locs[1]?.address || ""), locs[1]?.address);
+    check("location 2 has its own hours", /10/.test(locs[1]?.hours?.monday || ""), JSON.stringify(locs[1]?.hours?.monday));
+    check("location 2 saturday differs from location 1's",
+      /10/.test(locs[1]?.hours?.saturday || ""), locs[1]?.hours?.saturday);
+    const saveLoc = await postJson(jar, "/api/admin/onboarding/save", {
+      locations: { no_in_person: false, locations: locs },
+    });
+    check("locations save accepted", saveLoc.res.status === 200, String(saveLoc.res.status));
+
+    console.log("== gallery-images stage: photos with the site's own captions");
+    const advI = await postJson(jar, "/api/admin/onboarding/advance", { jobId, stage: "images" });
+    check("advance to images accepted", advI.res.status === 200, String(advI.res.status));
+    const imaged = await pollJob(jar, jobId, ["images-done"]);
+    check("images stage finished", imaged.phase === "images-done", imaged.error || imaged.phase);
+    const gallery: { src: string; caption: string }[] = imaged.stepImages?.images || [];
+    check("content photos found (gallery page + about portrait)",
+      gallery.length >= 4 && gallery.length <= 25, String(gallery.length));
+    check("every photo stored via app uploads",
+      gallery.every((g) => /^\/api\/uploads\//.test(g.src)));
+    check("figcaption used as the caption",
+      gallery.some((g) => g.caption === "The forming line on the main shop floor"));
+    check("alt text used when there is no figcaption",
+      gallery.some((g) => g.caption === "Rivet inspection bench"));
+    check("logo and tracking pixel excluded",
+      gallery.every((g) => !/logo|pixel/i.test(g.caption)));
+    const editedGallery = gallery.map((g, i) =>
+      i === 0 ? { ...g, caption: "Caption fixed in review" } : g);
+    const saveGal = await postJson(jar, "/api/admin/onboarding/save", {
+      gallery: { images: editedGallery },
+    });
+    check("gallery save accepted", saveGal.res.status === 200, String(saveGal.res.status));
+    const photoRows = await prisma.photo.findMany({
+      where: { userId: user!.id, kind: "gallery" },
+      orderBy: { order: "asc" },
+    });
+    check("photo rows created for the reviewed gallery",
+      photoRows.length === editedGallery.length, String(photoRows.length));
+    check("edited caption wins in the saved row",
+      photoRows[0]?.caption === "Caption fixed in review", photoRows[0]?.caption || "");
 
     console.log("== step 2: theme stage runs on request, constrained to supported options");
     const adv1 = await postJson(jar, "/api/admin/onboarding/advance", { jobId, stage: "theme" });
@@ -274,8 +313,8 @@ async function main() {
     const emailB = `manual-${stamp}@proof.local`;
     await signupForm(jarB, { email: emailB, password: "proof-pass-1234", name: "Manual Proof", slug: `manual-${stamp}` });
     const obB = await get(jarB, "/admin/onboarding");
-    check("manual option present for second user", /manually/i.test(obB.text));
-    check("manual forms start empty", !/Acme Rivet/.test(obB.text));
+    check("second user reaches the onboarding chat", /set up your agent/i.test(obB.text));
+    check("nothing pre-filled for the second user", !/Acme Rivet/.test(obB.text));
     const doneB = await postJson(jarB, "/api/admin/onboarding/complete", { mode: "manual" });
     check("manual complete accepted", doneB.res.status === 200, String(doneB.res.status));
     const dashB = await get(jarB, "/admin/dashboard");

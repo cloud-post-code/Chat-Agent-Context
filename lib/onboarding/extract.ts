@@ -41,7 +41,8 @@ export type ThemeExtract = {
 const emptyHours = (): Hours =>
   Object.fromEntries(DAYS.map((d) => [d, ""])) as Hours;
 
-/** "Monday–Friday 8:00am–4:30pm. Closed Saturday and Sunday." → per-day map. */
+/** "Monday–Friday 8:00am–4:30pm. Closed Saturday and Sunday." → per-day map.
+ *  Tolerates "8 AM" (no minutes, spaced, uppercased) as well as "8:00am". */
 export function parseHours(text: string): Hours {
   const hours = emptyHours();
   const t = text.replace(/–|—/g, "-").toLowerCase();
@@ -59,6 +60,10 @@ export function parseHours(text: string): Hours {
   for (const m of t.matchAll(new RegExp(`closed\\s+((?:${day}(?:\\s*(?:,|and)\\s*)?)+)`, "g"))) {
     for (const d of m[1].matchAll(new RegExp(day, "g"))) hours[d[1] as (typeof DAYS)[number]] = "";
   }
+  // "Sunday: Closed" — the per-day spelling location pages tend to use.
+  for (const m of t.matchAll(new RegExp(`${day}\\s*:\\s*closed`, "g"))) {
+    hours[m[1] as (typeof DAYS)[number]] = "";
+  }
   return hours;
 }
 
@@ -70,8 +75,14 @@ export function serializeHours(hours: Hours): string {
 
 // Street address, tolerant of the "City ST 02481" form many small-business
 // sites use (no comma before the state).
+// Street address ending in a US city/state/ZIP. The city→state separator may
+// be a comma, and there may be a comma between state and ZIP too
+// ("Newton, MA, 02460"), which small-business site builders emit freely.
+// Optional unit/neighborhood segment between the street and the city
+// ("Suite 1214, Natick", "Coolidge Corner, Brookline") — up to two such
+// comma-groups before the "City, ST ZIP" tail.
 const ADDRESS_RE =
-  /\d{1,5}\s+[A-Z][A-Za-z]*(?:\s[A-Za-z.]+){0,4}\s(?:Lane|Ln|Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Way|Court|Ct|Place|Pl)\.?,?\s+[A-Z][A-Za-z .]+?,?\s*[A-Z]{2}\s*\d{5}(?:-\d{4})?/;
+  /\d{1,5}\s+[A-Z][A-Za-z]*(?:\s[A-Za-z.]+){0,4}\s(?:Lane|Ln|Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Way|Court|Ct|Place|Pl)\.?(?:,\s*(?:Suite|Ste|Unit|#)?\s?[A-Za-z0-9][A-Za-z0-9 ]{0,24}?){0,2},\s*[A-Z][A-Za-z .]{1,24}?,?\s*[A-Z]{2},?\s*\d{5}(?:-\d{4})?/;
 const PHONE_RE = /(?:\+1[ .-]?)?\(?\d{3}\)?[ .-]{0,2}\d{3}[ .-]{0,2}\d{4}/;
 
 /**
@@ -80,7 +91,7 @@ const PHONE_RE = /(?:\+1[ .-]?)?\(?\d{3}\)?[ .-]{0,2}\d{3}[ .-]{0,2}\d{4}/;
  * hours; otherwise every distinct address on the page becomes a location and
  * the page's hours attach to the first.
  */
-function parsePageLocations(text: string): Location[] {
+export function parsePageLocations(text: string): Location[] {
   const out: Location[] = [];
   const segments = text.split(/(?:location|address)\s*\d+\s*:/i);
   if (segments.length > 1) {
@@ -96,10 +107,22 @@ function parsePageLocations(text: string): Location[] {
     if (out.length) return out;
   }
   const addresses = [...new Set([...text.matchAll(new RegExp(ADDRESS_RE, "g"))].map((m) => m[0].trim()))];
+  // A single-location page (one address, its own "Hours" block and phone —
+  // the /locations/<shop> pattern): attach that page's hours and phone to it.
+  if (addresses.length === 1) {
+    return [{
+      address: addresses[0],
+      phone: text.match(PHONE_RE)?.[0]?.trim().replace(/\s+-\s*/g, "-") ?? "",
+      hours: parseHours(text),
+    }];
+  }
+  const pageHours = parseHours(
+    text.match(/hours[:\s][^.]*(?:\.[^.]*(?:closed|open)[^.]*)?\.?/i)?.[0] ?? "",
+  );
   return addresses.map((address, i) => ({
     address,
     phone: "",
-    hours: i === 0 ? parseHours(text.match(/hours[:\s][^.]*(?:\.[^.]*(?:closed|open)[^.]*)?\.?/i)?.[0] ?? "") : emptyHours(),
+    hours: i === 0 ? pageHours : emptyHours(),
   }));
 }
 
@@ -133,41 +156,34 @@ export async function extractCoreInfo(crawler: Crawler, pages: Page[]): Promise<
       const m = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
       if (m && !/\.(png|jpg|svg|webp)$/i.test(m[0])) info.company_email = m[0];
     }
-    // One location first; only then look for more — a page with labeled
-    // "Location 1 / Location 2" blocks yields them all, each with own hours.
-    // The same address on two pages is ONE location; a footer lists bare
-    // addresses on every page while the contact page carries the hours, so
-    // the copy that knows its hours wins the merge.
-    for (const loc of parsePageLocations(text)) {
-      const existing = info.locations.find(
-        (l) => l.address.toLowerCase() === loc.address.toLowerCase(),
-      );
-      if (!existing) {
-        info.locations.push(loc);
-        continue;
-      }
-      const incomingHasHours = Object.values(loc.hours).some(Boolean);
-      const existingHasHours = Object.values(existing.hours).some(Boolean);
-      if (incomingHasHours && !existingHasHours) {
-        existing.hours = loc.hours;
-        if (loc.phone) existing.phone = loc.phone;
-      } else if (!existing.phone && loc.phone) {
-        existing.phone = loc.phone;
-      }
-    }
-    const hoursText = text.match(/hours[:\s][^.]*(?:\.[^.]*(?:closed|open)[^.]*)?\.?/i)?.[0];
-    if (hoursText && Object.values(info.company_hours).every((v) => !v)) {
-      info.company_hours = parseHours(hoursText);
-    }
   }
-  // The first location doubles as the flat fields the rest of the app reads.
-  if (info.locations[0]) {
-    info.company_address = info.locations[0].address;
-    const first = info.locations[0].hours;
-    if (Object.values(first).some(Boolean)) info.company_hours = first;
-    else info.locations[0].hours = info.company_hours;
-  }
+  // Addresses and hours are NOT extracted here — the dedicated locations
+  // stage (lib/onboarding/locations.ts) owns them, with its own discovery
+  // and its own extraction prompt.
   return info;
+}
+
+/**
+ * Fold one parsed location into a list. The same address on two pages is ONE
+ * location; a footer lists bare addresses on every page while a location or
+ * contact page carries the hours, so the copy that knows its hours wins.
+ */
+export function mergeLocation(locations: Location[], loc: Location): void {
+  const existing = locations.find(
+    (l) => l.address.toLowerCase() === loc.address.toLowerCase(),
+  );
+  if (!existing) {
+    locations.push(loc);
+    return;
+  }
+  const incomingHasHours = Object.values(loc.hours).some(Boolean);
+  const existingHasHours = Object.values(existing.hours).some(Boolean);
+  if (incomingHasHours && !existingHasHours) {
+    existing.hours = loc.hours;
+    if (loc.phone) existing.phone = loc.phone;
+  } else if (!existing.phone && loc.phone) {
+    existing.phone = loc.phone;
+  }
 }
 
 // ── Theme ──

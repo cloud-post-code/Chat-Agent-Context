@@ -39,6 +39,19 @@ website URL with Playwright, or manually via the same forms left empty.
   the user's `Profile` row (hours serialize into the free-text
   `company_hours` field in a consistent per-day format).
 
+### Step 1c — Gallery photos (added 2026-09-03)
+- After the locations review, extract up to 25 content images from the site
+  (gallery/portfolio/about pages plus the pages already crawled), each with
+  the caption the site itself states (figcaption, then alt, then title —
+  never invented). Logos, icons, sprites, and tracking pixels are excluded.
+- Every kept image is downloaded on-domain and stored via `lib/uploads.ts`,
+  so the review previews `/api/uploads/...` URLs.
+- The review's A2UI element shows THREE photos at a time with a
+  "page / pages" counter and prev/next arrows; captions are editable in
+  place and any photo can be removed. Saving creates `Photo` rows
+  (kind "gallery", replace semantics) that the public gallery card renders.
+- Zero photos found skips the review and moves straight to the theme stage.
+
 ### Step 2 — Theme (Playwright extraction)
 - Render a visual preview resembling the user's actual public `/a/[slug]`
   page with the extracted theme applied; every value is editable in place.

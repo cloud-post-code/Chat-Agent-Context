@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Crawler, type Page } from "./crawl";
-import { extractCoreInfo, extractTheme, type CoreInfo, type ThemeExtract } from "./extract";
+import {
+  extractCoreInfo, extractTheme, type CoreInfo, type Location, type ThemeExtract,
+} from "./extract";
+import { discoverLocationPages, extractLocations } from "./locations";
+import { extractImages, type GalleryImage } from "./images";
 import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
@@ -29,11 +33,17 @@ export type Job = {
   url: string;
   phase:
     | "core" | "core-done"
+    | "locations" | "locations-done"
+    | "images" | "images-done"
     | "theme" | "theme-done"
     | "blog" | "testimonials" | "team" | "sweep"
     | "done" | "failed";
   progress: number; // 0–100 within the currently running stage
   step1?: CoreInfo;
+  /** The dedicated locations-and-hours stage's result. */
+  stepLoc?: { locations: Location[] };
+  /** The gallery-images stage's result: stored photos with site captions. */
+  stepImages?: { images: GalleryImage[] };
   step2?: ThemeExtract;
   chunkCount?: number;
   report?: Partial<KnowledgeReport>;
@@ -83,9 +93,32 @@ export function startJob(userId: string, url: string): Job {
 }
 
 /** Run the next stage. Returns false when the job isn't ready for it. */
-export function advanceJob(job: Job, stage: "theme" | "knowledge", extractors?: Extractor[]): boolean {
+export function advanceJob(
+  job: Job,
+  stage: "locations" | "images" | "theme" | "knowledge",
+  extractors?: Extractor[],
+): boolean {
   if (job.busy || job.phase === "failed") return false;
-  if (stage === "theme" && job.phase === "core-done") {
+  if (stage === "locations" && job.phase === "core-done") {
+    job.phase = "locations";
+    job.busy = true;
+    void runLocations(job)
+      .catch((err) => fail(job, err))
+      .finally(() => (job.busy = false));
+    return true;
+  }
+  if (stage === "images" && (job.phase === "locations-done" || job.phase === "core-done")) {
+    job.phase = "images";
+    job.busy = true;
+    void runImages(job)
+      .catch((err) => fail(job, err))
+      .finally(() => (job.busy = false));
+    return true;
+  }
+  if (
+    stage === "theme" &&
+    (job.phase === "images-done" || job.phase === "locations-done" || job.phase === "core-done")
+  ) {
     job.phase = "theme";
     job.busy = true;
     void runTheme(job)
@@ -93,7 +126,11 @@ export function advanceJob(job: Job, stage: "theme" | "knowledge", extractors?: 
       .finally(() => (job.busy = false));
     return true;
   }
-  if (stage === "knowledge" && (job.phase === "theme-done" || job.phase === "core-done")) {
+  if (
+    stage === "knowledge" &&
+    (job.phase === "theme-done" || job.phase === "images-done" ||
+      job.phase === "locations-done" || job.phase === "core-done")
+  ) {
     const picked = (extractors ?? EXTRACTORS).filter((e) => EXTRACTORS.includes(e));
     job.busy = true;
     void runKnowledge(job, picked)
@@ -140,17 +177,45 @@ async function runCore(job: Job): Promise<void> {
   log(job, s1.company_name ? `Company name: ${s1.company_name}` : "No company name found");
   log(job, s1.company_phone_number ? `Phone: ${s1.company_phone_number}` : "No phone number listed");
   log(job, s1.company_email ? `Email: ${s1.company_email}` : "No email address listed");
-  if (s1.locations.length === 0) {
-    log(job, "No street address listed — this may be an online-only business");
-  } else {
-    for (const [i, loc] of s1.locations.entries()) {
-      log(job, `Location ${i + 1}: ${loc.address}`);
-    }
-    if (s1.locations.length > 1) log(job, `Found ${s1.locations.length} locations, each with its own hours`);
-  }
-  const hasHours = Object.values(s1.company_hours).some(Boolean);
-  log(job, hasHours ? "Opening hours found" : "No opening hours listed");
   job.phase = "core-done";
+  job.progress = 100;
+}
+
+/**
+ * The dedicated locations stage: its own page discovery (hours often live on
+ * /locations or per-shop pages, not the contact page) and its own extraction
+ * prompt (lib/onboarding/locations.ts).
+ */
+async function runLocations(job: Job): Promise<void> {
+  job.progress = 10;
+  log(job, "Looking for location and hours pages");
+  const pages = await discoverLocationPages(job.crawler!, job.home!, job.extras ?? []);
+  job.progress = 60;
+  const locations = await extractLocations(pages, (m) => log(job, m));
+  if (locations.length === 0) {
+    log(job, "No street address found — this may be an online-only business");
+  } else {
+    for (const [i, loc] of locations.entries()) {
+      const hasHours = Object.values(loc.hours).some(Boolean);
+      log(job, `Location ${i + 1}: ${loc.address}${hasHours ? " — hours found" : " — no hours listed"}`);
+    }
+  }
+  job.stepLoc = { locations };
+  job.phase = "locations-done";
+  job.progress = 100;
+}
+
+/** The gallery-images stage: photos with the captions the site gives them. */
+async function runImages(job: Job): Promise<void> {
+  job.progress = 10;
+  log(job, "Looking for photos to build your gallery");
+  const images = await extractImages(job.crawler!, job.home!, job.extras ?? [], (m) => {
+    log(job, m);
+    // Creep the bar as photos land; the cap keeps room for the final jump.
+    job.progress = Math.min(95, job.progress + 3);
+  });
+  job.stepImages = { images };
+  job.phase = "images-done";
   job.progress = 100;
 }
 

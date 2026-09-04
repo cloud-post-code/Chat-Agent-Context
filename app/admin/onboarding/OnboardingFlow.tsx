@@ -2,12 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { panel, btn, btnGhost, Label } from "../ui";
+import { panel, btn, btnGhost } from "../ui";
 import { card as a2uiCard, cf as a2uiField } from "@/app/cards/Cards";
 import { FONT_OPTIONS, BODY_FONT_OPTIONS } from "@/lib/fonts";
 import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
+import { GalleryCard, type GalleryItem } from "./GalleryCard";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
@@ -25,12 +26,16 @@ type LocationForm = { address: string; phone: string } & Record<string, string>;
 type Status = {
   phase: string; progress: number; log?: string[]; error?: string;
   step1?: Record<string, unknown>; step2?: Record<string, unknown>;
+  stepLoc?: { locations?: Record<string, unknown>[] };
+  stepImages?: { images?: { src?: string; caption?: string }[] };
   chunkCount?: number;
   report?: { blog?: { postsSaved: number }; testimonials?: { count: number }; team?: { blocks: number } };
 };
 
 type Step =
   | "ask-url" | "core-running" | "review-contact"
+  | "locations-running" | "review-locations"
+  | "images-running" | "review-images"
   | "theme-running" | "review-theme"
   | "select-knowledge" | "knowledge-running";
 
@@ -69,22 +74,28 @@ const defaultTheme = (): ThemeInitial => ({
   themeFontSize: "16", themeHeadingWeight: "700", colors: {},
 });
 
-/** Lemonade-style letter-by-letter text for assistant messages. */
-function Typewriter({ text, speed = 14 }: { text: string; speed?: number }) {
+/** Lemonade-style letter-by-letter text for assistant messages. Progress is
+ *  derived from elapsed time, not tick counts, so a backgrounded tab (whose
+ *  timers the browser throttles) catches up instantly instead of stalling. */
+function Typewriter({ text, speed = 14, onDone }: { text: string; speed?: number; onDone?: () => void }) {
   const [shown, setShown] = useState(0);
+  const onDoneRef = useRef(onDone);
+  onDoneRef.current = onDone;
   useEffect(() => {
     setShown(0);
+    const startedAt = Date.now();
     const t = setInterval(() => {
-      setShown((n) => {
-        if (n >= text.length) {
-          clearInterval(t);
-          return n;
-        }
-        return n + 1;
-      });
+      const n = Math.min(text.length, Math.floor((Date.now() - startedAt) / speed));
+      setShown(n);
+      if (n >= text.length) clearInterval(t);
     }, speed);
     return () => clearInterval(t);
   }, [text, speed]);
+  // Completion is signaled from an effect, not from inside the interval's
+  // state updater — updating the parent mid-render is a React error.
+  useEffect(() => {
+    if (text.length > 0 && shown >= text.length) onDoneRef.current?.();
+  }, [shown, text]);
   return <>{text.slice(0, shown)}</>;
 }
 
@@ -106,6 +117,25 @@ function ActivityStream({ lines, progress }: { lines: string[]; progress: number
       </div>
       <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
         <div style={{ width: `${Math.max(progress, 3)}%`, height: "100%", background: "var(--primary)", transition: "width .6s" }} />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The user's side of the conversation: entry forms and cards render as a
+ * right-aligned panel — the place the user answers from — instead of living
+ * inside the assistant's ask bubble. Appears only after the assistant's text
+ * has finished typing.
+ */
+function UserEntry({ children, maxWidth = 560 }: { children: React.ReactNode; maxWidth?: number }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end" }}>
+      <div
+        className="onboard-phase-in"
+        style={{ ...panel, ...a2uiCard, width: "100%", maxWidth, marginBottom: 14 }}
+      >
+        {children}
       </div>
     </div>
   );
@@ -140,19 +170,33 @@ export function OnboardingFlow() {
   const [company, setCompany] = useState<Record<string, string>>({});
   const [locations, setLocations] = useState<LocationForm[]>([emptyLocation()]);
   const [noInPerson, setNoInPerson] = useState(false);
+  const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [themeInitial, setThemeInitial] = useState<ThemeInitial>(defaultTheme());
   const [logo, setLogo] = useState("");
   const [picked, setPicked] = useState<string[]>(EXTRACTOR_OPTIONS.map((o) => o.key));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  // The entry panel for the current step shows only once the assistant's
+  // message has fully typed out.
+  const [textDone, setTextDone] = useState(false);
+  // The greeting types exactly once, so its flag is never reset — the URL
+  // card must come back if the user retries after a failed extraction.
+  const [greetingDone, setGreetingDone] = useState(false);
   const themeFormRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const running = step === "core-running" || step === "theme-running" || step === "knowledge-running";
+  const running =
+    step === "core-running" || step === "locations-running" ||
+    step === "images-running" || step === "theme-running" ||
+    step === "knowledge-running";
+
+  useEffect(() => {
+    setTextDone(false);
+  }, [step]);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [step, status?.phase]);
+  }, [step, status?.phase, textDone, greetingDone]);
 
   // One poller drives every running stage; step transitions happen on the
   // phase the backend reports, and each form is pre-filled before it shows.
@@ -172,7 +216,10 @@ export function OnboardingFlow() {
           company_phone_number: String(p.company_phone_number ?? ""),
           company_email: String(p.company_email ?? ""),
         });
-        const found = Array.isArray(p.locations) ? (p.locations as Record<string, unknown>[]) : [];
+        setStep("review-contact");
+      }
+      if (step === "locations-running" && s.phase === "locations-done") {
+        const found = s.stepLoc?.locations ?? [];
         if (found.length) {
           setLocations(found.map((l) => {
             const hours = (l.hours ?? {}) as Record<string, string>;
@@ -183,7 +230,20 @@ export function OnboardingFlow() {
             } as LocationForm;
           }));
         }
-        setStep("review-contact");
+        setStep("review-locations");
+      }
+      if (step === "images-running" && s.phase === "images-done") {
+        const imgs = (s.stepImages?.images ?? []).map((i) => ({
+          src: String(i.src ?? ""), caption: String(i.caption ?? ""),
+        })).filter((i) => i.src);
+        if (imgs.length === 0) {
+          // Nothing to review — move straight on to the theme.
+          await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
+          setStep("theme-running");
+        } else {
+          setGallery(imgs);
+          setStep("review-images");
+        }
       }
       if (step === "theme-running" && s.phase === "theme-done" && s.step2) {
         const t2 = s.step2 as Record<string, unknown>;
@@ -237,12 +297,6 @@ export function OnboardingFlow() {
       owner_name: company.owner_name ?? "",
       company_phone_number: company.company_phone_number ?? "",
       company_email: company.company_email ?? "",
-      no_in_person: noInPerson,
-      locations: noInPerson ? [] : locations.map((l) => ({
-        address: l.address,
-        phone: l.phone,
-        hours: Object.fromEntries(DAYS.map((d) => [d, l[`hours_${d}`] ?? ""])),
-      })),
     };
     const res = await post("/api/admin/onboarding/save", { profile });
     if (!res.ok) {
@@ -251,11 +305,60 @@ export function OnboardingFlow() {
       return;
     }
     if (manual) {
+      setStep("review-locations");
+    } else {
+      await post("/api/admin/onboarding/advance", { jobId, stage: "locations" });
+      setStep("locations-running");
+    }
+    setBusy(false);
+  }
+
+  async function saveLocations() {
+    setBusy(true);
+    setError("");
+    const res = await post("/api/admin/onboarding/save", {
+      locations: {
+        no_in_person: noInPerson,
+        locations: noInPerson ? [] : locations.map((l) => ({
+          address: l.address,
+          phone: l.phone,
+          hours: Object.fromEntries(DAYS.map((d) => [d, l[`hours_${d}`] ?? ""])),
+        })),
+      },
+    });
+    if (!res.ok) {
+      setError(await res.text());
+      setBusy(false);
+      return;
+    }
+    if (manual) {
       setStep("review-theme");
     } else {
-      await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
-      setStep("theme-running");
+      await post("/api/admin/onboarding/advance", { jobId, stage: "images" });
+      setStep("images-running");
     }
+    setBusy(false);
+  }
+
+  async function saveGallery() {
+    setBusy(true);
+    setError("");
+    const res = await post("/api/admin/onboarding/save", { gallery: { images: gallery } });
+    if (!res.ok) {
+      setError(await res.text());
+      setBusy(false);
+      return;
+    }
+    await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
+    setStep("theme-running");
+    setBusy(false);
+  }
+
+  async function skipGallery() {
+    setBusy(true);
+    setError("");
+    await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
+    setStep("theme-running");
     setBusy(false);
   }
 
@@ -325,42 +428,41 @@ export function OnboardingFlow() {
     <div>
       <Bubble who="assistant">
         <p style={{ margin: 0, minHeight: 42 }}>
-          <Typewriter text="Hi! I'll set up your agent page with you right here. First: what's your website link? I'll read it and fill everything in for you." />
+          <Typewriter
+            text="Hi! I'll set up your agent page with you right here. First: what's your website link? I'll read it and fill everything in for you."
+            onDone={() => setGreetingDone(true)}
+          />
         </p>
-        {step === "ask-url" && (
-          // The link entry is an A2UI card element, the same idiom (and the
-          // same exported styles) the agent's in-chat cards use. It phases in
-          // after the greeting starts typing, on the bubble's own background
-          // so the chat reads as one surface.
-          <div
-            className="onboard-phase-in-late"
-            style={{ ...a2uiCard, background: "transparent", color: "inherit", maxWidth: 440, marginTop: 14 }}
-          >
-            <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
-              Add your website
-            </strong>
-            <p style={{ fontStyle: "italic", fontSize: 13, margin: "6px 0 12px", opacity: 0.8 }}>
-              Paste the link to your existing site and I&apos;ll read it for you.
-            </p>
-            <input
-              style={a2uiField}
-              placeholder="https://your-current-site.com"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && url.trim() && startExtraction()}
-            />
-            <button style={btn} onClick={startExtraction} disabled={!url.trim()}>
-              Extract my site
-            </button>
-            <button
-              style={{ ...btnGhost, marginLeft: 10 }}
-              onClick={() => { setManual(true); setStep("review-contact"); }}
-            >
-              I don&apos;t have a site — set up manually
-            </button>
-          </div>
-        )}
       </Bubble>
+
+      {step === "ask-url" && greetingDone && (
+        // The link entry is an A2UI card element on the user's side of the
+        // chat — it appears only once the greeting has finished typing.
+        <UserEntry maxWidth={460}>
+          <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
+            Add your website
+          </strong>
+          <p style={{ fontStyle: "italic", fontSize: 13, margin: "6px 0 12px", opacity: 0.8 }}>
+            Paste the link to your existing site and I&apos;ll read it for you.
+          </p>
+          <input
+            style={a2uiField}
+            placeholder="https://your-current-site.com"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && url.trim() && startExtraction()}
+          />
+          <button style={btn} onClick={startExtraction} disabled={!url.trim()}>
+            Extract my site
+          </button>
+          <button
+            style={{ ...btnGhost, marginLeft: 10 }}
+            onClick={() => { setManual(true); setStep("review-contact"); }}
+          >
+            I don&apos;t have a site — set up manually
+          </button>
+        </UserEntry>
+      )}
 
       {(manual || url) && step !== "ask-url" && (
         <Bubble who="user">{manual ? "I'll set it up manually." : url}</Bubble>
@@ -376,70 +478,148 @@ export function OnboardingFlow() {
       )}
 
       {step === "review-contact" && (
-        <Bubble who="assistant">
-          <p style={{ margin: "0 0 12px" }}>
-            <Typewriter
-              text={manual
-                ? "No problem — fill in your business details below."
-                : "Here's what I found. Fix anything that's off, then hit Done."}
-            />
-          </p>
-          <FormCard
-            fields={COMPANY_FIELDS}
-            values={company}
-            onChange={(k, v) => setCompany({ ...company, [k]: v })}
-            busy={busy}
-          />
-          <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "4px 0 14px", fontSize: 14 }}>
-            <input
-              type="checkbox"
-              checked={noInPerson}
-              onChange={(e) => setNoInPerson(e.target.checked)}
-            />
-            No in-person location (online only)
-          </label>
-          {!noInPerson && locations.map((loc, i) => (
-            <div
-              key={i}
-              className="onboard-phase-in"
-              style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
-            >
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-                <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
-                  Location {i + 1}
-                </strong>
-                {locations.length > 1 && (
-                  <button
-                    style={btnGhost}
-                    onClick={() => setLocations(locations.filter((_, j) => j !== i))}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={manual
+                  ? "No problem — fill in your business details on the right."
+                  : "Here's what I found. Fix anything that's off, then hit Done."}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry>
               <FormCard
-                fields={locationFields()}
-                values={loc}
-                onChange={(k, v) =>
-                  setLocations(locations.map((l, j) => (j === i ? { ...l, [k]: v } : l)))}
+                fields={COMPANY_FIELDS}
+                values={company}
+                onChange={(k, v) => setCompany({ ...company, [k]: v })}
+                onDone={saveContact}
+                doneLabel="Done — looks right"
                 busy={busy}
               />
-            </div>
-          ))}
-          {!noInPerson && (
-            <button
-              style={{ ...btnGhost, marginBottom: 14 }}
-              onClick={() => setLocations([...locations, emptyLocation()])}
-            >
-              + Add another location
-            </button>
+            </UserEntry>
           )}
-          <div>
-            <button style={btn} onClick={saveContact} disabled={busy}>
-              {busy ? "Saving…" : "Done — looks right"}
-            </button>
-          </div>
+        </>
+      )}
+
+      {step === "locations-running" && (
+        <Bubble who="assistant">
+          <p style={{ margin: "0 0 10px" }}>
+            <Typewriter text="Now — where can customers find you? I'm reading your location and hours pages." />
+          </p>
+          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
         </Bubble>
+      )}
+
+      {step === "review-locations" && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={manual
+                  ? "Where can customers find you? Add each location with its hours — or tick online-only."
+                  : "Here are the locations and hours I found. Fix anything, add what I missed, then hit Done."}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry>
+              <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "4px 0 14px", fontSize: 14 }}>
+                <input
+                  type="checkbox"
+                  checked={noInPerson}
+                  onChange={(e) => setNoInPerson(e.target.checked)}
+                />
+                No in-person location (online only)
+              </label>
+              {!noInPerson && locations.map((loc, i) => (
+                <div
+                  key={i}
+                  className="onboard-phase-in"
+                  style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
+                      Location {i + 1}
+                    </strong>
+                    {locations.length > 1 && (
+                      <button
+                        style={btnGhost}
+                        onClick={() => setLocations(locations.filter((_, j) => j !== i))}
+                      >
+                        Remove
+                      </button>
+                    )}
+                  </div>
+                  <FormCard
+                    fields={locationFields()}
+                    values={loc}
+                    onChange={(k, v) =>
+                      setLocations(locations.map((l, j) => (j === i ? { ...l, [k]: v } : l)))}
+                    busy={busy}
+                  />
+                </div>
+              ))}
+              {!noInPerson && (
+                <button
+                  style={{ ...btnGhost, marginBottom: 14 }}
+                  onClick={() => setLocations([...locations, emptyLocation()])}
+                >
+                  + Add another location
+                </button>
+              )}
+              <div>
+                <button style={btn} onClick={saveLocations} disabled={busy}>
+                  {busy ? "Saving…" : "Done — locations are right"}
+                </button>
+              </div>
+            </UserEntry>
+          )}
+        </>
+      )}
+
+      {step === "images-running" && (
+        <Bubble who="assistant">
+          <p style={{ margin: "0 0 10px" }}>
+            <Typewriter text="Saved. Now let me gather photos from your site for your gallery." />
+          </p>
+          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+        </Bubble>
+      )}
+
+      {step === "review-images" && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={`I found ${gallery.length} photo${gallery.length === 1 ? "" : "s"} on your site. Check the captions, drop any you don't want, then hit Done.`}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry maxWidth={620}>
+              <GalleryCard
+                images={gallery}
+                onCaption={(i, caption) =>
+                  setGallery(gallery.map((g, j) => (j === i ? { ...g, caption } : g)))}
+                onRemove={(i) => setGallery(gallery.filter((_, j) => j !== i))}
+                busy={busy}
+              />
+              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <button style={btn} onClick={saveGallery} disabled={busy || gallery.length === 0}>
+                  {busy ? "Saving…" : "Done — save these photos"}
+                </button>
+                <button style={btnGhost} onClick={skipGallery} disabled={busy}>
+                  Skip photos
+                </button>
+              </div>
+            </UserEntry>
+          )}
+        </>
       )}
 
       {step === "theme-running" && (
@@ -452,97 +632,126 @@ export function OnboardingFlow() {
       )}
 
       {step === "review-theme" && (
-        <Bubble who="assistant">
-          <p style={{ margin: "0 0 12px" }}>
-            <Typewriter
-              text={manual
-                ? "Pick the look for your agent page."
-                : "Here's the look I pulled from your site — tweak it to taste."}
-            />
-          </p>
-          {logo && (
-            <p style={{ fontSize: 13, opacity: 0.75 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element -- data-dir upload, unoptimized preview */}
-              <img src={logo} alt="Imported logo" style={{ height: 32, verticalAlign: "middle", marginRight: 8 }} />
-              Logo imported from your site.
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={manual
+                  ? "Pick the look for your agent page."
+                  : "Here's the look I pulled from your site — tweak it to taste."}
+                onDone={() => setTextDone(true)}
+              />
             </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry maxWidth={680}>
+              {logo && (
+                <p style={{ fontSize: 13, opacity: 0.75, marginTop: 0 }}>
+                  {/* eslint-disable-next-line @next/next/no-img-element -- data-dir upload, unoptimized preview */}
+                  <img src={logo} alt="Imported logo" style={{ height: 32, verticalAlign: "middle", marginRight: 8 }} />
+                  Logo imported from your site.
+                </p>
+              )}
+              {/* The dashboard's own Theme panel, pre-filled by extraction. */}
+              <form ref={themeFormRef} onSubmit={(e) => { e.preventDefault(); void saveTheme(); }}>
+                <ThemePicker
+                  key={JSON.stringify(themeInitial)}
+                  fontOptions={FONT_OPTIONS}
+                  bodyFontOptions={BODY_FONT_OPTIONS}
+                  radiusOptions={RADIUS_OPTIONS}
+                  initial={themeInitial}
+                />
+                <button type="submit" style={{ ...btn, marginTop: 14 }} disabled={busy}>
+                  {busy ? "Saving…" : "Done — use this theme"}
+                </button>
+              </form>
+            </UserEntry>
           )}
-          {/* The dashboard's own Theme panel, pre-filled by extraction. */}
-          <form ref={themeFormRef} onSubmit={(e) => { e.preventDefault(); void saveTheme(); }}>
-            <ThemePicker
-              key={JSON.stringify(themeInitial)}
-              fontOptions={FONT_OPTIONS}
-              bodyFontOptions={BODY_FONT_OPTIONS}
-              radiusOptions={RADIUS_OPTIONS}
-              initial={themeInitial}
-            />
-            <button type="submit" style={{ ...btn, marginTop: 14 }} disabled={busy}>
-              {busy ? "Saving…" : "Done — use this theme"}
-            </button>
-          </form>
-        </Bubble>
+        </>
       )}
 
       {step === "select-knowledge" && (
-        <Bubble who="assistant">
-          <p style={{ margin: "0 0 12px" }}>
-            <Typewriter text="Last step: which of these does your site have? I'll extract what you pick into your agent's knowledge." />
-          </p>
-          {EXTRACTOR_OPTIONS.map((o) => (
-            <label key={o.key} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8, fontSize: 14 }}>
-              <input
-                type="checkbox"
-                checked={picked.includes(o.key)}
-                onChange={(e) =>
-                  setPicked(e.target.checked ? [...picked, o.key] : picked.filter((k) => k !== o.key))}
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text="Last step: which of these does your site have? I'll extract what you pick into your agent's knowledge."
+                onDone={() => setTextDone(true)}
               />
-              {o.label}
-            </label>
-          ))}
-          <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
-            <button style={btn} onClick={startKnowledge} disabled={busy || picked.length === 0}>
-              Start extraction
-            </button>
-            <button style={btnGhost} onClick={() => skipToDashboard("site")} disabled={busy}>
-              Skip this
-            </button>
-          </div>
-        </Bubble>
+            </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry maxWidth={460}>
+              {EXTRACTOR_OPTIONS.map((o) => (
+                <label key={o.key} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8, fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={picked.includes(o.key)}
+                    onChange={(e) =>
+                      setPicked(e.target.checked ? [...picked, o.key] : picked.filter((k) => k !== o.key))}
+                  />
+                  {o.label}
+                </label>
+              ))}
+              <div style={{ display: "flex", gap: 10, marginTop: 12 }}>
+                <button style={btn} onClick={startKnowledge} disabled={busy || picked.length === 0}>
+                  Start extraction
+                </button>
+                <button style={btnGhost} onClick={() => skipToDashboard("site")} disabled={busy}>
+                  Skip this
+                </button>
+              </div>
+            </UserEntry>
+          )}
+        </>
       )}
 
       {step === "knowledge-running" && (
-        <Bubble who="assistant">
-          {status?.phase === "done" ? (
-            <p style={{ margin: "0 0 12px" }}>
-              All done — I saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
-              {status.report
-                ? ` (${status.report.blog?.postsSaved ?? 0} blog posts, ${status.report.testimonials?.count ?? 0} testimonials, ${status.report.team?.blocks ?? 0} team bios).`
-                : "."}
-            </p>
-          ) : (
-            <div style={{ marginBottom: 12 }}>
-              <p style={{ margin: "0 0 10px" }}>
-                <Typewriter text="Extracting now. This can take a few minutes on a big site — you don't need to wait, I'll keep going in the background." />
+        <>
+          <Bubble who="assistant">
+            {status?.phase === "done" ? (
+              <p style={{ margin: 0 }}>
+                All done — I saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
+                {status.report
+                  ? ` (${status.report.blog?.postsSaved ?? 0} blog posts, ${status.report.testimonials?.count ?? 0} testimonials, ${status.report.team?.blocks ?? 0} team bios).`
+                  : "."}
               </p>
-              <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
-            </div>
+            ) : (
+              <div>
+                <p style={{ margin: "0 0 10px" }}>
+                  <Typewriter
+                    text="Extracting now. This can take a few minutes on a big site — you don't need to wait, I'll keep going in the background."
+                    onDone={() => setTextDone(true)}
+                  />
+                </p>
+                <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+              </div>
+            )}
+          </Bubble>
+          {(textDone || status?.phase === "done") && (
+            <UserEntry maxWidth={360}>
+              <button style={btn} onClick={() => router.push("/admin/dashboard")}>
+                Continue to dashboard →
+              </button>
+            </UserEntry>
           )}
-          <button style={{ ...btn, marginTop: 10 }} onClick={() => router.push("/admin/dashboard")}>
-            Continue to dashboard →
-          </button>
-        </Bubble>
+        </>
       )}
 
       {status?.phase === "failed" && (
-        <Bubble who="assistant">
-          <p style={{ margin: "0 0 10px" }}>{status.error || "Extraction failed."}</p>
-          <button
-            style={btnGhost}
-            onClick={() => { setStep("ask-url"); setStatus(null); setJobId(null); }}
-          >
-            Try another URL or set up manually
-          </button>
-        </Bubble>
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>{status.error || "Extraction failed."}</p>
+          </Bubble>
+          <UserEntry maxWidth={360}>
+            <button
+              style={btnGhost}
+              onClick={() => { setStep("ask-url"); setStatus(null); setJobId(null); }}
+            >
+              Try another URL or set up manually
+            </button>
+          </UserEntry>
+        </>
       )}
 
       {error && <p style={{ color: "var(--danger, #f66)" }}>{error}</p>}
