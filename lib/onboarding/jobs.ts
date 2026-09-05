@@ -239,13 +239,17 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   let chunks = 0;
   const stepShare = 100 / Math.max(picked.length, 1);
   let stepsDone = 0;
+  const onEvent = (m: string) => log(job, m);
+  log(job, process.env.ANTHROPIC_API_KEY
+    ? "Model extraction is on — each category reads your pages with its own prompt"
+    : "No model key configured — extracting with the pattern parsers");
 
   try {
     if (picked.includes("blog")) {
       job.phase = "blog";
       job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Looking for a blog — nav links, common paths, and RSS feeds");
-      const blog = await extractBlog(crawler, home, job.userId);
+      const blog = await extractBlog(crawler, home, job.userId, onEvent);
       blog.covered.forEach((u) => covered.add(u));
       report.blog = blog.report;
       chunks += blog.chunks;
@@ -257,7 +261,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.phase = "testimonials";
       job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Checking for customer testimonials and reviews");
-      const t = await extractTestimonials(crawler, home, job.userId);
+      const t = await extractTestimonials(crawler, home, job.userId, onEvent);
       t.covered.forEach((u) => covered.add(u));
       report.testimonials = t.report;
       chunks += t.chunks;
@@ -271,7 +275,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.phase = "team";
       job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Reading your team and about pages");
-      const team = await extractTeam(crawler, home, job.userId);
+      const team = await extractTeam(crawler, home, job.userId, onEvent);
       team.covered.forEach((u) => covered.add(u));
       report.team = team.report;
       chunks += team.chunks;
@@ -283,7 +287,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.phase = "sweep";
       job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Sweeping the sitemap for remaining pages");
-      const sweep = await sweepSitemap(crawler, job.userId, covered, home);
+      const sweep = await sweepSitemap(crawler, job.userId, covered, home, onEvent);
       report.sweep = sweep.report;
       chunks += sweep.chunks;
       if (sweep.crawled) log(job, "No sitemap on this site — crawled its own links instead");

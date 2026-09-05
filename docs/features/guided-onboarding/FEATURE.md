@@ -65,6 +65,14 @@ website URL with Playwright, or manually via the same forms left empty.
   `PersonaConfig.company_logo`).
 
 ### Step 3 — Knowledge extraction (no user review)
+- Extraction is model-driven (updated 2026-09-05): each of the four
+  categories — blog, testimonials, team, and the general catch-all — runs
+  its OWN system prompt (`lib/onboarding/knowledgeLlm.ts`) over the crawled
+  pages, so almost everything on the site lands in one of the four. The
+  catch-all distills every remaining page into discrete facts, one chunk
+  per fact. Prompts never invent; absent stays absent. The deterministic
+  parsers remain the fallback when no ANTHROPIC_API_KEY is configured or a
+  call fails.
 - Shows a progress bar during extraction, then the count of knowledge chunks
   saved. Reuses the existing chunk/embedding pipeline and storage
   (`chunkText`, `embedTexts`, `Source`/`Chunk` rows) — no new embedding

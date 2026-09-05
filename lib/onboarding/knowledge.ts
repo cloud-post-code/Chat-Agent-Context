@@ -2,14 +2,22 @@ import { prisma } from "@/lib/db";
 import { chunkText } from "@/lib/retrieval/chunking";
 import { embedTexts, vecToBytes } from "@/lib/retrieval/embed";
 import type { Crawler, Page } from "./crawl";
+import {
+  BLOG_SYSTEM_PROMPT, TESTIMONIALS_SYSTEM_PROMPT, TEAM_SYSTEM_PROMPT, GENERAL_SYSTEM_PROMPT,
+  llmExtract, llmPageText, llmCorpus,
+  sanitizePost, sanitizeTestimonials, sanitizePeople, sanitizeFacts,
+} from "./knowledgeLlm";
 
 /**
  * Step 3 of guided onboarding: four extractions against the entered site,
  * saved through the app's existing knowledge storage — Source rows chunked
  * and embedded exactly like admin-ingested links (embedTexts picks Voyage or
- * the local hash embedder; no new provider). Entity extraction is skipped
- * here: it costs a model call per origin and the graph back-fills the next
- * time each source is reindexed from the dashboard.
+ * the local hash embedder; no new provider). Each category extracts with its
+ * OWN system prompt (knowledgeLlm.ts) when a model key is configured — the
+ * general catch-all turns every remaining page into discrete facts — and the
+ * deterministic parsers below remain the no-key/error fallback. Entity
+ * extraction is skipped here: it costs a model call per origin and the graph
+ * back-fills the next time each source is reindexed from the dashboard.
  *
  * Dedup rules the report asserts: a blog post is saved once no matter how
  * many index/category/feed pages list it; a testimonial repeated on the
@@ -123,7 +131,7 @@ async function feedPostUrls(crawler: Crawler, home: Page): Promise<string[] | nu
 }
 
 export async function extractBlog(
-  crawler: Crawler, home: Page, userId: string,
+  crawler: Crawler, home: Page, userId: string, log: (m: string) => void = () => {},
 ): Promise<{ report: BlogReport; chunks: number; covered: Set<string> }> {
   const covered = new Set<string>();
   const listPages = linksMatching(crawler, home, /blog|news|articles?|insights|resources/i,
@@ -165,16 +173,26 @@ export async function extractBlog(
   const existed = seenLists.size > 0 && (postUrls.size > 0 || !!feed);
   let chunks = 0;
   let postsSaved = 0;
+  let llmDown = false; // one failed call stops retrying per post
   for (const url of [...postUrls].slice(0, MAX_POSTS)) {
     const page = await crawler.load(url);
     if (!page) continue;
     covered.add(page.url);
     const $ = page.$;
-    const title = norm($("article h1").first().text() || $("h1").first().text() ||
+    // The blog prompt cleans the post from the raw page; the selector-based
+    // extraction stays as the no-key/error fallback.
+    const raw = llmDown
+      ? null
+      : await llmExtract(BLOG_SYSTEM_PROMPT, llmPageText(page).slice(0, 30_000), 6000, log);
+    if (!raw && !llmDown && process.env.ANTHROPIC_API_KEY) llmDown = true;
+    if (raw && raw.post === null) continue; // model: not actually an article
+    const cleaned = sanitizePost(raw);
+    const title = cleaned?.title ?? norm($("article h1").first().text() || $("h1").first().text() ||
       ($("title").text() || "").split(/[—|]/)[0]);
-    const date = $("time[datetime]").attr("datetime") || "";
-    const author = norm($(".meta, .byline").text()).match(/by\s+([^·|,]+)/i)?.[1]?.trim() || "";
-    const body = mainText(page);
+    const date = cleaned?.date ?? ($("time[datetime]").attr("datetime") || "");
+    const author = cleaned?.author ??
+      (norm($(".meta, .byline").text()).match(/by\s+([^·|,]+)/i)?.[1]?.trim() || "");
+    const body = cleaned?.body ?? mainText(page);
     if (!title || !body) continue;
     const header = [title, author && `By ${author}`, date && `Published ${date}`]
       .filter(Boolean).join(". ");
@@ -198,7 +216,7 @@ export async function extractBlog(
 // ── (b) Testimonials ──
 
 export async function extractTestimonials(
-  crawler: Crawler, home: Page, userId: string,
+  crawler: Crawler, home: Page, userId: string, log: (m: string) => void = () => {},
 ): Promise<{ report: KnowledgeReport["testimonials"]; chunks: number; covered: Set<string> }> {
   const pages = [home.url, ...linksMatching(crawler, home,
     /testimonials?|reviews?|customers?|case stud|wall of love/i,
@@ -224,9 +242,11 @@ export async function extractTestimonials(
     seen.add(key);
     items.push({ quote, author, title: rest.join(", "), sourceUrl, imageUrl });
   };
+  const loaded: Page[] = [];
   for (const url of new Set(pages)) {
     const page = await crawler.load(url);
     if (!page) continue;
+    loaded.push(page);
     pagesChecked.push(page.url);
     if (page.url !== home.url) covered.add(page.url);
     // Reviews rendered by an embed (Elfsight, Trustpilot, Yotpo, …) are not
@@ -258,6 +278,18 @@ export async function extractTestimonials(
     });
   }
 
+  // The testimonials prompt reads the whole candidate corpus and catches the
+  // markup shapes the selectors can't; parser finds keep their photos and the
+  // union is deduped by quote.
+  const modelItems = sanitizeTestimonials(loaded.length
+    ? await llmExtract(TESTIMONIALS_SYSTEM_PROMPT, llmCorpus(loaded), 4000, log)
+    : null);
+  const modelSrc = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) ||
+    pagesChecked[0] || home.url;
+  for (const t of modelItems ?? []) {
+    add(t.quote, [t.author, t.title].filter(Boolean).join(", "), "", modelSrc);
+  }
+
   let chunks = 0;
   if (items.length) {
     const url = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) || pagesChecked[0];
@@ -276,7 +308,7 @@ export async function extractTestimonials(
 // ── (c) Team / about ──
 
 export async function extractTeam(
-  crawler: Crawler, home: Page, userId: string,
+  crawler: Crawler, home: Page, userId: string, log: (m: string) => void = () => {},
 ): Promise<{ report: KnowledgeReport["team"]; chunks: number; covered: Set<string> }> {
   const candidates = linksMatching(crawler, home,
     /team|about( us)?|our people|leadership/i,
@@ -286,9 +318,11 @@ export async function extractTeam(
   const covered = new Set<string>();
   const blocks: { name: string; bio: string }[] = [];
   const seen = new Set<string>();
+  const loaded: Page[] = [];
   for (const url of candidates) {
     const page = await crawler.load(url);
     if (!page) continue;
+    loaded.push(page);
     pagesChecked.push(page.url);
     const sections = page.$("section, .bio, .team-member, li").toArray();
     for (const el of sections) {
@@ -306,6 +340,21 @@ export async function extractTeam(
       // — an about page with no extractable blocks still deserves the sweep.
       covered.add(page.url);
       break;
+    }
+  }
+
+  // The team prompt reads the same candidate pages; a person described in
+  // prose the selectors can't segment still gets an entry. Union by name,
+  // keeping the fuller bio.
+  const people = sanitizePeople(loaded.length
+    ? await llmExtract(TEAM_SYSTEM_PROMPT, llmCorpus(loaded), 4000, log)
+    : null);
+  for (const p of people ?? []) {
+    const existing = blocks.find((b) => b.name.toLowerCase() === p.name.toLowerCase());
+    if (existing) {
+      if (p.bio.length > existing.bio.length) existing.bio = p.bio;
+    } else {
+      blocks.push(p);
     }
   }
 
@@ -334,6 +383,7 @@ const NON_PAGE_RE = /\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|mp4|css|js|xml)(\?|#|$
 
 export async function sweepSitemap(
   crawler: Crawler, userId: string, covered: Set<string>, home?: Page,
+  log: (m: string) => void = () => {},
 ): Promise<{ report: KnowledgeReport["sweep"]; chunks: number; crawled: boolean }> {
   let urls = (await crawler.sitemap())
     .filter((u) => !covered.has(u))
@@ -345,14 +395,24 @@ export async function sweepSitemap(
   const crawled = urls.length === 0 && !!home;
   const pages: string[] = [];
   let chunks = 0;
+  let llmDown = false;
 
   const savePage = async (page: Page): Promise<void> => {
     const body = mainText(page);
-    if (body.split(" ").length < 30) return; // nothing substantive to keep
-    const title = norm(page.$("h1").first().text() || page.$("title").text() || page.url);
+    // The catch-all prompt distills the page into discrete facts — each fact
+    // its own chunk. Raw-text chunking stays as the no-key/error fallback.
+    const raw = llmDown
+      ? null
+      : await llmExtract(GENERAL_SYSTEM_PROMPT, llmPageText(page).slice(0, 15_000), 3000, log);
+    if (!raw && !llmDown && process.env.ANTHROPIC_API_KEY) llmDown = true;
+    const distilled = sanitizeFacts(raw);
+    if (raw && distilled && distilled.facts.length === 0) return; // model: nothing substantive
+    if (!distilled?.facts.length && body.split(" ").length < 30) return;
+    const title = distilled?.title ||
+      norm(page.$("h1").first().text() || page.$("title").text() || page.url);
     const saved = await saveRecord(userId, {
       url: page.url, title: title || page.url, kind: "other", rawText: body,
-    }, chunkText(body));
+    }, distilled?.facts.length ? distilled.facts : chunkText(body));
     if (saved.chunks) {
       chunks += saved.chunks;
       pages.push(page.url);

@@ -275,6 +275,17 @@ async function main() {
     check("sitemap sweep captured the services page",
       JSON.stringify(rep.sweep?.pages || rep.sweep || {}).includes("services"));
 
+    console.log("== four per-category extraction prompts exist (LLM path)");
+    // The LLM path can't run here (no model key in the proof environment);
+    // pin that each category owns its own system prompt in the source, the
+    // same way the curated font keys are pinned.
+    const llmSrc = await readFile(join(__dirname, "..", "..", "..", "lib", "onboarding", "knowledgeLlm.ts"), "utf8");
+    for (const p of ["BLOG_SYSTEM_PROMPT", "TESTIMONIALS_SYSTEM_PROMPT", "TEAM_SYSTEM_PROMPT", "GENERAL_SYSTEM_PROMPT"]) {
+      check(`${p} exported`, new RegExp(`export const ${p} = `).test(llmSrc));
+    }
+    check("every prompt forbids invention",
+      (llmSrc.match(/[Nn]ever invent/g) || []).length >= 4);
+
     console.log("== persistence in the right tables");
     const done = await postJson(jar, "/api/admin/onboarding/complete", { mode: "site" });
     check("complete accepted", done.res.status === 200, String(done.res.status));
