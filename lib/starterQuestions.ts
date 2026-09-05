@@ -153,6 +153,23 @@ async function businessContext(userId: string): Promise<string> {
   return lines.join("\n");
 }
 
+/** One bounded, grounded generation call. Empty array on any failure. */
+async function generateQuestions(userId: string, deps: StarterDeps): Promise<string[]> {
+  const context = await businessContext(userId);
+  const call = (deps.client ?? claude()).messages.create({
+    model: claudeModel(),
+    max_tokens: 700,
+    system: BRIEF,
+    messages: [{ role: "user", content: `BUSINESS CONTEXT:\n${context}` }],
+  });
+  const timeout = new Promise<null>((resolve) => {
+    setTimeout(() => resolve(null), starterDeadlineMs()).unref?.();
+  });
+  const message = await Promise.race([call, timeout]);
+  if (!message) return []; // deadline: existing rows stay, the caller moves on
+  return parseQuestions(textOf(message.content));
+}
+
 /**
  * Replace the untouched generic seeds with generated, business-specific
  * questions. Returns how many questions were written — 0 when the guard
@@ -169,20 +186,7 @@ export async function personalizeStarterQuestions(
     const rows = await prisma.cannedAnswer.findMany({ where: { userId } });
     if (!isUntouchedSeeds(rows)) return 0;
 
-    const context = await businessContext(userId);
-    const call = (deps.client ?? claude()).messages.create({
-      model: claudeModel(),
-      max_tokens: 700,
-      system: BRIEF,
-      messages: [{ role: "user", content: `BUSINESS CONTEXT:\n${context}` }],
-    });
-    const timeout = new Promise<null>((resolve) => {
-      setTimeout(() => resolve(null), starterDeadlineMs()).unref?.();
-    });
-    const message = await Promise.race([call, timeout]);
-    if (!message) return 0; // deadline: seeds stay, completion moves on
-
-    const questions = parseQuestions(textOf(message.content));
+    const questions = await generateQuestions(userId, deps);
     if (!questions.length) return 0;
 
     // All-or-nothing: the seeds only disappear in the same transaction that
@@ -201,6 +205,54 @@ export async function personalizeStarterQuestions(
     return questions.length;
   } catch (e) {
     console.error(`personalizeStarterQuestions(${userId}) failed:`, e);
+    return 0;
+  }
+}
+
+/**
+ * The Presets tab's explicit "Regenerate questions" — for accounts that
+ * predate onboarding-time generation, or whose business has moved on. Unlike
+ * the onboarding pass there is no untouched-seeds guard, but owner-authored
+ * rows (reviewed, non-empty — enabled or not) are sacred: they stay exactly
+ * as they are, and only blank rows and unreviewed drafts are replaced by the
+ * generated questions, deduplicated against what's kept. Replacements arrive
+ * blank and never-drafted so the drafting pass writes their answers on the
+ * next tab load. Returns how many questions were written; 0 leaves every row
+ * as it was.
+ */
+export async function regenerateStarterQuestions(
+  userId: string,
+  deps: StarterDeps = {},
+): Promise<number> {
+  if (!deps.client && !process.env.ANTHROPIC_API_KEY) return 0;
+
+  try {
+    const rows = await prisma.cannedAnswer.findMany({ where: { userId } });
+    const kept = rows.filter((r) => r.answer.trim() !== "" && !r.aiDraft);
+    const keptKeys = new Set(kept.map((r) => r.matchKey));
+    const replaceIds = rows.filter((r) => !keptKeys.has(r.matchKey)).map((r) => r.id);
+
+    const questions = (await generateQuestions(userId, deps)).filter(
+      (q) => !keptKeys.has(normalizeQuestion(q)),
+    );
+    if (!questions.length) return 0;
+
+    // Kept rows lead with their existing order; the new questions follow.
+    const afterKept = kept.length ? Math.max(...kept.map((r) => r.order)) + 1 : 0;
+    await prisma.$transaction([
+      prisma.cannedAnswer.deleteMany({ where: { userId, id: { in: replaceIds } } }),
+      prisma.cannedAnswer.createMany({
+        data: questions.map((q, i) => ({
+          userId,
+          question: q,
+          matchKey: normalizeQuestion(q),
+          order: afterKept + i,
+        })),
+      }),
+    ]);
+    return questions.length;
+  } catch (e) {
+    console.error(`regenerateStarterQuestions(${userId}) failed:`, e);
     return 0;
   }
 }

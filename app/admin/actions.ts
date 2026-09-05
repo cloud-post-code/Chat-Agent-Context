@@ -68,6 +68,7 @@ import {
 import { checkEditPassword, createEditSession, isEditAuthed } from "@/lib/ingestionAuth";
 import { draftUiCard, type CardDraft } from "@/lib/cardBuilder";
 import { redraftAnswer } from "@/lib/answerDrafts";
+import { regenerateStarterQuestions } from "@/lib/starterQuestions";
 import { PERSONA_SECTIONS, writePersonaSections } from "@/lib/persona";
 import { COLOR_ROLES } from "@/lib/theme";
 import { saveUpload, saveBytes } from "@/lib/uploads";
@@ -939,6 +940,17 @@ export async function deleteAddressBookAction(formData: FormData) {
  * indexing wrappers above: a provider failure leaves the existing text in place
  * and logs, rather than throwing an error page over the whole dashboard.
  */
+/**
+ * Rebuild the starter-question list from today's business context. The lib
+ * pass keeps every owner-authored row and swallows provider failures, so this
+ * wrapper only authenticates and revalidates.
+ */
+export async function regenerateCanned() {
+  const user = await requireUser();
+  await regenerateStarterQuestions(user.id);
+  revalidatePath("/admin/dashboard");
+}
+
 export async function redraftCanned(formData: FormData) {
   const user = await requireUser();
   const id = String(formData.get("id") ?? "").trim();

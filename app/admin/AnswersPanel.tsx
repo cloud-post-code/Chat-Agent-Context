@@ -1,5 +1,5 @@
 import { cannedStats } from "@/lib/canned";
-import { saveCanned, deleteCanned, redraftCanned } from "./actions";
+import { saveCanned, deleteCanned, redraftCanned, regenerateCanned } from "./actions";
 import { CardFields } from "./CardFields";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./ui";
@@ -44,11 +44,28 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
           this tab loads, and go live as soon as they&apos;re written. Edit one and
           hit Save to make it yours; hit Redraft to throw it away and ask again.
         </p>
-        <div style={{ display: "flex", gap: 18, fontSize: 13, flexWrap: "wrap" }}>
+        <div
+          style={{
+            display: "flex",
+            gap: 18,
+            fontSize: 13,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           <span><strong>{stats.live}</strong> live</span>
           <span><strong>{stats.unreviewed}</strong> awaiting your review</span>
           <span><strong>{stats.unanswered}</strong> still unanswered</span>
           <span><strong>{stats.callsSaved}</strong> model calls saved</span>
+          <form action={regenerateCanned} style={{ marginLeft: "auto" }}>
+            <PendingButton
+              pendingLabel="Regenerating…"
+              style={btnGhost}
+              title="Rewrite the question list for your business. Answers you saved as yours are kept; drafts and blank rows are replaced."
+            >
+              Regenerate questions
+            </PendingButton>
+          </form>
         </div>
       </div>
 

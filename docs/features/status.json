@@ -413,6 +413,14 @@
       "proof": "docs/features/personalized-starter-questions/PROOF.md",
       "status": "passing",
       "notes": "LLM rewrites the generic seeded starter questions into business-specific ones when onboarding completes (lib/starterQuestions.ts, wired into /api/admin/onboarding/complete); public chips read the tenant's preset rows via starterChipsFor with hardcoded fallback (app/a/[slug]/page.tsx). Guarded: only untouched seeds are replaced, all-or-nothing, bounded by STARTER_QUESTIONS_DEADLINE_MS. Proof green 2026-09-05; gate PASS; evaluator PASS."
+    },
+    {
+      "id": "regenerate-starter-questions",
+      "title": "Regenerate questions button on the Presets tab",
+      "feature_dir": "docs/features/regenerate-starter-questions",
+      "proof": "docs/features/regenerate-starter-questions/PROOF.md",
+      "status": "passing",
+      "notes": "Tab-level Regenerate control (AnswersPanel) -> regenerateCanned action -> regenerateStarterQuestions in lib/starterQuestions.ts: keeps owner-authored rows, replaces blanks/drafts with freshly generated business-specific questions deduped against kept rows; replacements arrive blank so the drafting pass answers them. Proof green 2026-09-05; gate PASS; evaluator PASS."
     }
   ]
 }
