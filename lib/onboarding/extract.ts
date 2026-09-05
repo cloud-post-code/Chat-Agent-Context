@@ -1,5 +1,6 @@
 import type { Crawler, Page } from "./crawl";
 import { HEADING_FONTS, type FontKey } from "@/lib/fonts";
+import { normalizeExtractedTheme } from "@/lib/theme";
 import { saveBytes } from "@/lib/uploads";
 
 /**
@@ -219,18 +220,21 @@ export async function extractTheme(crawler: Crawler, pages: Page[]): Promise<The
   const css = cssOf(pages);
   const home = pages[0];
 
-  // Colors: role them from declarations where possible, saturation otherwise.
-  const colors: Record<string, string> = {};
+  // Colors: role them from declarations where possible, saturation otherwise,
+  // then normalize into a full palette that always passes the brand rules
+  // (contrast, neutral bg, derived accent, preset fallback when sparse).
   const bodyBlock = css.match(/body\s*{([^}]*)}/)?.[1] || "";
   const bg = bodyBlock.match(/background(?:-color)?:\s*(#[0-9a-fA-F]{3,8})/)?.[1];
   const text = bodyBlock.match(/[^-]color:\s*(#[0-9a-fA-F]{3,8})/)?.[1];
-  if (bg) colors.bg = bg;
-  if (text) colors.text = text;
   const all = [...new Set(css.match(HEX) || [])];
   const brand = all
     .filter((c) => c.toLowerCase() !== bg?.toLowerCase() && c.toLowerCase() !== text?.toLowerCase())
     .sort((a, b) => saturation(b) - saturation(a))[0];
-  if (brand && saturation(brand) > 0.25) colors.primary = brand;
+  const colors: Record<string, string> = { ...normalizeExtractedTheme({
+    bg,
+    text,
+    primary: brand && saturation(brand) > 0.25 ? brand : undefined,
+  }) } as Record<string, string>;
 
   // Radius: any pill-sized radius wins; no radius at all reads as sharp.
   const radii = [...css.matchAll(/border-radius:\s*(\d+)(px|%)/g)]

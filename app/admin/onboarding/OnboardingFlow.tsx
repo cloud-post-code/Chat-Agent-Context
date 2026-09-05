@@ -258,13 +258,13 @@ export function OnboardingFlow() {
           themeRadius: String(t2.themeRadius ?? "rounded"),
           themeFontSize: String(t2.themeFontSize ?? "") || "16",
           themeHeadingWeight: String(t2.themeHeadingWeight ?? "") || "700",
-          // The extractor's "primary" is the brand color; surface is the fill
-          // cards and primary buttons share, so it lands there.
-          colors: {
-            ...(colors.bg ? { bg: colors.bg } : {}),
-            ...(colors.text ? { text: colors.text } : {}),
-            ...(colors.primary ? { surface: colors.primary } : {}),
-          },
+          // The extractor already normalizes into the full seven-role
+          // palette (readable, near-neutral bg), so roles pass straight through.
+          colors: Object.fromEntries(
+            ["bg", "text", "surface", "surfaceText", "accent", "accentText", "border"]
+              .filter((k) => colors[k])
+              .map((k) => [k, colors[k]]),
+          ),
         });
         setLogo(String(t2.themeLogo ?? ""));
         setStep("review-theme");

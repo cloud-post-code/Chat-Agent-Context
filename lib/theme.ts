@@ -379,6 +379,108 @@ function derivedSurfaces(bg: string): { soft: string; surface: string; border: s
     : { soft: shift(bg, 0.05), surface: shift(bg, 0.09), border: shift(bg, 0.2) };
 }
 
+// ── Extracted-theme normalization ─────────────────────────────────────
+// Site extraction can hand back anything — white text on neon yellow, a
+// saturated full-page background, or almost nothing. normalizeExtractedTheme
+// turns that raw material into a palette that always passes the brand rules
+// in docs/features/theme-extraction-normalize/FEATURE.md.
+
+/** HSV-style saturation (0 = neutral gray, 1 = fully saturated). */
+function saturationOf(h: string): number {
+  const c = rgb(h);
+  if (!c) return 0;
+  const max = Math.max(...c);
+  return max === 0 ? 0 : (max - Math.min(...c)) / max;
+}
+
+/** Backgrounds above this saturation read as "loud", not as a page ground. */
+const BG_SAT_MAX = 0.3;
+
+/** Pull a color toward its own gray until it reads as near-neutral. */
+function desaturate(h: string): string {
+  let out = h;
+  for (let i = 0; i < 16 && saturationOf(out) > BG_SAT_MAX; i++) {
+    const c = rgb(out)!;
+    const avg = (c[0] + c[1] + c[2]) / 3;
+    out = `#${c.map((v) => Math.round(v + (avg - v) * 0.25).toString(16).padStart(2, "0")).join("")}`;
+  }
+  return out;
+}
+
+/**
+ * Nudge a fill away from the mid-tones until ink or paper clears 4.5:1 on it.
+ * Mid-luminance fills (pure red, mid gray) can fail AA against *both* poles;
+ * every fill that carries text goes through here first so a readable
+ * foreground always exists.
+ */
+function settleFill(h: string): string {
+  let out = h;
+  for (let i = 0; i < 24 && contrastRatio(out, contrastOn(out)) < 4.5; i++) {
+    out = shift(out, luminance(out) > 0.2 ? 0.06 : -0.06);
+  }
+  return out;
+}
+
+/** Shade a color until it is visually distinct from every color in `others`. */
+function separate(h: string, others: string[]): string {
+  let out = h;
+  const dir = isLight(h) ? -0.08 : 0.08;
+  for (let i = 0; i < 12 && others.some((o) => contrastRatio(out, o) < 1.15); i++) {
+    out = shift(out, dir);
+  }
+  return out;
+}
+
+/**
+ * Post-process a raw site extraction (bg / text / brand primary) into a full
+ * palette that is guaranteed readable and coherent: AA contrast on every
+ * fill/text pair, a near-neutral background, the brand color on surface, an
+ * accent derived from the brand hue, and a full preset fallback when the site
+ * gave us too little to work with.
+ */
+export function normalizeExtractedTheme(raw: {
+  bg?: string;
+  text?: string;
+  primary?: string;
+}): ThemeColors {
+  const rawBg = hex(raw.bg);
+  const rawText = hex(raw.text);
+  const primary = hex(raw.primary);
+
+  // Too few usable colors — a full curated preset beats a partial palette.
+  if (!rawBg && !primary) return { ...THEME_PRESETS[0].colors };
+
+  // Neutral foundation: the page background never keeps a loud hue, and is
+  // settled where a readable text color is reachable.
+  const bg = settleFill(desaturate(rawBg ?? "#FFFFFF"));
+  const text = readableOn(rawText ?? contrastOn(bg), bg);
+
+  // The brand color lands on surface (cards & primary buttons), never the
+  // full page; without one the surface stays a derived shade of the bg.
+  const surfCandidate =
+    primary && saturationOf(primary) > 0.25 ? primary : derivedSurfaces(bg).surface;
+  const surface = settleFill(separate(surfCandidate, [bg]));
+
+  const out: ThemeColors = {
+    bg,
+    text,
+    surface,
+    surfaceText: readableOn(text, surface),
+    border: derivedSurfaces(bg).border,
+  };
+
+  // Restraint: the accent is a shade of the one brand hue, never an unrelated
+  // color, and never doubles as body text.
+  if (primary) {
+    const accent = settleFill(
+      separate(shift(primary, isLight(bg) ? -0.18 : 0.18), [bg, surface]),
+    );
+    out.accent = accent;
+    out.accentText = readableOn(contrastOn(accent), accent);
+  }
+  return out;
+}
+
 /**
  * Build the CSS-variable declarations (the inner body of a :root block) from
  * admin-chosen theme values. Shared by the live-site <style> injector and the

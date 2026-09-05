@@ -357,6 +357,12 @@
       "title": "New ingestion source builder as a Content sub-tab",
       "status": "passing",
       "notes": "Builder (SourceBuilder chat + manual form) extracted to app/admin/NewSourcePanel.tsx and mounted as the Content strip's last sub-tab (key new-source, deep-linkable via ?tab=new-source). /admin/sources/new redirects there; create-action error redirect follows. Proof green; verified in dev browser."
+    },
+    {
+      "id": "theme-extraction-normalize",
+      "title": "Normalize extracted onboarding themes (WCAG contrast, neutral bg, derived accent, preset fallback)",
+      "status": "done",
+      "notes": "normalizeExtractedTheme in lib/theme.ts, applied in extractTheme; OnboardingFlow passes the full seven-role palette to ThemePicker. Proof: npx tsx docs/features/theme-extraction-normalize/proof.ts (33 checks). Gate PASS, evaluator PASS."
     }
   ]
 }
