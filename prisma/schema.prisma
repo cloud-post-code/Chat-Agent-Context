@@ -28,6 +28,9 @@ model User {
   /// Null routes the admin panel to /admin/onboarding. Pre-existing accounts
   /// are stamped by the migration so they never see the flow.
   onboardedAt  DateTime?
+  /// Set when an operator disables the account (lib/accountAdmin.ts). A
+  /// disabled account cannot log in and its live sessions read as logged out.
+  disabledAt   DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

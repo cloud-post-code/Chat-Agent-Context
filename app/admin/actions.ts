@@ -12,11 +12,18 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma, getProfile } from "@/lib/db";
 import {
+  accountActive,
   createSession,
   currentUser,
   destroySession,
   verifyPassword,
 } from "@/lib/auth";
+import {
+  isOperator,
+  issuePassword,
+  setAccountDisabled,
+  updateAccount,
+} from "@/lib/accountAdmin";
 import { createUser } from "@/lib/users";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
@@ -130,7 +137,7 @@ export async function login(formData: FormData) {
   const ok = user
     ? verifyPassword(pw, user.passwordHash)
     : (verifyPassword(pw, DUMMY_HASH), false);
-  if (!ok || !user) redirect("/admin?error=1");
+  if (!ok || !user || !accountActive(user)) redirect("/admin?error=1");
   await createSession(user.id);
   redirect("/admin/dashboard");
 }
@@ -157,6 +164,43 @@ export async function signup(formData: FormData) {
 export async function logout() {
   await destroySession();
   redirect("/admin");
+}
+
+// ── Account administration (operator-gated Users tab) ──
+
+/** The logged-in operator, or an authorization error for everyone else. */
+async function requireOperator(): Promise<User> {
+  const user = await requireUser();
+  if (!(await isOperator(user))) throw new Error("Not authorized.");
+  return user;
+}
+
+export async function updateAccountAction(formData: FormData) {
+  await requireOperator();
+  const result = await updateAccount(String(formData.get("id") ?? ""), {
+    name: String(formData.get("name") ?? ""),
+    email: String(formData.get("email") ?? ""),
+    slug: String(formData.get("slug") ?? ""),
+  });
+  revalidatePath("/admin/dashboard");
+  return result;
+}
+
+export async function setAccountDisabledAction(formData: FormData) {
+  const operator = await requireOperator();
+  const result = await setAccountDisabled(
+    String(formData.get("id") ?? ""),
+    formData.get("disabled") === "1",
+    operator.id,
+  );
+  revalidatePath("/admin/dashboard");
+  return result;
+}
+
+/** Returns the generated password once; it is never persisted in the clear. */
+export async function issuePasswordAction(id: string) {
+  await requireOperator();
+  return issuePassword(id);
 }
 
 // ── Profile (business identity) ──

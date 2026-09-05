@@ -27,7 +27,12 @@ import {
   ingestCustomFileAction,
   deleteIngestedItemAction,
   setIngestionSourceHiddenAction,
+  updateAccountAction,
+  setAccountDisabledAction,
+  issuePasswordAction,
 } from "../actions";
+import { isOperator, listAccounts } from "@/lib/accountAdmin";
+import { UsersPanel } from "../UsersPanel";
 import { KnowledgePanel, isDocSource } from "../KnowledgePanel";
 import { GithubImport } from "../GithubImport";
 import { GraphPanel } from "../GraphPanel";
@@ -145,6 +150,10 @@ export default async function Dashboard({
     ingestionSources.map((s) => s.key),
   );
   const metrics = chatMetrics(chatSessions);
+  // Operator-only: account rows are fetched (and the Users tab rendered) for
+  // operators alone; the actions re-check the gate on every call.
+  const operator = await isOperator(user);
+  const accounts = operator ? (await listAccounts({ pageSize: 100 })).rows : [];
   const colors = safeJson<ThemeColors>(themeConfig.themeColors, {});
   const personaSections = safePersonaSections(personaConfig.personaSections);
 
@@ -781,6 +790,23 @@ export default async function Dashboard({
               />
             ),
           },
+          ...(operator
+            ? [
+                {
+                  key: "users",
+                  label: "Users",
+                  content: (
+                    <UsersPanel
+                      rows={accounts}
+                      selfId={user.id}
+                      updateAction={updateAccountAction}
+                      disableAction={setAccountDisabledAction}
+                      passwordAction={issuePasswordAction}
+                    />
+                  ),
+                },
+              ]
+            : []),
         ]}
       />
     </main>

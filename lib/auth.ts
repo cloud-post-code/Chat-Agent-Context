@@ -105,11 +105,22 @@ export async function sessionUserId(): Promise<string | null> {
   return verifySessionToken(jar.get(COOKIE)?.value);
 }
 
-/** The logged-in User row, or null. A stale id (deleted user) reads as null. */
+/**
+ * Whether an account may hold a session. The login action and `currentUser`
+ * both consult this, so disabling an account (User.disabledAt) blocks new
+ * logins AND reads live sessions as logged out.
+ */
+export function accountActive(user: Pick<User, "disabledAt"> | null): boolean {
+  return user !== null && user.disabledAt === null;
+}
+
+/** The logged-in User row, or null. A stale id (deleted user) or a disabled
+ *  account reads as null. */
 export async function currentUser(): Promise<User | null> {
   const id = await sessionUserId();
   if (!id) return null;
-  return prisma.user.findUnique({ where: { id } });
+  const user = await prisma.user.findUnique({ where: { id } });
+  return accountActive(user) ? user : null;
 }
 
 export async function isAuthed(): Promise<boolean> {

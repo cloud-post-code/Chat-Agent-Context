@@ -386,17 +386,25 @@
       "feature_dir": "docs/features/business-dna-onboarding",
       "proof": "docs/features/business-dna-onboarding/PROOF.md",
       "status": "pending",
-      "notes": "Spec + proof authored 2026-09-05. Converts staged chat onboarding to single-run job; adds summary/tagline/values/tone extraction. Proof red as expected: jobs.ts not importable under tsx (next/font chain) and no dna field yet. Primary proof: npx tsx docs/features/business-dna-onboarding/proof.ts. NOTE: the brand-identity slice (tagline/values/tone, NOT summary) shipped early via brand-identity-fields inside the staged flow — the single-run rework should reuse lib/onboarding/brand.ts and lib/brand.ts rather than re-extracting."
+      "notes": "Spec + proof authored 2026-09-05. Converts staged chat onboarding to single-run job; adds summary/tagline/values/tone extraction. Proof red as expected: jobs.ts not importable under tsx (next/font chain) and no dna field yet. Primary proof: npx tsx docs/features/business-dna-onboarding/proof.ts. NOTE: the brand-identity slice (tagline/values/tone, NOT summary) shipped early via brand-identity-fields inside the staged flow \u2014 the single-run rework should reuse lib/onboarding/brand.ts and lib/brand.ts rather than re-extracting."
     },
     {
       "id": "brand-identity-fields",
-      "title": "Brand identity fields: tagline (extracted vs suggested), brand values, tone of voice — in onboarding and the dashboard Theme tab",
+      "title": "Brand identity fields: tagline (extracted vs suggested), brand values, tone of voice \u2014 in onboarding and the dashboard Theme tab",
       "feature_dir": "docs/features/brand-identity-fields",
       "proof": "docs/features/brand-identity-fields/PROOF.md",
       "priority": 1,
       "status": "passing",
-      "notes": "Delivers the brand-voice slice of business-dna-onboarding early, inside the CURRENT staged flow. lib/onboarding/brand.ts (BRAND_SYSTEM_PROMPT + extractBrandIdentity, injectable extract fn, honesty rule: a non-empty tagline whose source the model didn't explicitly mark 'extracted' coerces to 'suggested', empty tagline clears the flag) runs fail-soft inside the theme stage into job.stepBrand. lib/brand.ts savePersonaBrand shared by the onboarding save route (body.brand) and the dashboard saveTheme action. PersonaConfig gains taglineSource/brandValues(JSON)/toneOfVoice via migration brand_identity_fields. UI: Brand voice block on the onboarding theme review card and the dashboard Theme tab, suggested taglines wear a 'suggested — not from your site' chip; editing the tagline text anywhere (Theme tab, Persona tab, onboarding card) drops the provenance flag so a user's wording is never labeled. buildSystemPrompt injects BRAND VALUES + TONE OF VOICE blocks when set. Proof: docs/features/brand-identity-fields/proof.ts (23 assertions green, red-first at module-not-found; zero Anthropic calls — extract injected; local Postgres throwaway user). tsc + lint + build clean; GATE: PASS.",
-      "next": "Not clicked through in a browser (admin login required — Claude does not enter passwords). Live extraction quality of the brand prompt unverified against a real site; worth one onboarding run. The Persona tab still has its own tagline input — two writers to the same column is deliberate but worth revisiting."
+      "notes": "Delivers the brand-voice slice of business-dna-onboarding early, inside the CURRENT staged flow. lib/onboarding/brand.ts (BRAND_SYSTEM_PROMPT + extractBrandIdentity, injectable extract fn, honesty rule: a non-empty tagline whose source the model didn't explicitly mark 'extracted' coerces to 'suggested', empty tagline clears the flag) runs fail-soft inside the theme stage into job.stepBrand. lib/brand.ts savePersonaBrand shared by the onboarding save route (body.brand) and the dashboard saveTheme action. PersonaConfig gains taglineSource/brandValues(JSON)/toneOfVoice via migration brand_identity_fields. UI: Brand voice block on the onboarding theme review card and the dashboard Theme tab, suggested taglines wear a 'suggested \u2014 not from your site' chip; editing the tagline text anywhere (Theme tab, Persona tab, onboarding card) drops the provenance flag so a user's wording is never labeled. buildSystemPrompt injects BRAND VALUES + TONE OF VOICE blocks when set. Proof: docs/features/brand-identity-fields/proof.ts (23 assertions green, red-first at module-not-found; zero Anthropic calls \u2014 extract injected; local Postgres throwaway user). tsc + lint + build clean; GATE: PASS.",
+      "next": "Not clicked through in a browser (admin login required \u2014 Claude does not enter passwords). Live extraction quality of the brand prompt unverified against a real site; worth one onboarding run. The Persona tab still has its own tagline input \u2014 two writers to the same column is deliberate but worth revisiting."
+    },
+    {
+      "id": "admin-user-management",
+      "feature_dir": "docs/features/admin-user-management",
+      "proof": "docs/features/admin-user-management/PROOF.md",
+      "priority": 17,
+      "status": "passing",
+      "notes": "Operator-gated Users tab: list/search, edit identity, disable/enable, replacement password."
     }
   ]
 }
