@@ -16,19 +16,29 @@ export default async function DirectoryPage() {
       slug: true,
       name: true,
       profile: { select: { company_name: true, owner_name: true } },
-      personaConfig: { select: { tagline: true, company_logo: true } },
+      personaConfig: { select: { tagline: true, company_logo: true, brandValues: true } },
     },
   });
 
-  const agents = users.map((u) => ({
-    slug: u.slug,
-    name:
-      u.profile?.company_name?.trim() ||
-      u.profile?.owner_name?.trim() ||
-      u.name,
-    tagline: u.personaConfig?.tagline?.trim() || "",
-    logo: u.personaConfig?.company_logo || null,
-  }));
+  const agents = users.map((u) => {
+    let values: string[] = [];
+    try {
+      const parsed = JSON.parse(u.personaConfig?.brandValues || "[]");
+      if (Array.isArray(parsed)) values = parsed.filter((v) => typeof v === "string").slice(0, 3);
+    } catch {
+      // malformed brandValues JSON — show no tags
+    }
+    return {
+      slug: u.slug,
+      name:
+        u.profile?.company_name?.trim() ||
+        u.profile?.owner_name?.trim() ||
+        u.name,
+      tagline: u.personaConfig?.tagline?.trim() || "",
+      logo: u.personaConfig?.company_logo || null,
+      values,
+    };
+  });
 
   return (
     <main style={s.page}>
@@ -58,18 +68,27 @@ export default async function DirectoryPage() {
             No agent pages yet. <Link href="/signup" style={s.navLink}>Be the first.</Link>
           </p>
         ) : (
-          <div style={s.list}>
+          <div style={s.grid}>
             {agents.map((a) => (
               <Link key={a.slug} href={`/a/${a.slug}`} style={s.card} data-fill="surface">
                 {a.logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
-                  <img src={a.logo} alt="" style={s.logo} />
+                  <img src={a.logo} alt="" style={s.cardImage} />
                 ) : (
-                  <div style={s.logoFallback}>{a.name.slice(0, 1).toUpperCase()}</div>
+                  <div style={s.cardImageFallback}>{a.name.slice(0, 1).toUpperCase()}</div>
                 )}
                 <div style={s.cardBody}>
                   <span style={s.cardName}>{a.name}</span>
                   {a.tagline && <span style={s.cardTagline}>{a.tagline}</span>}
+                  {a.values.length > 0 && (
+                    <div style={s.cardTags}>
+                      {a.values.map((v) => (
+                        <span key={v} style={s.cardTag}>
+                          {v}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <code style={s.cardPath}>/a/{a.slug}</code>
                 </div>
               </Link>
@@ -83,8 +102,8 @@ export default async function DirectoryPage() {
 
 const s: Record<string, React.CSSProperties> = {
   page: { minHeight: "100dvh", background: "var(--bg)", padding: "48px 20px" },
-  wrap: { maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 },
-  header: { display: "flex", flexDirection: "column", gap: 10 },
+  wrap: { maxWidth: 960, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 },
+  header: { display: "flex", flexDirection: "column", gap: 10, maxWidth: 720 },
   // The street-sign wordmark: green plate, thin inner keyline, spaced serif caps.
   sign: {
     alignSelf: "flex-start",
@@ -114,40 +133,66 @@ const s: Record<string, React.CSSProperties> = {
   },
   navLink: { color: "var(--accent-on-bg)", textDecoration: "none", fontSize: 14 },
   empty: { fontSize: 15, opacity: 0.75 },
-  list: { display: "flex", flexDirection: "column", gap: 12 },
+  // Responsive card grid: 3 per row at full width, fewer on narrow screens.
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))",
+    gap: 20,
+  },
   card: {
     display: "flex",
-    gap: 14,
-    alignItems: "center",
-    padding: "16px 18px",
+    flexDirection: "column",
     background: "var(--surface)",
     border: "1px solid var(--border)",
     borderRadius: "var(--radius-lg)",
+    overflow: "hidden",
     textDecoration: "none",
     color: "var(--on-surface)",
   },
-  logo: {
-    width: 44,
-    height: 44,
-    borderRadius: "var(--radius-md)",
+  cardImage: {
+    width: "100%",
+    aspectRatio: "16 / 9",
     objectFit: "cover",
-    flexShrink: 0,
+    display: "block",
+    borderBottom: "1px solid var(--border)",
   },
-  logoFallback: {
-    width: 44,
-    height: 44,
-    borderRadius: "var(--radius-md)",
-    background: "var(--bg-soft)",
-    color: "var(--on-bg-soft)",
+  cardImageFallback: {
+    width: "100%",
+    aspectRatio: "16 / 9",
+    background: "var(--primary)",
+    color: "var(--on-primary)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
+    fontFamily: "var(--font-heading), serif",
     fontWeight: 700,
-    fontSize: 18,
-    flexShrink: 0,
+    fontSize: 44,
   },
-  cardBody: { display: "flex", flexDirection: "column", gap: 2, minWidth: 0 },
-  cardName: { fontWeight: 600, fontSize: 16 },
+  cardBody: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+    padding: "14px 16px 16px",
+    minWidth: 0,
+    flexGrow: 1,
+  },
+  cardName: { fontWeight: 600, fontSize: 16, lineHeight: 1.3 },
   cardTagline: { fontSize: 13.5, opacity: 0.75, lineHeight: 1.4 },
-  cardPath: { fontFamily: "var(--font-mono), monospace", fontSize: 12, opacity: 0.6 },
+  cardTags: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 },
+  cardTag: {
+    fontSize: 11.5,
+    lineHeight: 1,
+    padding: "5px 9px",
+    borderRadius: 999,
+    background: "var(--bg-soft)",
+    color: "var(--on-bg-soft)",
+    whiteSpace: "nowrap",
+  },
+  cardPath: {
+    fontFamily: "var(--font-mono), monospace",
+    fontSize: 12,
+    opacity: 0.6,
+    marginTop: "auto",
+    paddingTop: 6,
+  },
 };
