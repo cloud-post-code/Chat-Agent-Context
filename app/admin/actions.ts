@@ -69,6 +69,7 @@ import {
   deleteIngestedItem,
 } from "@/lib/customIngest";
 import { checkEditPassword, createEditSession, isEditAuthed } from "@/lib/ingestionAuth";
+import { approveIngestion, type IngestMethod } from "@/lib/adminBrain";
 import { draftUiCard, type CardDraft } from "@/lib/cardBuilder";
 import { redraftAnswer } from "@/lib/answerDrafts";
 import { regenerateStarterQuestions } from "@/lib/starterQuestions";
@@ -143,7 +144,7 @@ export async function login(formData: FormData) {
     : (verifyPassword(pw, DUMMY_HASH), false);
   if (!ok || !user || !accountActive(user)) redirect("/admin?error=1");
   await createSession(user.id);
-  redirect("/admin/dashboard");
+  redirect("/admin/chat");
 }
 
 // A real scrypt hash of a random throwaway value; never matches anything.
@@ -162,7 +163,7 @@ export async function signup(formData: FormData) {
     redirect(`/signup?error=${encodeURIComponent(result.error)}`);
   }
   await createSession(result.user.id);
-  redirect("/admin/dashboard");
+  redirect("/admin/chat");
 }
 
 export async function logout() {
@@ -1057,6 +1058,35 @@ export async function createIngestionSourceAction(formData: FormData) {
   if (error) redirect(`/admin/dashboard?tab=new-source&error=${encodeURIComponent(error)}`);
   revalidateAll();
   redirect("/admin/dashboard?tab=content");
+}
+
+/**
+ * Approve a chat-proposed ingestion. Object-in/object-out like the builder
+ * saves, but over FormData because the approval card may carry a file. The
+ * routing and writes live in lib/adminBrain.approveIngestion.
+ */
+export async function approveIngestionAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const method = String(formData.get("method") ?? "text");
+  const proposal = {
+    sourceKey: String(formData.get("sourceKey") ?? ""),
+    method: (["url", "text", "file", "image"].includes(method) ? method : "text") as IngestMethod,
+    title: String(formData.get("title") ?? "") || undefined,
+    url: String(formData.get("url") ?? "") || undefined,
+    text: String(formData.get("text") ?? "") || undefined,
+    caption: String(formData.get("caption") ?? "") || undefined,
+    classification: String(formData.get("classification") ?? "") || undefined,
+  };
+  const f = formData.get("file");
+  const file =
+    isUpload(f) && f.size > 0
+      ? { bytes: Buffer.from(await f.arrayBuffer()), filename: f.name, contentType: f.type }
+      : undefined;
+  const error = await approveIngestion(user.id, proposal, { file });
+  revalidateAll();
+  return error ? { ok: false, error } : { ok: true };
 }
 
 /** Ingest pasted text into a custom source's marked rows. */

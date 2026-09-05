@@ -22,7 +22,7 @@ export default async function AdminLogin({
 }: {
   searchParams: Promise<{ error?: string }>;
 }) {
-  if (await isAuthed()) redirect("/admin/dashboard");
+  if (await isAuthed()) redirect("/admin/chat");
   const { error } = await searchParams;
 
   return (
