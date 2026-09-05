@@ -2,10 +2,10 @@ import * as cheerio from "cheerio";
 
 /**
  * Crawler for the guided onboarding flow. Renders pages with Playwright
- * Chromium so JS-built sites extract like static ones; falls back to a plain
- * fetch when a browser can't launch (e.g. slim deploy images). Everything is
- * pinned to the entered site's origin — offsite URLs are refused at the one
- * place all fetches go through.
+ * Chromium only, so JS-built sites extract like static ones; a browser that
+ * can't launch is an error surfaced to the job, never a silent downgrade.
+ * Everything is pinned to the entered site's origin — offsite URLs are
+ * refused at the one place all fetches go through.
  */
 
 export type Page = { url: string; html: string; $: cheerio.CheerioAPI };
@@ -14,7 +14,6 @@ export class Crawler {
   readonly origin: string;
   private cache = new Map<string, Page | null>();
   private browser: import("playwright").Browser | null = null;
-  private browserTried = false;
   /** Real-time activity callback — the onboarding chat streams these lines. */
   onEvent?: (msg: string) => void;
 
@@ -35,31 +34,27 @@ export class Crawler {
     }
   }
 
-  private async page(): Promise<import("playwright").Page | null> {
-    if (!this.browserTried) {
-      this.browserTried = true;
+  private async page(): Promise<import("playwright").Page> {
+    if (!this.browser) {
       // Playwright's import self-checks the Node version and can hard-exit
       // the process on <20 — never even import it there (deploy safety).
       if (Number(process.versions.node.split(".")[0]) < 20) {
-        this.browser = null;
-        return null;
+        throw new Error("Onboarding extraction needs Node 20+ to run its Playwright browser");
       }
       try {
         const { chromium } = await import("playwright");
         this.browser = await chromium.launch({ headless: true });
-      } catch {
-        this.browser = null; // fetch fallback below
+      } catch (err) {
+        throw new Error(
+          `Could not launch the Playwright browser: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`,
+        );
       }
     }
-    if (!this.browser) return null;
-    try {
-      return await this.browser.newPage();
-    } catch {
-      return null;
-    }
+    return this.browser.newPage();
   }
 
-  /** Fetch one on-domain page as parsed HTML. Cached; null on any failure. */
+  /** Render one on-domain page as parsed HTML. Cached; null when the page
+   *  itself fails to load. A browser that can't launch throws instead. */
   async load(url: string): Promise<Page | null> {
     const abs = this.resolve(url);
     if (!abs) return null;
@@ -68,23 +63,13 @@ export class Crawler {
 
     let html: string | null = null;
     const p = await this.page();
-    if (p) {
-      try {
-        const res = await p.goto(abs, { waitUntil: "domcontentloaded", timeout: 15_000 });
-        if (res && res.ok()) html = await p.content();
-      } catch {
-        html = null;
-      } finally {
-        await p.close().catch(() => {});
-      }
-    }
-    if (html === null) {
-      try {
-        const res = await fetch(abs, { signal: AbortSignal.timeout(15_000) });
-        if (res.ok && /html/.test(res.headers.get("content-type") || "")) html = await res.text();
-      } catch {
-        html = null;
-      }
+    try {
+      const res = await p.goto(abs, { waitUntil: "domcontentloaded", timeout: 15_000 });
+      if (res && res.ok()) html = await p.content();
+    } catch {
+      html = null;
+    } finally {
+      await p.close().catch(() => {});
     }
 
     const page = html !== null ? { url: abs, html, $: cheerio.load(html) } : null;

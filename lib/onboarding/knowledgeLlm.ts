@@ -6,8 +6,8 @@ import type { Page } from "./crawl";
  * prompt so the model reads a page with one job at a time: blog posts,
  * testimonials, team bios, and a general catch-all that turns every other
  * page (services, pricing, policies, FAQs, locations…) into discrete facts.
- * The deterministic parsers in knowledge.ts remain the fallback when no
- * model key is configured or a call fails — same contract as locations.ts.
+ * Extraction is model-only: a failed call retries and then throws — there is
+ * no deterministic parser to fall back to, and a missing key is an error.
  * Shared rule: never invent. Absent stays absent.
  */
 
@@ -69,31 +69,42 @@ export function llmCorpus(pages: Page[], perPage = 3500, total = 40_000): string
     .slice(0, total);
 }
 
+/** Extra attempts after the first failed call before the stage errors out. */
+const LLM_RETRIES = 2;
+
 /**
- * One extraction call: system prompt + text in, parsed JSON out. Null when
- * no key is configured or the call/parse fails — callers fall back to their
- * deterministic parser, and the activity log says so once.
+ * One extraction call: system prompt + text in, parsed JSON out. A failed or
+ * unparseable call retries up to LLM_RETRIES times and then throws — the job
+ * surfaces the error rather than degrading to a parser or an empty result.
  */
 export async function llmExtract(
   system: string,
   userText: string,
   maxTokens: number,
   log: (m: string) => void,
-): Promise<Record<string, unknown> | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  try {
-    const res = await claude().messages.create({
-      model: claudeModel(),
-      max_tokens: maxTokens,
-      system,
-      messages: [{ role: "user", content: userText }],
-    });
-    const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const json = text.match(/\{[\s\S]*\}/)?.[0];
-    return json ? (JSON.parse(json) as Record<string, unknown>) : null;
-  } catch (err) {
-    log(`Model extraction unavailable (${err instanceof Error ? err.message.slice(0, 60) : "error"}) — using the pattern parser`);
-    return null;
+): Promise<Record<string, unknown>> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not set — onboarding extraction requires the model");
+  }
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await claude().messages.create({
+        model: claudeModel(),
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content: userText }],
+      });
+      const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+      const json = text.match(/\{[\s\S]*\}/)?.[0];
+      if (!json) throw new Error("model returned no JSON");
+      return JSON.parse(json) as Record<string, unknown>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
+      if (attempt >= LLM_RETRIES) {
+        throw new Error(`Model extraction failed after ${LLM_RETRIES + 1} attempts: ${msg}`);
+      }
+      log(`Model call failed (${msg}) — retrying`);
+    }
   }
 }
 

@@ -5,8 +5,12 @@
 npx tsx docs/features/owner-extraction-llm/proof.ts
 ```
 No server, DB, network, or model key required — the proof exercises
-`lib/onboarding/owners.ts` directly with fixture pages and a stubbed crawler, with
-`ANTHROPIC_API_KEY` unset so the deterministic path is what runs.
+`lib/onboarding/owners.ts` directly with fixture pages and a stubbed crawler.
+
+> **Superseded in part** by `llm-only-onboarding-extraction`: the deterministic
+> `parsePageOwners` fallback was removed at the user's request. Extraction is
+> model-only; without a key `extractOwners` throws instead of pattern-parsing.
+> The fallback-parsing bullets below no longer apply.
 
 ## What it proves
 - **Prompt contract**: `OWNERS_SYSTEM_PROMPT` names the About/Team/Our Story/Staff/

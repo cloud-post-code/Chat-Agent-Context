@@ -13,11 +13,11 @@ import {
  * saved through the app's existing knowledge storage — Source rows chunked
  * and embedded exactly like admin-ingested links (embedTexts picks Voyage or
  * the local hash embedder; no new provider). Each category extracts with its
- * OWN system prompt (knowledgeLlm.ts) when a model key is configured — the
- * general catch-all turns every remaining page into discrete facts — and the
- * deterministic parsers below remain the no-key/error fallback. Entity
- * extraction is skipped here: it costs a model call per origin and the graph
- * back-fills the next time each source is reindexed from the dashboard.
+ * OWN system prompt (knowledgeLlm.ts) — the general catch-all turns every
+ * remaining page into discrete facts. Extraction is model-only; a failed call
+ * fails the stage rather than degrading to a parser. Entity extraction is
+ * skipped here: it costs a model call per origin and the graph back-fills the
+ * next time each source is reindexed from the dashboard.
  *
  * Dedup rules the report asserts: a blog post is saved once no matter how
  * many index/category/feed pages list it; a testimonial repeated on the
@@ -57,15 +57,6 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const MAX_POSTS = 100;
 const MAX_LISTING_PAGES = 50;
 const MAX_SWEEP_PAGES = 40;
-
-/** Main text of a page with nav / comments / widgets stripped. */
-function mainText(page: Page): string {
-  const $ = page.$;
-  const scope = $("article").length ? $("article").first() : $("main").length ? $("main").first() : $("body");
-  const clone = scope.clone();
-  clone.find("nav, header, footer, aside, script, style, .comments, #comments, form").remove();
-  return norm(clone.text());
-}
 
 /** One Source row + one Chunk per piece, through the existing pipeline. */
 async function saveRecord(
@@ -173,27 +164,16 @@ export async function extractBlog(
   const existed = seenLists.size > 0 && (postUrls.size > 0 || !!feed);
   let chunks = 0;
   let postsSaved = 0;
-  let llmDown = false; // one failed call stops retrying per post
   for (const url of [...postUrls].slice(0, MAX_POSTS)) {
     const page = await crawler.load(url);
     if (!page) continue;
     covered.add(page.url);
-    const $ = page.$;
-    // The blog prompt cleans the post from the raw page; the selector-based
-    // extraction stays as the no-key/error fallback.
-    const raw = llmDown
-      ? null
-      : await llmExtract(BLOG_SYSTEM_PROMPT, llmPageText(page).slice(0, 30_000), 6000, log);
-    if (!raw && !llmDown && process.env.ANTHROPIC_API_KEY) llmDown = true;
-    if (raw && raw.post === null) continue; // model: not actually an article
+    // The blog prompt cleans the post from the raw page text.
+    const raw = await llmExtract(BLOG_SYSTEM_PROMPT, llmPageText(page).slice(0, 30_000), 6000, log);
+    if (raw.post === null) continue; // model: not actually an article
     const cleaned = sanitizePost(raw);
-    const title = cleaned?.title ?? norm($("article h1").first().text() || $("h1").first().text() ||
-      ($("title").text() || "").split(/[—|]/)[0]);
-    const date = cleaned?.date ?? ($("time[datetime]").attr("datetime") || "");
-    const author = cleaned?.author ??
-      (norm($(".meta, .byline").text()).match(/by\s+([^·|,]+)/i)?.[1]?.trim() || "");
-    const body = cleaned?.body ?? mainText(page);
-    if (!title || !body) continue;
+    if (!cleaned) continue; // no usable title/body — not a savable post
+    const { title, author, date, body } = cleaned;
     const header = [title, author && `By ${author}`, date && `Published ${date}`]
       .filter(Boolean).join(". ");
     const saved = await saveRecord(userId,
@@ -254,33 +234,10 @@ export async function extractTestimonials(
     if (page.$('[class*="elfsight"], [class*="trustpilot"], [class*="yotpo"], iframe[src*="review"]').length) {
       embeddedWidget = true;
     }
-    // Genuine customer quotes only: a quote block with an attribution. Press
-    // mentions and marketing copy don't carry a <cite>/attribution pattern.
-    page.$("blockquote").each((_, el) => {
-      const q = page.$(el);
-      if (q.parents("aside").length) return; // press/widget rails
-      const quote = norm(q.find("p").first().text() || q.clone().children("cite,img").remove().end().text());
-      const cite = norm(q.find("cite, .author, footer").first().text());
-      const img = q.find("img").attr("src");
-      add(quote, cite, img ? crawler.resolve(img, page.url) || "" : "", page.url);
-    });
-    // Div-based testimonial cards (the common site-builder shape): a
-    // testimonial/review-classed element with its own quote and attribution.
-    // Both must be literally present — no attribution, no record.
-    page.$('[class*="testimonial-"], [class*="review-card"], .testimonial, .review').each((_, el) => {
-      const q = page.$(el);
-      if (q.find('[class*="testimonial-"], .testimonial').length) return; // wrapper, not a card
-      const quote = norm(q.find("p, [class*='quote']").first().text());
-      const cite = norm(q.find("cite, [class*='author'], [class*='name'], h3, h4, h5").first().text());
-      if (quote.length < 20 || !cite || cite.split(" ").length > 6) return;
-      const img = q.find("img").attr("src");
-      add(quote, cite, img ? crawler.resolve(img, page.url) || "" : "", page.url);
-    });
   }
 
-  // The testimonials prompt reads the whole candidate corpus and catches the
-  // markup shapes the selectors can't; parser finds keep their photos and the
-  // union is deduped by quote.
+  // The testimonials prompt reads the whole candidate corpus; quotes on two
+  // pages dedupe by their text.
   const modelItems = sanitizeTestimonials(loaded.length
     ? await llmExtract(TESTIMONIALS_SYSTEM_PROMPT, llmCorpus(loaded), 4000, log)
     : null);
@@ -315,48 +272,23 @@ export async function extractTeam(
     ["/team", "/about", "/about-us", "/people", "/leadership"]);
 
   const pagesChecked: string[] = [];
+  // Team pages stay un-"covered" on purpose: an about page holds more than
+  // bios, and the sweep's catch-all prompt distills the rest into facts.
   const covered = new Set<string>();
-  const blocks: { name: string; bio: string }[] = [];
-  const seen = new Set<string>();
   const loaded: Page[] = [];
   for (const url of candidates) {
     const page = await crawler.load(url);
     if (!page) continue;
     loaded.push(page);
     pagesChecked.push(page.url);
-    const sections = page.$("section, .bio, .team-member, li").toArray();
-    for (const el of sections) {
-      const s = page.$(el);
-      const name = norm(s.find("h2, h3, .name").first().text());
-      const bio = norm(s.find("p").first().text());
-      if (!name || !bio || name.split(" ").length > 6) continue; // headings, not people
-      const key = `${name}::${bio}`.toLowerCase();
-      if (seen.has(key)) continue; // duplicate block
-      seen.add(key);
-      blocks.push({ name, bio });
-    }
-    if (blocks.length) {
-      // First real team page wins; only a page that yielded bios is "covered"
-      // — an about page with no extractable blocks still deserves the sweep.
-      covered.add(page.url);
-      break;
-    }
   }
 
-  // The team prompt reads the same candidate pages; a person described in
-  // prose the selectors can't segment still gets an entry. Union by name,
-  // keeping the fuller bio.
+  // The team prompt reads the candidate pages; the same person described
+  // twice is one entry (the prompt keeps the fuller bio).
   const people = sanitizePeople(loaded.length
     ? await llmExtract(TEAM_SYSTEM_PROMPT, llmCorpus(loaded), 4000, log)
     : null);
-  for (const p of people ?? []) {
-    const existing = blocks.find((b) => b.name.toLowerCase() === p.name.toLowerCase());
-    if (existing) {
-      if (p.bio.length > existing.bio.length) existing.bio = p.bio;
-    } else {
-      blocks.push(p);
-    }
-  }
+  const blocks: { name: string; bio: string }[] = people ?? [];
 
   let chunks = 0;
   let embeddingDim = 0;
@@ -395,24 +327,17 @@ export async function sweepSitemap(
   const crawled = urls.length === 0 && !!home;
   const pages: string[] = [];
   let chunks = 0;
-  let llmDown = false;
 
   const savePage = async (page: Page): Promise<void> => {
-    const body = mainText(page);
     // The catch-all prompt distills the page into discrete facts — each fact
-    // its own chunk. Raw-text chunking stays as the no-key/error fallback.
-    const raw = llmDown
-      ? null
-      : await llmExtract(GENERAL_SYSTEM_PROMPT, llmPageText(page).slice(0, 15_000), 3000, log);
-    if (!raw && !llmDown && process.env.ANTHROPIC_API_KEY) llmDown = true;
+    // its own chunk. A page the model reports empty is skipped, not chunked.
+    const raw = await llmExtract(GENERAL_SYSTEM_PROMPT, llmPageText(page).slice(0, 15_000), 3000, log);
     const distilled = sanitizeFacts(raw);
-    if (raw && distilled && distilled.facts.length === 0) return; // model: nothing substantive
-    if (!distilled?.facts.length && body.split(" ").length < 30) return;
-    const title = distilled?.title ||
-      norm(page.$("h1").first().text() || page.$("title").text() || page.url);
+    if (!distilled?.facts.length) return; // model: nothing substantive
     const saved = await saveRecord(userId, {
-      url: page.url, title: title || page.url, kind: "other", rawText: body,
-    }, distilled?.facts.length ? distilled.facts : chunkText(body));
+      url: page.url, title: distilled.title || page.url, kind: "other",
+      rawText: llmPageText(page).slice(0, 60_000),
+    }, distilled.facts);
     if (saved.chunks) {
       chunks += saved.chunks;
       pages.push(page.url);

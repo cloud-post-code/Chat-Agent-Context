@@ -143,6 +143,11 @@ export function advanceJob(
 }
 
 async function runCore(job: Job): Promise<void> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error(
+      "Onboarding extraction requires a model key — set ANTHROPIC_API_KEY and restart onboarding.",
+    );
+  }
   const onEvent = (m: string) => log(job, m);
   let crawler = new Crawler(job.url, onEvent);
   job.crawler = crawler;
@@ -173,7 +178,7 @@ async function runCore(job: Job): Promise<void> {
   job.extras = (await Promise.all(extraUrls.map((u) => crawler.load(u))))
     .filter((p): p is Page => !!p);
   job.progress = 80;
-  job.step1 = await extractCoreInfo(crawler, [home, ...job.extras]);
+  job.step1 = await extractCoreInfo(crawler, [home, ...job.extras], onEvent);
   const s1 = job.step1;
 
   // Owner names live in prose on about/team pages, not under labels — the
@@ -235,7 +240,7 @@ async function runImages(job: Job): Promise<void> {
 async function runTheme(job: Job): Promise<void> {
   job.progress = 20;
   log(job, "Reading your site's CSS for colors, fonts, and corners");
-  job.step2 = await extractTheme(job.crawler!, [job.home!, ...(job.extras ?? [])]);
+  job.step2 = await extractTheme(job.crawler!, [job.home!, ...(job.extras ?? [])], (m) => log(job, m));
   const s2 = job.step2;
   if (s2.themeColors.primary) log(job, `Brand color: ${s2.themeColors.primary}`);
   log(job, `Body font matched: ${s2.themeBodyFont}; corners: ${s2.themeRadius}`);
@@ -253,9 +258,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   const stepShare = 100 / Math.max(picked.length, 1);
   let stepsDone = 0;
   const onEvent = (m: string) => log(job, m);
-  log(job, process.env.ANTHROPIC_API_KEY
-    ? "Model extraction is on — each category reads your pages with its own prompt"
-    : "No model key configured — extracting with the pattern parsers");
+  log(job, "Model extraction is on — each category reads your pages with its own prompt");
 
   try {
     if (picked.includes("blog")) {

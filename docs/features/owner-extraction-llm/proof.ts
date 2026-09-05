@@ -1,8 +1,13 @@
 /**
  * Primary proof for owner-extraction-llm.
  * Exercises lib/onboarding/owners.ts with fixture pages and a stubbed crawler.
- * Pure — no server, DB, network, or model key; ANTHROPIC_API_KEY is unset so
- * the deterministic path is what runs.
+ * Pure — no server, DB, network, or model key.
+ *
+ * SUPERSEDED IN PART by llm-only-onboarding-extraction: the deterministic
+ * parsePageOwners fallback was removed at the user's request, so extraction is
+ * model-only and running without a key now throws instead of pattern-parsing.
+ * The fallback-parsing checks are gone; prompt, discovery, sanitizer, and
+ * mapping checks remain.
  *
  *   npx tsx docs/features/owner-extraction-llm/proof.ts
  */
@@ -11,7 +16,6 @@ import type { Page } from "../../../lib/onboarding/crawl";
 import {
   OWNERS_SYSTEM_PROMPT,
   discoverOwnerPages,
-  parsePageOwners,
   sanitizeOwners,
   extractOwners,
   ownersToOwnerName,
@@ -101,40 +105,6 @@ const names = (owners: Owner[]) => owners.map((o) => o.name).sort().join("|");
   check("discovery: home is included once", urls.filter((u) => u === home.url).length === 1);
 }
 
-// ── Fallback parsing ──
-{
-  check("parse: Owner label form",
-    names(parsePageOwners("Contact us. Owner: Jane Smith. Call today.")) === "Jane Smith");
-  const label = parsePageOwners("Owner: Jane Smith.");
-  check("parse: label form carries role", label[0]?.role.toLowerCase() === "owner",
-    JSON.stringify(label));
-  check("parse: founded-by prose with two names",
-    names(parsePageOwners(
-      "Rosa's Bakery was founded by Maria Lopez and Ana Lopez in 1998.",
-    )) === "Ana Lopez|Maria Lopez");
-  check("parse: owned-and-operated-by prose",
-    names(parsePageOwners("We are owned and operated by Sam Green.")) === "Sam Green");
-  check("parse: bio-heading Co-Owner form",
-    names(parsePageOwners("Our team. Priya Patel, Co-Owner. Bob Jones, Barista.")) ===
-      "Priya Patel");
-  check("parse: no ownership language -> empty",
-    parsePageOwners("We sell coffee and pastries every day of the week.").length === 0);
-}
-
-// ── Multi-owner + dedupe across pages ──
-{
-  const pages = [
-    pageOf("https://x.com/", "<p>Welcome to the shop owned and operated by Sam Green.</p>"),
-    pageOf("https://x.com/about", "<p>Founded by Sam Green and Lee Wong.</p>"),
-    pageOf("https://x.com/team", "<p>Owner: SAM GREEN</p>"),
-  ];
-  const owners = await extractOwners(pages, () => {});
-  check("extract: every distinct owner kept", names(owners).toLowerCase() ===
-    "lee wong|sam green", names(owners));
-  check("extract: same person on several pages is one entry",
-    owners.filter((o) => o.name.toLowerCase() === "sam green").length === 1);
-}
-
 // ── Sanitizer ──
 {
   check("sanitize: non-object -> empty", sanitizeOwners("nope").length === 0);
@@ -167,11 +137,15 @@ const names = (owners: Owner[]) => owners.map((o) => o.name).sort().join("|");
     ]) === "Jane Smith, Tom Reed");
 }
 
-// ── No-key path resolves deterministically ──
+// ── No-key path throws (model-only extraction; never pattern-parses) ──
 {
-  const owners = await extractOwners(
-    [pageOf("https://y.com/about", "<p>Owner: Kim Cole</p>")], () => {});
-  check("no key: fallback result returned", names(owners) === "Kim Cole");
+  let threw = false;
+  try {
+    await extractOwners([pageOf("https://y.com/about", "<p>Owner: Kim Cole</p>")], () => {});
+  } catch {
+    threw = true;
+  }
+  check("no key: extractOwners rejects instead of parsing", threw);
 }
 
 console.log(failed ? `\n${failed} check(s) FAILED` : "\nAll checks passed");

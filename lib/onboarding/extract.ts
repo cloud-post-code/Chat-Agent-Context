@@ -1,14 +1,15 @@
 import type { Crawler, Page } from "./crawl";
-import { HEADING_FONTS, type FontKey } from "@/lib/fonts";
+import { HEADING_FONTS } from "@/lib/fonts";
 import { normalizeExtractedTheme } from "@/lib/theme";
 import { saveBytes } from "@/lib/uploads";
+import { llmCorpus, llmExtract } from "./knowledgeLlm";
 
 /**
- * Steps 1 and 2 of guided onboarding: deterministic parsers over the crawled
- * site. Every field the site doesn't state stays EMPTY — the form is the
- * user's to correct, and a wrong guess presented as fact is worse than a
- * blank. That rule is why owner name only matches an explicit "Owner:" label
- * and never a bio's prose.
+ * Steps 1 and 2 of guided onboarding: model extraction over the crawled site.
+ * Every field the site doesn't state stays EMPTY — the form is the user's to
+ * correct, and a wrong guess presented as fact is worse than a blank. The
+ * prompts enforce that rule; the sanitizers below only validate the model's
+ * output against the app's supported values, they never extract.
  */
 
 export const DAYS = [
@@ -39,34 +40,8 @@ export type ThemeExtract = {
   themeLogo: string;
 };
 
-const emptyHours = (): Hours =>
+export const emptyHours = (): Hours =>
   Object.fromEntries(DAYS.map((d) => [d, ""])) as Hours;
-
-/** "Monday–Friday 8:00am–4:30pm. Closed Saturday and Sunday." → per-day map.
- *  Tolerates "8 AM" (no minutes, spaced, uppercased) as well as "8:00am". */
-export function parseHours(text: string): Hours {
-  const hours = emptyHours();
-  const t = text.replace(/–|—/g, "-").toLowerCase();
-  const day = "(monday|tuesday|wednesday|thursday|friday|saturday|sunday)";
-  const time = "(\\d{1,2}(?::\\d{2})?\\s*(?:am|pm))";
-
-  for (const m of t.matchAll(new RegExp(`${day}\\s*-\\s*${day}[:\\s]*${time}\\s*-\\s*${time}`, "g"))) {
-    const from = DAYS.indexOf(m[1] as (typeof DAYS)[number]);
-    const to = DAYS.indexOf(m[2] as (typeof DAYS)[number]);
-    for (let i = from; i <= to && from >= 0; i++) hours[DAYS[i]] = `${m[3]}–${m[4]}`;
-  }
-  for (const m of t.matchAll(new RegExp(`${day}[:\\s]+${time}\\s*-\\s*${time}`, "g"))) {
-    hours[m[1] as (typeof DAYS)[number]] = `${m[2]}–${m[3]}`;
-  }
-  for (const m of t.matchAll(new RegExp(`closed\\s+((?:${day}(?:\\s*(?:,|and)\\s*)?)+)`, "g"))) {
-    for (const d of m[1].matchAll(new RegExp(day, "g"))) hours[d[1] as (typeof DAYS)[number]] = "";
-  }
-  // "Sunday: Closed" — the per-day spelling location pages tend to use.
-  for (const m of t.matchAll(new RegExp(`${day}\\s*:\\s*closed`, "g"))) {
-    hours[m[1] as (typeof DAYS)[number]] = "";
-  }
-  return hours;
-}
 
 export function serializeHours(hours: Hours): string {
   const parts = DAYS.flatMap((d) =>
@@ -74,100 +49,44 @@ export function serializeHours(hours: Hours): string {
   return parts.join("; ");
 }
 
-// Street address, tolerant of the "City ST 02481" form many small-business
-// sites use (no comma before the state).
-// Street address ending in a US city/state/ZIP. The city→state separator may
-// be a comma, and there may be a comma between state and ZIP too
-// ("Newton, MA, 02460"), which small-business site builders emit freely.
-// Optional unit/neighborhood segment between the street and the city
-// ("Suite 1214, Natick", "Coolidge Corner, Brookline") — up to two such
-// comma-groups before the "City, ST ZIP" tail.
-const ADDRESS_RE =
-  /\d{1,5}\s+[A-Z][A-Za-z]*(?:\s[A-Za-z.]+){0,4}\s(?:Lane|Ln|Street|St|Avenue|Ave|Road|Rd|Boulevard|Blvd|Drive|Dr|Way|Court|Ct|Place|Pl)\.?(?:,\s*(?:Suite|Ste|Unit|#)?\s?[A-Za-z0-9][A-Za-z0-9 ]{0,24}?){0,2},\s*[A-Z][A-Za-z .]{1,24}?,?\s*[A-Z]{2},?\s*\d{5}(?:-\d{4})?/;
-const PHONE_RE = /(?:\+1[ .-]?)?\(?\d{3}\)?[ .-]{0,2}\d{3}[ .-]{0,2}\d{4}/;
+export const CORE_SYSTEM_PROMPT = `You find a business's core contact details in text extracted from its website. The text contains multiple pages, each preceded by "=== <url>".
 
-/**
- * Locations on one page. Sites that label them ("Location 1: …", "Address 2:
- * …") get segment-scoped parsing so each location keeps its own phone and
- * hours; otherwise every distinct address on the page becomes a location and
- * the page's hours attach to the first.
- */
-export function parsePageLocations(text: string): Location[] {
-  const out: Location[] = [];
-  const segments = text.split(/(?:location|address)\s*\d+\s*:/i);
-  if (segments.length > 1) {
-    for (const seg of segments.slice(1)) {
-      const address = seg.match(ADDRESS_RE)?.[0]?.trim() ?? "";
-      if (!address) continue;
-      out.push({
-        address,
-        phone: seg.match(PHONE_RE)?.[0]?.trim().replace(/\s+-\s*/g, "-") ?? "",
-        hours: parseHours(seg),
-      });
-    }
-    if (out.length) return out;
-  }
-  const addresses = [...new Set([...text.matchAll(new RegExp(ADDRESS_RE, "g"))].map((m) => m[0].trim()))];
-  // A single-location page (one address, its own "Hours" block and phone —
-  // the /locations/<shop> pattern): attach that page's hours and phone to it.
-  if (addresses.length === 1) {
-    return [{
-      address: addresses[0],
-      phone: text.match(PHONE_RE)?.[0]?.trim().replace(/\s+-\s*/g, "-") ?? "",
-      hours: parseHours(text),
-    }];
-  }
-  const pageHours = parseHours(
-    text.match(/hours[:\s][^.]*(?:\.[^.]*(?:closed|open)[^.]*)?\.?/i)?.[0] ?? "",
-  );
-  return addresses.map((address, i) => ({
-    address,
-    phone: "",
-    hours: i === 0 ? pageHours : emptyHours(),
-  }));
-}
+Rules:
+- Report ONLY what the text literally states. Never guess or infer; a detail the text does not state stays "".
+- "company_name" is the business's own name as the site presents it — not a tagline or a page title suffix.
+- "company_phone_number" and "company_email" are the business's primary public contact details, copied as written.
+
+Respond with ONLY this JSON, no other text:
+{"company_name":"","company_phone_number":"","company_email":""}`;
+
+const str = (v: unknown, max = 300): string =>
+  typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /** Core business info from the homepage plus likely contact/about pages. */
-export async function extractCoreInfo(crawler: Crawler, pages: Page[]): Promise<CoreInfo> {
-  const info: CoreInfo = {
-    company_name: "", owner_name: "", company_address: "",
-    company_phone_number: "", company_email: "", company_hours: emptyHours(),
+export async function extractCoreInfo(
+  crawler: Crawler,
+  pages: Page[],
+  log: (m: string) => void = () => {},
+): Promise<CoreInfo> {
+  const raw = await llmExtract(CORE_SYSTEM_PROMPT, llmCorpus(pages), 500, log);
+  return {
+    company_name: str(raw.company_name),
+    owner_name: "", // the dedicated owners stage fills this in
+    company_address: "",
+    company_phone_number: str(raw.company_phone_number, 40),
+    company_email: str(raw.company_email, 200),
+    company_hours: emptyHours(),
+    // Addresses and hours are NOT extracted here — the dedicated locations
+    // stage (lib/onboarding/locations.ts) owns them, with its own discovery
+    // and its own extraction prompt.
     locations: [],
   };
-
-  const home = pages[0];
-  if (home) {
-    info.company_name =
-      home.$('meta[property="og:site_name"]').attr("content")?.trim() ||
-      (home.$("title").text() || "").split(/[—|·-]/)[0].trim() ||
-      home.$("h1").first().text().trim();
-  }
-
-  for (const page of pages) {
-    const text = page.$("body").text().replace(/\s+/g, " ");
-    if (!info.owner_name) {
-      const m = text.match(/(?:owner|proprietor)\s*:\s*([A-Z][a-zA-Z.'-]+(?:\s[A-Z][a-zA-Z.'-]+){0,3})/);
-      if (m) info.owner_name = m[1].trim();
-    }
-    if (!info.company_phone_number) {
-      const m = text.match(PHONE_RE);
-      if (m) info.company_phone_number = m[0].trim();
-    }
-    if (!info.company_email) {
-      const m = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-      if (m && !/\.(png|jpg|svg|webp)$/i.test(m[0])) info.company_email = m[0];
-    }
-  }
-  // Addresses and hours are NOT extracted here — the dedicated locations
-  // stage (lib/onboarding/locations.ts) owns them, with its own discovery
-  // and its own extraction prompt.
-  return info;
 }
 
 /**
- * Fold one parsed location into a list. The same address on two pages is ONE
- * location; a footer lists bare addresses on every page while a location or
- * contact page carries the hours, so the copy that knows its hours wins.
+ * Fold one extracted location into a list. The same address on two pages is
+ * ONE location; a footer lists bare addresses on every page while a location
+ * or contact page carries the hours, so the copy that knows its hours wins.
  */
 export function mergeLocation(locations: Location[], loc: Location): void {
   const existing = locations.find(
@@ -189,72 +108,71 @@ export function mergeLocation(locations: Location[], loc: Location): void {
 
 // ── Theme ──
 
-const HEX = /#[0-9a-fA-F]{6}\b|#[0-9a-fA-F]{3}\b/g;
+export const THEME_SYSTEM_PROMPT = `You read a website's inline CSS and image list to describe its visual theme. The input has a "CSS:" section (the site's own stylesheet text) and an "IMAGES:" section (one image per line: url | class | alt).
 
-function saturation(hex: string): number {
-  const h = hex.length === 4 ? `#${[...hex.slice(1)].map((c) => c + c).join("")}` : hex;
-  const [r, g, b] = [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16) / 255);
-  const max = Math.max(r, g, b), min = Math.min(r, g, b);
-  return max === 0 ? 0 : (max - min) / max;
-}
+Rules:
+- Report ONLY what the CSS and image list state. A value you cannot find stays "".
+- "background" and "text_color" are the page body's background and text colors as hex values from the CSS.
+- "primary" is the site's most prominent saturated brand color as a hex value from the CSS — not a gray, near-white, or near-black.
+- "font_key" is the closest match for the body font family, chosen from exactly this list (or "" when the CSS names no body font): FONT_KEYS.
+- "radius" is "pill" when the CSS rounds elements into pills (radius ≥ 100px), "rounded" for any smaller nonzero radius, "sharp" when the CSS sets no rounding.
+- "font_size_px" is the body font size in pixels as a bare number string (e.g. "16"), "" when unstated.
+- "heading_weight" is the h1/h2 font-weight, one of "500", "600", "700", "800", or "".
+- "logo_url" is the url of the image that is the site's logo, copied exactly from the IMAGES list; "" when none of the listed images is a logo.
 
-function cssOf(pages: Page[]): string {
-  return pages.map((p) => p.$("style").text()).join("\n");
-}
+Respond with ONLY this JSON, no other text:
+{"background":"","text_color":"","primary":"","font_key":"","radius":"","font_size_px":"","heading_weight":"","logo_url":""}`;
 
-/** Pick the curated font key whose family best matches the site's stack. */
-function matchFont(family: string): string {
-  const wanted = family.toLowerCase();
-  for (const [key, v] of Object.entries(HEADING_FONTS) as [FontKey, { family: string }][]) {
-    const first = v.family.split(",")[0].replace(/['"]/g, "").trim().toLowerCase();
-    if (first && wanted.includes(first)) return key;
-  }
-  if (/georgia|garamond|times|serif/.test(wanted) && !/sans-serif/.test(wanted)) {
-    return "libre-baskerville";
-  }
-  return "inter";
-}
+const HEX_VALUE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/;
 
-/** Closest supported theme values from the site's own CSS + logo image. */
-export async function extractTheme(crawler: Crawler, pages: Page[]): Promise<ThemeExtract> {
-  const css = cssOf(pages);
+const hexOr = (v: unknown): string | undefined =>
+  typeof v === "string" && HEX_VALUE.test(v.trim()) ? v.trim() : undefined;
+
+/** The theme prompt's input: the site's own CSS plus its image candidates. */
+function themeCorpus(pages: Page[]): { corpus: string; imageUrls: string[] } {
+  const css = pages.map((p) => p.$("style").text()).join("\n").slice(0, 30_000);
   const home = pages[0];
+  const imageUrls: string[] = [];
+  const lines: string[] = [];
+  home?.$("img").each((_, el) => {
+    if (lines.length >= 40) return;
+    const $el = home.$(el);
+    const src = $el.attr("src");
+    if (!src) return;
+    imageUrls.push(src);
+    lines.push(`${src} | ${$el.attr("class") || ""} | ${$el.attr("alt") || ""}`);
+  });
+  return { corpus: `CSS:\n${css}\n\nIMAGES:\n${lines.join("\n")}`, imageUrls };
+}
 
-  // Colors: role them from declarations where possible, saturation otherwise,
-  // then normalize into a full palette that always passes the brand rules
-  // (contrast, neutral bg, derived accent, preset fallback when sparse).
-  const bodyBlock = css.match(/body\s*{([^}]*)}/)?.[1] || "";
-  const bg = bodyBlock.match(/background(?:-color)?:\s*(#[0-9a-fA-F]{3,8})/)?.[1];
-  const text = bodyBlock.match(/[^-]color:\s*(#[0-9a-fA-F]{3,8})/)?.[1];
-  const all = [...new Set(css.match(HEX) || [])];
-  const brand = all
-    .filter((c) => c.toLowerCase() !== bg?.toLowerCase() && c.toLowerCase() !== text?.toLowerCase())
-    .sort((a, b) => saturation(b) - saturation(a))[0];
-  const colors: Record<string, string> = { ...normalizeExtractedTheme({
-    bg,
-    text,
-    primary: brand && saturation(brand) > 0.25 ? brand : undefined,
+/** Closest supported theme values, extracted by the model from the site's own
+ *  CSS and image list, then validated against the app's supported values. */
+export async function extractTheme(
+  crawler: Crawler,
+  pages: Page[],
+  log: (m: string) => void = () => {},
+): Promise<ThemeExtract> {
+  const { corpus, imageUrls } = themeCorpus(pages);
+  const system = THEME_SYSTEM_PROMPT.replace("FONT_KEYS", Object.keys(HEADING_FONTS).join(", "));
+  const raw = await llmExtract(system, corpus, 500, log);
+
+  const colors = { ...normalizeExtractedTheme({
+    bg: hexOr(raw.background),
+    text: hexOr(raw.text_color),
+    primary: hexOr(raw.primary),
   }) } as Record<string, string>;
 
-  // Radius: any pill-sized radius wins; no radius at all reads as sharp.
-  const radii = [...css.matchAll(/border-radius:\s*(\d+)(px|%)/g)]
-    .map((m) => (m[2] === "%" ? Number(m[1]) * 4 : Number(m[1])));
-  const themeRadius: ThemeExtract["themeRadius"] =
-    radii.some((r) => r >= 100) ? "pill" : radii.some((r) => r > 0) ? "rounded" : "sharp";
+  const fontKey = str(raw.font_key, 60);
+  const radius = str(raw.radius, 10);
+  const weight = str(raw.heading_weight, 3);
+  const fontSize = str(raw.font_size_px, 4);
 
-  const bodyFamily = bodyBlock.match(/font-family:\s*([^;}]+)/)?.[1] || "";
-  const fontSize = bodyBlock.match(/font-size:\s*(\d{2})px/)?.[1] || "";
-  const weight = css.match(/h[12][^{]*{[^}]*font-weight:\s*(\d{3})/)?.[1];
-  const themeHeadingWeight =
-    weight && ["500", "600", "700", "800"].includes(weight) ? weight : "";
-
-  // Logo: exact file, converted into the app's upload store.
+  // Logo: the model's pick must be an image the homepage actually lists; the
+  // exact file is then converted into the app's upload store.
   let themeLogo = "";
-  const logoSrc = home
-    ?.$('img[class*="logo" i], img[alt*="logo" i], img[src*="logo" i]')
-    .first()
-    .attr("src");
-  if (home && logoSrc) {
+  const home = pages[0];
+  const logoSrc = str(raw.logo_url, 2000);
+  if (home && logoSrc && imageUrls.includes(logoSrc)) {
     const got = await crawler.loadBytes(crawler.resolve(logoSrc, home.url) || logoSrc);
     if (got) {
       const type = got.contentType || (logoSrc.endsWith(".png") ? "image/png" : "");
@@ -267,11 +185,11 @@ export async function extractTheme(crawler: Crawler, pages: Page[]): Promise<The
   }
 
   return {
-    themeBodyFont: matchFont(bodyFamily),
+    themeBodyFont: fontKey in HEADING_FONTS ? fontKey : "inter",
     themeColors: colors,
-    themeRadius,
-    themeFontSize: fontSize,
-    themeHeadingWeight,
+    themeRadius: radius === "pill" || radius === "rounded" ? radius : "sharp",
+    themeFontSize: /^\d{2}$/.test(fontSize) ? fontSize : "",
+    themeHeadingWeight: ["500", "600", "700", "800"].includes(weight) ? weight : "",
     themeLogo,
   };
 }

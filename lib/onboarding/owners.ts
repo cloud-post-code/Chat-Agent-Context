@@ -1,13 +1,13 @@
-import { claude, claudeModel } from "@/lib/claude";
 import type { Crawler, Page } from "./crawl";
+import { llmCorpus, llmExtract } from "./knowledgeLlm";
 
 /**
  * The owner-name extraction step of the core stage. Owner names rarely sit
  * under an explicit "Owner:" label — they live in prose and bio headings on
  * About, Team, Our Story, Staff, and Contact pages — so this module does its
- * own page discovery and, when a model key is configured, its own extraction
- * prompt. Without a key it falls back to pattern parsing. Either way: never
- * invent; a business can have several owners and every distinct one is kept.
+ * own page discovery and its own extraction prompt. Extraction is model-only;
+ * never invent; a business can have several owners and every distinct one is
+ * kept.
  */
 
 export type Owner = { name: string; role: string };
@@ -60,44 +60,6 @@ export async function discoverOwnerPages(
   return pages;
 }
 
-function pageText(page: Page): string {
-  const clone = page.$("body").clone();
-  clone.find("script, style").remove();
-  return clone.text().replace(/\s+/g, " ").trim();
-}
-
-// A person's name as sites write it: 2–4 capitalized words.
-const NAME = "[A-Z][a-zA-Z'-]+(?:\\s[A-Z][a-zA-Z'-]+){1,3}";
-const TITLE = "(?:[Cc]o-)?[Oo]wner|(?:[Cc]o-)?[Ff]ounder|[Pp]roprietor|[Pp]rincipal";
-
-/**
- * Deterministic fallback: explicit ownership statements only — a label, an
- * "owned/founded by" sentence, or a "Name, Title" bio heading. Prose that
- * doesn't literally claim ownership yields nothing.
- */
-export function parsePageOwners(text: string): Owner[] {
-  const found: Owner[] = [];
-  for (const m of text.matchAll(new RegExp(`(${TITLE})s?\\s*:\\s*(${NAME})`, "g"))) {
-    found.push({ name: m[2], role: m[1] });
-  }
-  for (const m of text.matchAll(
-    new RegExp(`[Oo]wned(?:\\s+and\\s+operated)?\\s+by\\s+(${NAME})(?:\\s+and\\s+(${NAME}))?`, "g"),
-  )) {
-    found.push({ name: m[1], role: "Owner" });
-    if (m[2]) found.push({ name: m[2], role: "Owner" });
-  }
-  for (const m of text.matchAll(
-    new RegExp(`[Ff]ounded\\s+by\\s+(${NAME})(?:\\s+and\\s+(${NAME}))?`, "g"),
-  )) {
-    found.push({ name: m[1], role: "Founder" });
-    if (m[2]) found.push({ name: m[2], role: "Founder" });
-  }
-  for (const m of text.matchAll(new RegExp(`(${NAME}),\\s*(${TITLE})\\b`, "g"))) {
-    found.push({ name: m[1], role: m[2] });
-  }
-  return mergeOwners(found);
-}
-
 /** Distinct people (case-insensitive by name), first mention's spelling wins. */
 function mergeOwners(owners: Owner[]): Owner[] {
   const out: Owner[] = [];
@@ -124,37 +86,12 @@ export function sanitizeOwners(raw: unknown): Owner[] {
   return mergeOwners(out).slice(0, 12);
 }
 
-async function promptExtract(pages: Page[], log: (m: string) => void): Promise<Owner[] | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  const corpus = pages
-    .map((p) => `=== ${p.url}\n${pageText(p).slice(0, 3500)}`)
-    .join("\n\n")
-    .slice(0, 40_000);
-  try {
-    const res = await claude().messages.create({
-      model: claudeModel(),
-      max_tokens: 1000,
-      system: OWNERS_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: corpus }],
-    });
-    const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const json = text.match(/\{[\s\S]*\}/)?.[0];
-    return json ? sanitizeOwners(JSON.parse(json)) : null;
-  } catch (err) {
-    log(`Model extraction unavailable (${err instanceof Error ? err.message.slice(0, 60) : "error"}) — using the pattern parser`);
-    return null;
-  }
-}
-
-/** Every distinct owner from the discovered pages. The prompt reads prose the
- *  patterns can't; when it finds nobody (or can't run) the patterns stand. */
+/** Every distinct owner from the discovered pages, extracted by the prompt. */
 export async function extractOwners(
   pages: Page[],
   log: (m: string) => void,
 ): Promise<Owner[]> {
-  const fromPrompt = (await promptExtract(pages, log)) ?? [];
-  if (fromPrompt.length) return fromPrompt;
-  return mergeOwners(pages.flatMap((p) => parsePageOwners(pageText(p))));
+  return sanitizeOwners(await llmExtract(OWNERS_SYSTEM_PROMPT, llmCorpus(pages), 1000, log));
 }
 
 /** The single profile field: distinct names, comma-joined. */

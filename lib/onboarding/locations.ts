@@ -1,16 +1,16 @@
-import { claude, claudeModel } from "@/lib/claude";
 import type { Crawler, Page } from "./crawl";
 import {
-  DAYS, mergeLocation, parsePageLocations, type Hours, type Location,
+  DAYS, emptyHours, mergeLocation, type Location,
 } from "./extract";
+import { llmCorpus, llmExtract } from "./knowledgeLlm";
 
 /**
  * The dedicated locations-and-hours stage. Hours often live on their own
  * pages (a /locations index with one page per shop, an /hours page, the
  * contact page) rather than where the rest of the contact info sits, so this
- * stage does its own discovery and — when a model key is configured — its own
- * extraction prompt written for exactly this job. Without a key it falls back
- * to the deterministic parser. Either way: never invent; absent stays empty.
+ * stage does its own discovery and its own extraction prompt written for
+ * exactly this job. Extraction is model-only; never invent; absent stays
+ * empty.
  */
 
 export const LOCATIONS_SYSTEM_PROMPT = `You find a business's physical locations and opening hours in text extracted from its website.
@@ -23,8 +23,6 @@ Rules:
 
 Respond with ONLY this JSON, no other text:
 {"locations":[{"address":"","phone":"","hours":{"monday":"","tuesday":"","wednesday":"","thursday":"","friday":"","saturday":"","sunday":""}}]}`;
-
-const emptyHours = (): Hours => Object.fromEntries(DAYS.map((d) => [d, ""])) as Hours;
 
 /**
  * Pages worth reading for locations/hours: nav links that say so, common
@@ -72,12 +70,7 @@ export async function discoverLocationPages(
   return pages;
 }
 
-function pageText(page: Page): string {
-  const clone = page.$("body").clone();
-  clone.find("script, style").remove();
-  return clone.text().replace(/\s+/g, " ").trim();
-}
-
+/** Model output → clean bounded Location[]. Anything malformed is dropped. */
 function sanitize(raw: unknown): Location[] {
   if (!raw || typeof raw !== "object" || !Array.isArray((raw as { locations?: unknown }).locations)) {
     return [];
@@ -101,45 +94,19 @@ function sanitize(raw: unknown): Location[] {
   return out;
 }
 
-async function promptExtract(pages: Page[], log: (m: string) => void): Promise<Location[] | null> {
-  if (!process.env.ANTHROPIC_API_KEY) return null;
-  const corpus = pages
-    .map((p) => `=== ${p.url}\n${pageText(p).slice(0, 3500)}`)
-    .join("\n\n")
-    .slice(0, 40_000);
-  try {
-    const res = await claude().messages.create({
-      model: claudeModel(),
-      max_tokens: 2000,
-      system: LOCATIONS_SYSTEM_PROMPT,
-      messages: [{ role: "user", content: corpus }],
-    });
-    const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
-    const json = text.match(/\{[\s\S]*\}/)?.[0];
-    return json ? sanitize(JSON.parse(json)) : null;
-  } catch (err) {
-    log(`Model extraction unavailable (${err instanceof Error ? err.message.slice(0, 60) : "error"}) — using the pattern parser`);
-    return null;
-  }
-}
-
 function mergeAll(locs: Location[]): Location[] {
   const merged: Location[] = [];
   for (const loc of locs) mergeLocation(merged, loc);
   return merged;
 }
 
-/** All locations with their hours, deduped, from the discovered pages. Runs
- *  both the model prompt and the deterministic parser and keeps whichever
- *  found more distinct addresses — the parser catches per-shop pages the
- *  prompt's corpus budget may have truncated, the prompt catches prose the
- *  regex can't. */
+/** All locations with their hours, deduped, extracted by the prompt from the
+ *  discovered pages. */
 export async function extractLocations(
   pages: Page[],
   log: (m: string) => void,
 ): Promise<Location[]> {
   log(`Location agent read ${pages.length} pages`);
-  const parsed = mergeAll(pages.flatMap((p) => parsePageLocations(pageText(p))));
-  const fromPrompt = mergeAll((await promptExtract(pages, log)) ?? []);
-  return fromPrompt.length > parsed.length ? fromPrompt : parsed;
+  const raw = await llmExtract(LOCATIONS_SYSTEM_PROMPT, llmCorpus(pages), 2000, log);
+  return mergeAll(sanitize(raw));
 }
