@@ -16,7 +16,7 @@ import { llmExtractVision, type VisionImage, type VisionMediaType } from "./know
 export const MAX_GALLERY_IMAGES = 25;
 
 /** Candidates downloaded for the model to look at; the rest never upload. */
-const MAX_CANDIDATE_DOWNLOADS = 40;
+const MAX_CANDIDATE_DOWNLOADS = 60;
 
 /** Images per vision call — enough for cross-image diversity judgment. */
 const VISION_BATCH = 10;
@@ -31,11 +31,11 @@ const VISION_TYPES = new Set<VisionMediaType>([
 export const GALLERY_SYSTEM_PROMPT = `You curate photos scraped from a business's website into the photo gallery of that business's customer-facing page, and caption the ones you keep. Each numbered image arrives with the site's own alt text as context.
 
 Rules:
-- "keep" is true only for an image a potential customer would find useful or interesting: the storefront or premises, work being done, finished work, products, food, spaces, equipment, the team at work. Genuine photos and realistic renderings of the business's work both count; when unsure whether a customer would care, keep it.
+- "keep" is true for an image a potential customer would find useful or interesting: the storefront or premises, work being done, finished work, products, food, spaces, equipment, the team at work. Genuine photos and realistic renderings of the business's work both count. Most real photographs a business puts on its own site ARE worth keeping — exclusion is for junk, not editorial taste; when unsure whether a customer would care, keep it.
 - Always exclude: logos, icons, avatar or profile-picture tiles (letter/initial placeholders, generated avatars), webcam-style headshots, screenshots of software, charts, badges, text-only banners, and empty or decorative filler.
 - "caption" (kept images only) is one short sentence you write describing what the IMAGE SHOWS. Never use a person's name and never copy the alt text — alt text is often just a name ("Peter Richmond"), which tells a customer nothing. Describe the scene: "A barber trimming a client's hair at the chair."
 - "subject" is a 1-3 word category for the image ("storefront", "haircut", "products").
-- Keep the set diverse: when several images show the same subject, keep only the best one or two. ALREADY_KEPT lists subjects kept from earlier batches — avoid repeating them.
+- Variety is a tie-breaker, not a quota: only when images are near-duplicate shots of the SAME scene keep just the best one or two. Different photos of the same kind of work (e.g. many different haircuts) are each worth keeping. ALREADY_KEPT lists subjects from earlier batches — use it to spot near-duplicates, not to veto a category.
 
 Respond with ONLY this JSON, no other text:
 {"images":[{"index":0,"keep":false,"caption":"","subject":""}]}`;
