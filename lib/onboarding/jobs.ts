@@ -263,7 +263,9 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       chunks += t.chunks;
       log(job, t.report.count
         ? `Testimonials: found ${t.report.count}`
-        : "No customer testimonials found");
+        : t.report.embeddedWidget
+          ? "Your reviews load through a third-party widget — those quotes aren't in the page itself"
+          : "No customer testimonials found");
     }
     if (picked.includes("team")) {
       job.phase = "team";
@@ -281,9 +283,10 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.phase = "sweep";
       job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Sweeping the sitemap for remaining pages");
-      const sweep = await sweepSitemap(crawler, job.userId, covered);
+      const sweep = await sweepSitemap(crawler, job.userId, covered, home);
       report.sweep = sweep.report;
       chunks += sweep.chunks;
+      if (sweep.crawled) log(job, "No sitemap on this site — crawled its own links instead");
       log(job, `Sitemap sweep: kept ${sweep.report.pages.length} page${sweep.report.pages.length === 1 ? "" : "s"}`);
     }
     job.report = report;

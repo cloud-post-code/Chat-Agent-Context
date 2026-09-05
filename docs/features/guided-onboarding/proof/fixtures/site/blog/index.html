@@ -7,8 +7,14 @@
     <h1>Blog</h1>
     <ul>
       <li><a href="/blog/titanium-fatigue.html">Why titanium rivets fatigue differently</a></li>
-      <li><a href="/blog/salt-spray-testing.html">Inside our 1,000-hour salt spray rig</a></li>
     </ul>
+    <!-- Webflow-style collection listing: div[role=listitem], no li/article.
+         Post detection must work from the URL shape alone. -->
+    <div role="list" class="collection-list w-dyn-items">
+      <div role="listitem" class="collection-item w-dyn-item">
+        <a href="/blog/salt-spray-testing.html" class="blog-item-link">Inside our 1,000-hour salt spray rig</a>
+      </div>
+    </div>
     <a class="pagination" href="/blog/page2.html">Older posts →</a>
     <aside><a href="/blog/category-materials.html">Materials category</a></aside>
   </main>

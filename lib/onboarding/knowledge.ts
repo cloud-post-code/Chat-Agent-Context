@@ -32,7 +32,11 @@ export type TestimonialItem = {
 };
 export type KnowledgeReport = {
   blog: BlogReport;
-  testimonials: { count: number; items: TestimonialItem[]; pagesChecked: string[] };
+  testimonials: {
+    count: number; items: TestimonialItem[]; pagesChecked: string[];
+    /** Reviews are rendered by a third-party JS widget — not in the HTML. */
+    embeddedWidget?: boolean;
+  };
   team: { existed: boolean; blocks: number; embeddingDim: number; pagesChecked: string[] };
   sweep: { pages: string[] };
 };
@@ -148,7 +152,11 @@ export async function extractBlog(
       else if (/page[/=-]?\d|pagination|older|newer|archive/i.test(label)) {
         queue.push(abs);
         if (!/index\.html$|\/blog\/?$/.test(abs)) paginationPages.push(abs);
-      } else if (/\/(blog|news|articles|posts)\//.test(abs) && page.$(el).parents("li,article").length) {
+      } else if (/\/(blog|news|articles?|posts)\/[^/?#]+/.test(abs)) {
+        // Any link into the listing's own path is a post candidate. Builders
+        // differ on listing markup (Webflow uses div[role=listitem], not
+        // li/article), so the URL shape is the reliable signal; a non-post
+        // that slips through yields no title/body and is skipped below.
         postUrls.add(abs);
       }
     });
@@ -200,11 +208,32 @@ export async function extractTestimonials(
   const seen = new Set<string>();
   const pagesChecked: string[] = [];
   const covered = new Set<string>();
+  let embeddedWidget = false;
+  const add = (quote: string, cite: string, imageUrl: string, sourceUrl: string) => {
+    if (!quote || !cite) return;
+    const [author, ...rest] = cite.split(",").map(norm);
+    const key = quote.toLowerCase();
+    const existing = seen.has(key) ? items.find((t) => t.quote.toLowerCase() === key) : null;
+    if (existing) {
+      // Same testimonial on two pages is ONE record; keep the richer copy's
+      // details (the homepage teaser often drops the photo or title).
+      if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
+      if (!existing.title && rest.length) existing.title = rest.join(", ");
+      return;
+    }
+    seen.add(key);
+    items.push({ quote, author, title: rest.join(", "), sourceUrl, imageUrl });
+  };
   for (const url of new Set(pages)) {
     const page = await crawler.load(url);
     if (!page) continue;
     pagesChecked.push(page.url);
     if (page.url !== home.url) covered.add(page.url);
+    // Reviews rendered by an embed (Elfsight, Trustpilot, Yotpo, …) are not
+    // in the HTML at all — report that honestly instead of a silent zero.
+    if (page.$('[class*="elfsight"], [class*="trustpilot"], [class*="yotpo"], iframe[src*="review"]').length) {
+      embeddedWidget = true;
+    }
     // Genuine customer quotes only: a quote block with an attribution. Press
     // mentions and marketing copy don't carry a <cite>/attribution pattern.
     page.$("blockquote").each((_, el) => {
@@ -212,21 +241,20 @@ export async function extractTestimonials(
       if (q.parents("aside").length) return; // press/widget rails
       const quote = norm(q.find("p").first().text() || q.clone().children("cite,img").remove().end().text());
       const cite = norm(q.find("cite, .author, footer").first().text());
-      if (!quote || !cite) return;
-      const [author, ...rest] = cite.split(",").map(norm);
       const img = q.find("img").attr("src");
-      const imageUrl = img ? crawler.resolve(img, page.url) || "" : "";
-      const key = quote.toLowerCase();
-      const existing = seen.has(key) ? items.find((t) => t.quote.toLowerCase() === key) : null;
-      if (existing) {
-        // Same testimonial on two pages is ONE record; keep the richer copy's
-        // details (the homepage teaser often drops the photo or title).
-        if (!existing.imageUrl && imageUrl) existing.imageUrl = imageUrl;
-        if (!existing.title && rest.length) existing.title = rest.join(", ");
-        return;
-      }
-      seen.add(key);
-      items.push({ quote, author, title: rest.join(", "), sourceUrl: page.url, imageUrl });
+      add(quote, cite, img ? crawler.resolve(img, page.url) || "" : "", page.url);
+    });
+    // Div-based testimonial cards (the common site-builder shape): a
+    // testimonial/review-classed element with its own quote and attribution.
+    // Both must be literally present — no attribution, no record.
+    page.$('[class*="testimonial-"], [class*="review-card"], .testimonial, .review').each((_, el) => {
+      const q = page.$(el);
+      if (q.find('[class*="testimonial-"], .testimonial').length) return; // wrapper, not a card
+      const quote = norm(q.find("p, [class*='quote']").first().text());
+      const cite = norm(q.find("cite, [class*='author'], [class*='name'], h3, h4, h5").first().text());
+      if (quote.length < 20 || !cite || cite.split(" ").length > 6) return;
+      const img = q.find("img").attr("src");
+      add(quote, cite, img ? crawler.resolve(img, page.url) || "" : "", page.url);
     });
   }
 
@@ -242,7 +270,7 @@ export async function extractTestimonials(
     }, pieces);
     chunks = saved.chunks;
   }
-  return { report: { count: items.length, items, pagesChecked }, chunks, covered };
+  return { report: { count: items.length, items, pagesChecked, embeddedWidget }, chunks, covered };
 }
 
 // ── (c) Team / about ──
@@ -301,20 +329,27 @@ export async function extractTeam(
 
 // ── (d) Sitemap sweep ──
 
+/** Links a sweep shouldn't follow: files, anchors, and non-page assets. */
+const NON_PAGE_RE = /\.(jpg|jpeg|png|gif|webp|svg|pdf|zip|mp4|css|js|xml)(\?|#|$)/i;
+
 export async function sweepSitemap(
-  crawler: Crawler, userId: string, covered: Set<string>,
-): Promise<{ report: KnowledgeReport["sweep"]; chunks: number }> {
-  const urls = (await crawler.sitemap())
+  crawler: Crawler, userId: string, covered: Set<string>, home?: Page,
+): Promise<{ report: KnowledgeReport["sweep"]; chunks: number; crawled: boolean }> {
+  let urls = (await crawler.sitemap())
     .filter((u) => !covered.has(u))
     .slice(0, MAX_SWEEP_PAGES);
+
+  // Many small-business sites have no sitemap at all. Fall back to crawling
+  // the site's own links from the homepage (breadth-first, on-domain only)
+  // so the sweep still reaches services/locations/press/etc. pages.
+  const crawled = urls.length === 0 && !!home;
   const pages: string[] = [];
   let chunks = 0;
-  for (const url of urls) {
-    const page = await crawler.load(url);
-    if (!page) continue;
+
+  const savePage = async (page: Page): Promise<void> => {
     const body = mainText(page);
-    if (body.split(" ").length < 30) continue; // nothing substantive to keep
-    const title = norm(page.$("h1").first().text() || page.$("title").text() || url);
+    if (body.split(" ").length < 30) return; // nothing substantive to keep
+    const title = norm(page.$("h1").first().text() || page.$("title").text() || page.url);
     const saved = await saveRecord(userId, {
       url: page.url, title: title || page.url, kind: "other", rawText: body,
     }, chunkText(body));
@@ -322,6 +357,34 @@ export async function sweepSitemap(
       chunks += saved.chunks;
       pages.push(page.url);
     }
+  };
+
+  if (crawled) {
+    const seen = new Set<string>([home!.url, ...covered]);
+    const queue: string[] = [];
+    const enqueue = (page: Page) => {
+      page.$("a[href]").each((_, el) => {
+        const abs = crawler.resolve(page.$(el).attr("href") || "", page.url);
+        if (abs && !seen.has(abs) && !NON_PAGE_RE.test(abs)) {
+          seen.add(abs);
+          queue.push(abs);
+        }
+      });
+    };
+    enqueue(home!);
+    let loaded = 0;
+    while (queue.length && loaded < MAX_SWEEP_PAGES) {
+      const page = await crawler.load(queue.shift()!);
+      if (!page) continue;
+      loaded++;
+      enqueue(page); // one growing frontier; the load cap bounds the walk
+      await savePage(page);
+    }
+  } else {
+    for (const url of urls) {
+      const page = await crawler.load(url);
+      if (page) await savePage(page);
+    }
   }
-  return { report: { pages }, chunks };
+  return { report: { pages }, chunks, crawled };
 }

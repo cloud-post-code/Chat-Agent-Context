@@ -170,6 +170,9 @@ export function OnboardingFlow() {
   const [company, setCompany] = useState<Record<string, string>>({});
   const [locations, setLocations] = useState<LocationForm[]>([emptyLocation()]);
   const [noInPerson, setNoInPerson] = useState(false);
+  // Whether extraction actually found locations: decides the question's
+  // wording and whether the online-only checkbox is offered at all.
+  const [foundLocations, setFoundLocations] = useState(false);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [themeInitial, setThemeInitial] = useState<ThemeInitial>(defaultTheme());
   const [logo, setLogo] = useState("");
@@ -220,6 +223,7 @@ export function OnboardingFlow() {
       }
       if (step === "locations-running" && s.phase === "locations-done") {
         const found = s.stepLoc?.locations ?? [];
+        setFoundLocations(found.length > 0);
         if (found.length) {
           setLocations(found.map((l) => {
             const hours = (l.hours ?? {}) as Record<string, string>;
@@ -520,21 +524,28 @@ export function OnboardingFlow() {
               <Typewriter
                 text={manual
                   ? "Where can customers find you? Add each location with its hours — or tick online-only."
-                  : "Here are the locations and hours I found. Fix anything, add what I missed, then hit Done."}
+                  : foundLocations
+                    ? "Here are the locations and hours I found. Fix anything, add what I missed, then hit Done."
+                    : "I found no locations on your site. Add each location with its hours — or tick online-only."}
                 onDone={() => setTextDone(true)}
               />
             </p>
           </Bubble>
           {textDone && (
             <UserEntry>
-              <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "4px 0 14px", fontSize: 14 }}>
-                <input
-                  type="checkbox"
-                  checked={noInPerson}
-                  onChange={(e) => setNoInPerson(e.target.checked)}
-                />
-                No in-person location (online only)
-              </label>
+              {/* The online-only escape hatch is only offered when extraction
+                  found nothing (or in manual setup) — a site with locations
+                  already answered the question. */}
+              {!foundLocations && (
+                <label style={{ display: "flex", gap: 10, alignItems: "center", margin: "4px 0 14px", fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={noInPerson}
+                    onChange={(e) => setNoInPerson(e.target.checked)}
+                  />
+                  No in-person location (online only)
+                </label>
+              )}
               {!noInPerson && locations.map((loc, i) => (
                 <div
                   key={i}
