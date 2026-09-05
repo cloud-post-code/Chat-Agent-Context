@@ -4,8 +4,8 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next build",
-    "start": "node scripts/migrate.mjs && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next start -p ${PORT:-3000}",
+    "build": "prisma generate && PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install --with-deps chromium && NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next build",
+    "start": "node scripts/migrate.mjs && PLAYWRIGHT_BROWSERS_PATH=0 NODE_OPTIONS=\"--require ./scripts/polyfill-file.cjs\" next start -p ${PORT:-3000}",
     "lint": "next lint",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
