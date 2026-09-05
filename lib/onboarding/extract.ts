@@ -3,6 +3,7 @@ import { HEADING_FONTS } from "@/lib/fonts";
 import { normalizeExtractedTheme } from "@/lib/theme";
 import { saveBytes } from "@/lib/uploads";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
+import { themeCorpus } from "./themeCorpus";
 
 /**
  * Steps 1 and 2 of guided onboarding: model extraction over the crawled site.
@@ -108,14 +109,15 @@ export function mergeLocation(locations: Location[], loc: Location): void {
 
 // ── Theme ──
 
-export const THEME_SYSTEM_PROMPT = `You read a website's inline CSS and image list to describe its visual theme. The input has a "CSS:" section (the site's own stylesheet text) and an "IMAGES:" section (one image per line: url | class | alt).
+export const THEME_SYSTEM_PROMPT = `You read what a website's rendered pages state about their visual theme. The input has a "RENDERED:" section (computed styles measured in a real browser: page background, text color, body font, prominent saturated fills with how many elements carry each, and control corner radius), a "CSS:" section (the site's own stylesheet text), and an "IMAGES:" section (one image per line: url | class | alt).
 
 Rules:
-- Report ONLY what the CSS and image list state. A value you cannot find stays "".
-- "background" and "text_color" are the page body's background and text colors as hex values from the CSS.
-- "primary" is the site's most prominent saturated brand color as a hex value from the CSS — not a gray, near-white, or near-black.
-- "font_key" is the closest match for the body font family, chosen from exactly this list (or "" when the CSS names no body font): FONT_KEYS.
-- "radius" is "pill" when the CSS rounds elements into pills (radius ≥ 100px), "rounded" for any smaller nonzero radius, "sharp" when the CSS sets no rounding.
+- Report ONLY what the input states. A value you cannot find stays "".
+- The RENDERED section is measured ground truth; when it and the CSS text disagree, RENDERED wins.
+- "background" and "text_color" are the page body's background and text colors as hex values.
+- "primary" is the site's most prominent saturated brand color as a hex value — not a gray, near-white, or near-black. Prefer the RENDERED fill that reads as the brand (buttons, headers, accents) over incidental colors.
+- "font_key" is the closest match for the body font family, chosen from exactly this list: FONT_KEYS. The RENDERED body font is what the site actually uses — when it is not on the list, pick the list entry closest in style (a serif site gets a serif key, a geometric sans gets one). "" only when no body font appears anywhere.
+- "radius" is "pill" when controls are rounded into pills (radius ≥ 100px or ≥ half the control height), "rounded" for any smaller nonzero radius, "sharp" when nothing is rounded.
 - "font_size_px" is the body font size in pixels as a bare number string (e.g. "16"), "" when unstated.
 - "heading_weight" is the h1/h2 font-weight, one of "500", "600", "700", "800", or "".
 - "logo_url" is the url of the image that is the site's logo, copied exactly from the IMAGES list; "" when none of the listed images is a logo.
@@ -128,22 +130,6 @@ const HEX_VALUE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/;
 const hexOr = (v: unknown): string | undefined =>
   typeof v === "string" && HEX_VALUE.test(v.trim()) ? v.trim() : undefined;
 
-/** The theme prompt's input: the site's own CSS plus its image candidates. */
-function themeCorpus(pages: Page[]): { corpus: string; imageUrls: string[] } {
-  const css = pages.map((p) => p.$("style").text()).join("\n").slice(0, 30_000);
-  const home = pages[0];
-  const imageUrls: string[] = [];
-  const lines: string[] = [];
-  home?.$("img").each((_, el) => {
-    if (lines.length >= 40) return;
-    const $el = home.$(el);
-    const src = $el.attr("src");
-    if (!src) return;
-    imageUrls.push(src);
-    lines.push(`${src} | ${$el.attr("class") || ""} | ${$el.attr("alt") || ""}`);
-  });
-  return { corpus: `CSS:\n${css}\n\nIMAGES:\n${lines.join("\n")}`, imageUrls };
-}
 
 /** Closest supported theme values, extracted by the model from the site's own
  *  CSS and image list, then validated against the app's supported values. */
@@ -152,7 +138,7 @@ export async function extractTheme(
   pages: Page[],
   log: (m: string) => void = () => {},
 ): Promise<ThemeExtract> {
-  const { corpus, imageUrls } = themeCorpus(pages);
+  const { corpus, imageUrls } = await themeCorpus(crawler, pages);
   const system = THEME_SYSTEM_PROMPT.replace("FONT_KEYS", Object.keys(HEADING_FONTS).join(", "));
   const raw = await llmExtract(system, corpus, 500, log);
 
@@ -173,7 +159,7 @@ export async function extractTheme(
   const home = pages[0];
   const logoSrc = str(raw.logo_url, 2000);
   if (home && logoSrc && imageUrls.includes(logoSrc)) {
-    const got = await crawler.loadBytes(crawler.resolve(logoSrc, home.url) || logoSrc);
+    const got = await crawler.loadImageBytes(logoSrc);
     if (got) {
       const type = got.contentType || (logoSrc.endsWith(".png") ? "image/png" : "");
       try {

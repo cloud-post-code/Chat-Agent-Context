@@ -193,6 +193,32 @@ export async function extractBlog(
   };
 }
 
+/**
+ * The photo a page itself attaches to a person: an <img> whose alt names them
+ * (or whose filename carries their first name). Enrichment of a name the
+ * model already extracted — never a source of quotes or people.
+ */
+function findPersonImage(crawler: Crawler, pages: Page[], name: string): string {
+  const needle = name.trim().toLowerCase();
+  const first = needle.split(/\s+/)[0] ?? "";
+  if (!needle) return "";
+  for (const page of pages) {
+    let found = "";
+    page.$("img").each((_, el) => {
+      if (found) return;
+      const $el = page.$(el);
+      const src = $el.attr("data-crawl-src") || $el.attr("src") || "";
+      if (!src || src.startsWith("data:")) return;
+      const alt = ($el.attr("alt") || "").toLowerCase();
+      if (alt.includes(needle) || (first.length >= 4 && src.toLowerCase().includes(first))) {
+        found = crawler.resolve(src, page.url) || "";
+      }
+    });
+    if (found) return found;
+  }
+  return "";
+}
+
 // ── (b) Testimonials ──
 
 export async function extractTestimonials(
@@ -244,7 +270,8 @@ export async function extractTestimonials(
   const modelSrc = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) ||
     pagesChecked[0] || home.url;
   for (const t of modelItems ?? []) {
-    add(t.quote, [t.author, t.title].filter(Boolean).join(", "), "", modelSrc);
+    add(t.quote, [t.author, t.title].filter(Boolean).join(", "),
+      findPersonImage(crawler, loaded, t.author), modelSrc);
   }
 
   let chunks = 0;
@@ -294,8 +321,11 @@ export async function extractTeam(
   let embeddingDim = 0;
   if (blocks.length) {
     const pieces = blocks.map((b) => `${b.name} — ${b.bio}`);
+    // "#team" keeps this record distinct from the sweep's record for the same
+    // page — team pages stay un-covered, so the sweep re-saves the bare url
+    // and saveRecord's per-source chunk reset would silently drop the bios.
     const saved = await saveRecord(userId, {
-      url: pagesChecked[pagesChecked.length - 1], title: "Team", kind: "other",
+      url: `${pagesChecked[pagesChecked.length - 1]}#team`, title: "Team", kind: "other",
       summary: `Team bios for ${blocks.map((b) => b.name).join(", ")}.`,
       rawText: pieces.join("\n\n"),
     }, pieces);

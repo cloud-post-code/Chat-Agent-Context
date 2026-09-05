@@ -28,7 +28,8 @@ PROOF_BASE_URL=http://localhost:3100 npx tsx docs/features/guided-onboarding/pro
 
 The script serves the deterministic fixture site in
 `docs/features/guided-onboarding/proof/fixtures/site/` on a local port
-(company info in the footer, weekday-only hours, no owner name anywhere,
+(company info in the footer, weekday-only hours, the founder stated only in
+the About bios,
 brand color `#0f4c81`, a logo.png, a 3-post blog with pagination + RSS feed +
 a discovery-only category page, 3 genuine testimonials + 1 press mention, a
 team page with 3 bios one of which is duplicated, a sitemap including a
@@ -39,8 +40,9 @@ Expected evidence:
 - First-login gating: new user is steered to onboarding; both entry options
   render.
 - Step 1: company name, address, phone, email, weekday hours match the
-  fixture exactly; Saturday/Sunday and owner name are EMPTY because the site
-  never states them (anti-fabrication).
+  fixture exactly; Saturday/Sunday are EMPTY because the site never states
+  them, and the owner is exactly the stated founder, "Priya Raman" — any
+  other name is fabrication.
 - Step 2: `themeBodyFont` is a curated `lib/fonts` key, `themeRadius` ∈
   sharp|rounded|pill, `themeHeadingWeight` ∈ 500–800, colors are hex and
   include the fixture's brand `#0f4c81`, logo lands under `/api/uploads/`.
@@ -63,6 +65,12 @@ Secondary guards:
   (Playwright dependency must not break the Nixpacks/Railway build).
 - Existing feature proofs still green (at minimum
   `scripts/proof-multi-tenant.ts`).
+- Rendered-extraction regression
+  (`npx tsx docs/features/guided-onboarding/proof/rendered-extraction.ts`):
+  extraction sees what the browser renders, not just raw HTML — external
+  stylesheet theme values, JS-injected / srcset-only images, CSS background
+  heroes — and drops rendered-tiny icons. Guards the real-world failure where
+  external-CSS sites extracted as the fallback preset with zero photos.
 
 ## Environment And Data
 - Running dev server at `PROOF_BASE_URL` (default `http://localhost:3100`)
@@ -81,7 +89,7 @@ Secondary guards:
 - No mocking of the crawl: the extraction must fetch the fixture site over
   real HTTP with the real Playwright/crawler path. Hardcoding fixture values
   ("Acme Rivet Co.", `#0f4c81`, post URLs) anywhere in `app/` or `lib/` is
-  gaming — the empty-field assertions (owner name, weekend hours) exist
+  gaming — the exact-value assertions (owner name, weekend hours) exist
   precisely to catch a parser that pattern-matches the proof.
 - The chunk/embedding path must be the existing `lib/retrieval` pipeline;
   asserting `embedModel` consistency and DB-side chunk counts, not the

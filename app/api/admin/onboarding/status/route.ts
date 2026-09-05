@@ -1,19 +1,16 @@
 import { currentUser } from "@/lib/auth";
-import { getJob, type Job } from "@/lib/onboarding/jobs";
+import { getJob, jobPayload } from "@/lib/onboarding/jobs";
 
 export const runtime = "nodejs";
-
-function payload(job: Job) {
-  const { userId: _userId, ...rest } = job;
-  return rest;
-}
 
 async function respond(jobId: string | null) {
   const user = await currentUser();
   if (!user) return new Response("Unauthorized", { status: 401 });
   const job = jobId ? getJob(jobId, user.id) : null;
   if (!job) return new Response("Unknown job", { status: 404 });
-  return Response.json(payload(job));
+  // jobPayload strips the internal crawl state (live browser, cheerio pages)
+  // — serializing those sent megabytes of HTML on every poll and could throw.
+  return Response.json(jobPayload(job));
 }
 
 export async function GET(req: Request) {

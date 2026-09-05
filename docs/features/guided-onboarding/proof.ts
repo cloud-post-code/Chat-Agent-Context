@@ -165,8 +165,10 @@ async function main() {
     check("company name", s1.company_name === "Acme Rivet Co.", s1.company_name);
     check("phone", /218.*555.*0147/.test(s1.company_phone_number || ""), s1.company_phone_number);
     check("email", s1.company_email === "hello@acmerivet.example", s1.company_email);
-    check("owner name empty — site never states one (anti-fabrication)",
-      !s1.owner_name, s1.owner_name);
+    // The About bios state "Priya founded Acme Rivet Co." — the stated
+    // founder is the owner; anyone else would be fabrication.
+    check("owner is the stated founder only (anti-fabrication)",
+      s1.owner_name === "Priya Raman", s1.owner_name);
 
     console.log("== contact review saves first, edited value wins");
     const edited = { ...s1, owner_name: "Priya Raman (edited in review)" };
