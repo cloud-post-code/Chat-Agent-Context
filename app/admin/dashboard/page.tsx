@@ -30,6 +30,10 @@ import {
   updateAccountAction,
   setAccountDisabledAction,
   issuePasswordAction,
+  createAccountAction,
+  deleteAccountAction,
+  listUserChatsAction,
+  impersonateAction,
 } from "../actions";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "../UsersPanel";
@@ -802,6 +806,10 @@ export default async function Dashboard({
                       updateAction={updateAccountAction}
                       disableAction={setAccountDisabledAction}
                       passwordAction={issuePasswordAction}
+                      createAction={createAccountAction}
+                      deleteAction={deleteAccountAction}
+                      chatsAction={listUserChatsAction}
+                      impersonateAction={impersonateAction}
                     />
                   ),
                 },

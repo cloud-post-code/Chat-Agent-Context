@@ -25,21 +25,35 @@ export type UserAccount = {
   disabledAt: Date | null;
 };
 
+export type ChatHistorySession = {
+  id: string;
+  firstQuery: string;
+  updatedAt: Date;
+  messages: { id: string; role: string; content: string; createdAt: Date }[];
+};
+
 type ActionResult = { ok: true } | { error: string };
+type PasswordResult = { password: string } | { error: string };
+
+type RowActions = {
+  updateAction: (formData: FormData) => Promise<ActionResult>;
+  disableAction: (formData: FormData) => Promise<ActionResult>;
+  deleteAction: (formData: FormData) => Promise<ActionResult>;
+  passwordAction: (id: string) => Promise<PasswordResult>;
+  chatsAction: (id: string) => Promise<ChatHistorySession[]>;
+  impersonateAction: (formData: FormData) => Promise<void>;
+};
 
 export function UsersPanel({
   rows,
   selfId,
-  updateAction,
-  disableAction,
-  passwordAction,
+  createAction,
+  ...actions
 }: {
   rows: UserAccount[];
   selfId: string;
-  updateAction: (formData: FormData) => Promise<ActionResult>;
-  disableAction: (formData: FormData) => Promise<ActionResult>;
-  passwordAction: (id: string) => Promise<{ password: string } | { error: string }>;
-}) {
+  createAction: (formData: FormData) => Promise<PasswordResult>;
+} & RowActions) {
   const [q, setQ] = useState("");
   const filtered = useMemo(() => {
     const terms = q.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -53,6 +67,7 @@ export function UsersPanel({
   return (
     <section data-fill="surface" style={panel}>
       <SectionTitle>Users</SectionTitle>
+      <CreateUser createAction={createAction} />
       <input
         type="search"
         placeholder="Search name, email, or slug…"
@@ -68,18 +83,67 @@ export function UsersPanel({
       ) : (
         <Paginated pageSize={10}>
           {filtered.map((r) => (
-            <UserRow
-              key={r.id}
-              row={r}
-              isSelf={r.id === selfId}
-              updateAction={updateAction}
-              disableAction={disableAction}
-              passwordAction={passwordAction}
-            />
+            <UserRow key={r.id} row={r} isSelf={r.id === selfId} {...actions} />
           ))}
         </Paginated>
       )}
     </section>
+  );
+}
+
+/** New-account form: name + email in, shown-once generated password out. */
+function CreateUser({
+  createAction,
+}: {
+  createAction: (formData: FormData) => Promise<PasswordResult>;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+  const [created, setCreated] = useState<{ email: string; password: string } | null>(null);
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        const form = e.currentTarget;
+        const data = new FormData(form);
+        startTransition(async () => {
+          const result = await createAction(data);
+          if ("error" in result) {
+            setError(result.error);
+            setCreated(null);
+          } else {
+            setError(null);
+            setCreated({ email: String(data.get("email") ?? ""), password: result.password });
+            form.reset();
+          }
+        });
+      }}
+      style={{ marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid var(--border)" }}
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr auto", gap: 10, alignItems: "end" }}>
+        <div>
+          <Label>New account name</Label>
+          <input name="name" required style={{ ...field, marginBottom: 0 }} />
+        </div>
+        <div>
+          <Label>Email</Label>
+          <input name="email" type="email" required style={{ ...field, marginBottom: 0 }} />
+        </div>
+        <button type="submit" disabled={pending} style={btn}>
+          {pending ? "Creating…" : "Create user"}
+        </button>
+      </div>
+      {error && (
+        <p style={{ fontSize: 13, marginTop: 8, color: "var(--danger-on-surface)" }}>{error}</p>
+      )}
+      {created && (
+        <p style={{ fontSize: 13, marginTop: 8 }}>
+          Created {created.email}. Password (shown once — hand it over now):{" "}
+          <code style={{ userSelect: "all" }}>{created.password}</code>
+        </p>
+      )}
+    </form>
   );
 }
 
@@ -88,17 +152,16 @@ function UserRow({
   isSelf,
   updateAction,
   disableAction,
+  deleteAction,
   passwordAction,
-}: {
-  row: UserAccount;
-  isSelf: boolean;
-  updateAction: (formData: FormData) => Promise<ActionResult>;
-  disableAction: (formData: FormData) => Promise<ActionResult>;
-  passwordAction: (id: string) => Promise<{ password: string } | { error: string }>;
-}) {
+  chatsAction,
+  impersonateAction,
+}: { row: UserAccount; isSelf: boolean } & RowActions) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [issued, setIssued] = useState<string | null>(null);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [chats, setChats] = useState<ChatHistorySession[] | null>(null);
   const [pending, startTransition] = useTransition();
 
   const report = (result: ActionResult, okText: string) =>
@@ -125,6 +188,29 @@ function UserRow({
         setIssued(result.password);
         setMessage(null);
       }
+    });
+
+  const destroy = () =>
+    startTransition(async () => {
+      const data = new FormData();
+      data.set("id", row.id);
+      report(await deleteAction(data), "Account deleted.");
+      setConfirmingDelete(false);
+    });
+
+  const toggleChats = () => {
+    if (chats) return setChats(null);
+    startTransition(async () => {
+      setChats(await chatsAction(row.id));
+    });
+  };
+
+  const enter = () =>
+    startTransition(async () => {
+      const data = new FormData();
+      data.set("id", row.id);
+      // Redirects into the target account's dashboard on success.
+      await impersonateAction(data);
     });
 
   const disabled = row.disabledAt !== null;
@@ -193,6 +279,29 @@ function UserRow({
               <button type="button" disabled={pending} onClick={issue} style={btnGhost}>
                 Issue new password
               </button>
+              <button type="button" disabled={pending} onClick={toggleChats} style={btnGhost}>
+                {chats ? "Hide chats" : "View chats"}
+              </button>
+              {!isSelf && !disabled && (
+                <button type="button" disabled={pending} onClick={enter} style={btnGhost} title="Switch your session to this account">
+                  Log in as
+                </button>
+              )}
+              {!isSelf &&
+                (confirmingDelete ? (
+                  <>
+                    <button type="button" disabled={pending} onClick={destroy} style={btnDanger}>
+                      Really delete — everything goes
+                    </button>
+                    <button type="button" onClick={() => setConfirmingDelete(false)} style={btnGhost}>
+                      Cancel
+                    </button>
+                  </>
+                ) : (
+                  <button type="button" disabled={pending} onClick={() => setConfirmingDelete(true)} style={btnDanger}>
+                    Delete account
+                  </button>
+                ))}
             </div>
           </form>
           {message && (
@@ -205,6 +314,29 @@ function UserRow({
               New password (shown once — hand it over now):{" "}
               <code style={{ userSelect: "all" }}>{issued}</code>
             </p>
+          )}
+          {chats && (
+            <div style={{ marginTop: 10 }}>
+              {chats.length === 0 ? (
+                <p style={{ fontSize: 13, fontStyle: "italic" }}>No visitor conversations yet.</p>
+              ) : (
+                chats.map((s) => (
+                  <details key={s.id} style={{ marginBottom: 8, fontSize: 13 }}>
+                    <summary style={{ cursor: "pointer" }}>
+                      {s.firstQuery || "(no first question)"} · {s.messages.length} messages ·{" "}
+                      {stamp(s.updatedAt)}
+                    </summary>
+                    <div style={{ display: "grid", gap: 6, padding: "8px 0 4px 14px" }}>
+                      {s.messages.map((m) => (
+                        <div key={m.id} style={{ whiteSpace: "pre-wrap" }}>
+                          <em>{m.role === "user" ? "visitor" : "bot"}:</em> {m.content}
+                        </div>
+                      ))}
+                    </div>
+                  </details>
+                ))
+              )}
+            </div>
           )}
         </div>
       )}
