@@ -179,22 +179,50 @@ export async function saveProfile(formData: FormData) {
 }
 
 /**
- * Wipe the profile and send the user back through guided onboarding. The
- * button lives at the bottom of the Profile tab; clearing onboardedAt is what
- * routes the next admin visit into the flow again.
+ * Wipe the account's data and send the user back through guided onboarding.
+ * The button lives at the bottom of the Profile tab; clearing onboardedAt is
+ * what routes the next admin visit into the flow again.
+ *
+ * "Wipe" is a full content reset, not just the profile: everything onboarding
+ * or the dashboard populated — knowledge (sources/chunks and the entity graph
+ * hanging off them), photos, projects, chat history, canned answers,
+ * directives, UI cards, ingestion sources and their item classifications,
+ * address book, contacts, A2A tasks, persona, and theme — so a re-run starts
+ * from a genuinely empty account instead of stacking on stale data. The login
+ * itself and the Gmail connection (GmailAuth) are kept.
  */
 export async function restartOnboarding() {
   const user = await requireUser();
-  await prisma.profile.upsert({
-    where: { userId: user.id },
-    update: {
-      company_name: "", owner_name: "", company_address: "",
-      company_phone_number: "", company_email: "", company_hours: "",
-    },
-    create: { userId: user.id },
-  });
-  await reindex("profile", () => indexProfile(user.id));
-  await prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } });
+  const where = { where: { userId: user.id } };
+  await prisma.$transaction([
+    // Chunks first, then entities — mentions/edges/edge-origins cascade.
+    prisma.chunk.deleteMany(where),
+    prisma.source.deleteMany(where),
+    prisma.entity.deleteMany(where),
+    prisma.mergeDismissal.deleteMany(where),
+    prisma.photo.deleteMany(where),
+    prisma.project.deleteMany(where),
+    prisma.chatSession.deleteMany(where), // messages cascade
+    prisma.cannedAnswer.deleteMany(where),
+    prisma.agentDirective.deleteMany(where),
+    prisma.uiCard.deleteMany(where),
+    prisma.itemClassification.deleteMany(where),
+    prisma.ingestionSource.deleteMany(where),
+    prisma.addressBookEntry.deleteMany(where),
+    prisma.contact.deleteMany(where),
+    prisma.a2ATask.deleteMany(where),
+    prisma.personaConfig.deleteMany(where),
+    prisma.themeConfig.deleteMany(where),
+    prisma.profile.upsert({
+      where: { userId: user.id },
+      update: {
+        company_name: "", owner_name: "", company_address: "",
+        company_phone_number: "", company_email: "", company_hours: "",
+      },
+      create: { userId: user.id },
+    }),
+    prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } }),
+  ]);
   revalidateAll();
   redirect("/admin/onboarding");
 }

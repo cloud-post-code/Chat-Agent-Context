@@ -188,10 +188,10 @@ export default async function Dashboard({
 
       <form action={restartOnboarding} style={{ marginTop: 26, paddingTop: 16, borderTop: "1px solid var(--border)" }}>
         <PendingButton pendingLabel="Clearing…" style={btnDanger}>
-          Restart onboarding — clears this profile
+          Restart onboarding — clears all account data
         </PendingButton>
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 12, marginTop: 6 }}>
-          Empties every field above and walks you through setup again.
+          Deletes everything on this account — profile, knowledge, photos, chats, persona, and theme — and walks you through setup again.
         </p>
       </form>
     </section>
