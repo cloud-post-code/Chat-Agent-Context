@@ -75,8 +75,11 @@ export function Stamp({ date, prefix }: { date: Date; prefix?: string }) {
 }
 
 export function Label({ children }: { children: React.ReactNode }) {
+  // Labels appear on surface panels AND on bg-soft cards (onboarding review
+  // forms), so like btnGhost they inherit the container's foreground instead
+  // of pinning one fill's text color on every fill.
   return (
-    <label style={{ display: "block", fontSize: 12, color: "var(--on-surface)", fontStyle: "italic", marginBottom: 4 }}>
+    <label style={{ display: "block", fontSize: 12, color: "inherit", fontStyle: "italic", marginBottom: 4 }}>
       {children}
     </label>
   );

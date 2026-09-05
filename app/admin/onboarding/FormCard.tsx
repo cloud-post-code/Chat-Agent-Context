@@ -1,6 +1,7 @@
 "use client";
 
-import { field, btn, Label } from "../ui";
+import { btn, Label } from "../ui";
+import { cf as field } from "@/app/cards/Cards";
 
 /**
  * The one editable review card the onboarding chat uses for every stage —
