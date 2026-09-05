@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
-import { starterQuestions } from "@/lib/theme";
+import { starterChipsFor } from "@/lib/starterQuestions";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
 import Chat from "@/app/Chat";
 
@@ -34,10 +34,11 @@ export default async function AgentPage({ params }: Params) {
   const user = await prisma.user.findUnique({ where: { slug } });
   if (!user) notFound();
 
-  const [profile, persona, theme] = await Promise.all([
+  const [profile, persona, theme, starters] = await Promise.all([
     getProfile(user.id),
     getPersonaConfig(user.id),
     getThemeConfig(user.id).catch(() => null),
+    starterChipsFor(user.id),
   ]);
 
   return (
@@ -47,7 +48,7 @@ export default async function AgentPage({ params }: Params) {
         name={profile.company_name || profile.owner_name || user.name}
         tagline={persona.tagline}
         logo={persona.company_logo}
-        starters={starterQuestions}
+        starters={starters}
         slug={user.slug}
       />
     </>

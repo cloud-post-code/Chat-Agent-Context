@@ -1,5 +1,6 @@
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 
 export const runtime = "nodejs";
 
@@ -25,5 +26,12 @@ export async function POST(req: Request) {
     where: { id: user.id },
     data: { onboardedAt: new Date() },
   });
+
+  // Rewrite the generic seeded starter questions into business-specific ones,
+  // now that the profile/goals/knowledge exist to generate from. Bounded and
+  // best-effort inside: a failure or timeout leaves the generic seeds and
+  // never blocks completion.
+  await personalizeStarterQuestions(user.id);
+
   return Response.json({ ok: true, mode });
 }

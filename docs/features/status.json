@@ -405,6 +405,14 @@
       "priority": 17,
       "status": "passing",
       "notes": "Operator-gated Users tab: list/search, edit identity, disable/enable, replacement password."
+    },
+    {
+      "id": "personalized-starter-questions",
+      "title": "LLM-generated, business-specific starter questions at onboarding completion",
+      "feature_dir": "docs/features/personalized-starter-questions",
+      "proof": "docs/features/personalized-starter-questions/PROOF.md",
+      "status": "passing",
+      "notes": "LLM rewrites the generic seeded starter questions into business-specific ones when onboarding completes (lib/starterQuestions.ts, wired into /api/admin/onboarding/complete); public chips read the tenant's preset rows via starterChipsFor with hardcoded fallback (app/a/[slug]/page.tsx). Guarded: only untouched seeds are replaced, all-or-nothing, bounded by STARTER_QUESTIONS_DEADLINE_MS. Proof green 2026-09-05; gate PASS; evaluator PASS."
     }
   ]
 }
