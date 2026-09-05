@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/db";
+import { themeVarLines, type ThemeColors } from "@/lib/theme";
+import { headingFamily, bodyFamily } from "@/lib/fonts";
+import { safeJson } from "@/lib/util";
 
 /**
  * The public directory: every agent page on this deployment, with a name and
@@ -17,6 +20,15 @@ export default async function DirectoryPage() {
       name: true,
       profile: { select: { company_name: true, owner_name: true } },
       personaConfig: { select: { tagline: true, company_logo: true, brandValues: true } },
+      themeConfig: {
+        select: {
+          themeFont: true,
+          themeBodyFont: true,
+          themeColors: true,
+          themeRadius: true,
+          themeHeadingWeight: true,
+        },
+      },
     },
   });
 
@@ -37,8 +49,27 @@ export default async function DirectoryPage() {
       tagline: u.personaConfig?.tagline?.trim() || "",
       logo: u.personaConfig?.company_logo || null,
       values,
+      theme: u.themeConfig,
     };
   });
+
+  // Each card wears its company's own theme: the same CSS variables that skin
+  // the tenant's agent page, scoped to the card via its data attribute. Cards
+  // without a ThemeConfig keep the Main Street brand defaults.
+  const cardThemeCss = agents
+    .filter((a) => a.theme)
+    .map((a) => {
+      const t = a.theme!;
+      const vars = themeVarLines({
+        headingFamily: headingFamily(t.themeFont ?? "space-grotesk"),
+        bodyFamily: bodyFamily(t.themeBodyFont ?? "inter"),
+        radius: t.themeRadius ?? "rounded",
+        headingWeight: t.themeHeadingWeight ?? "",
+        colors: safeJson<ThemeColors>(t.themeColors ?? "{}", {}),
+      });
+      return `[data-agent-card=${JSON.stringify(a.slug)}]{${vars}}`;
+    })
+    .join("\n");
 
   return (
     <main style={s.page}>
@@ -69,8 +100,15 @@ export default async function DirectoryPage() {
           </p>
         ) : (
           <div style={s.grid}>
+            {cardThemeCss && <style dangerouslySetInnerHTML={{ __html: cardThemeCss }} />}
             {agents.map((a) => (
-              <Link key={a.slug} href={`/a/${a.slug}`} style={s.card} data-fill="surface">
+              <Link
+                key={a.slug}
+                href={`/a/${a.slug}`}
+                style={s.card}
+                data-fill="surface"
+                data-agent-card={a.slug}
+              >
                 {a.logo ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={a.logo} alt="" style={s.cardImage} />
@@ -148,6 +186,7 @@ const s: Record<string, React.CSSProperties> = {
     overflow: "hidden",
     textDecoration: "none",
     color: "var(--on-surface)",
+    fontFamily: "var(--font-body), sans-serif",
   },
   cardImage: {
     width: "100%",
@@ -159,14 +198,21 @@ const s: Record<string, React.CSSProperties> = {
   cardImageFallback: {
     width: "100%",
     aspectRatio: "16 / 9",
-    background: "var(--primary)",
-    color: "var(--on-primary)",
+    background: "var(--surface)",
+    color: "var(--on-surface)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
     fontFamily: "var(--font-heading), serif",
     fontWeight: 700,
     fontSize: 44,
+    borderBottom: "1px solid var(--border)",
+  },
+  cardName: {
+    fontWeight: "var(--heading-weight, 600)" as React.CSSProperties["fontWeight"],
+    fontSize: 16,
+    lineHeight: 1.3,
+    fontFamily: "var(--font-heading), serif",
   },
   cardBody: {
     display: "flex",
@@ -176,16 +222,18 @@ const s: Record<string, React.CSSProperties> = {
     minWidth: 0,
     flexGrow: 1,
   },
-  cardName: { fontWeight: 600, fontSize: 16, lineHeight: 1.3 },
   cardTagline: { fontSize: 13.5, opacity: 0.75, lineHeight: 1.4 },
   cardTags: { display: "flex", flexWrap: "wrap", gap: 6, marginTop: 2 },
+  // Outlined in the card's own text color, so chips stay readable on any
+  // tenant surface (a solid chip fill can pair badly with partial themes).
   cardTag: {
     fontSize: 11.5,
     lineHeight: 1,
     padding: "5px 9px",
-    borderRadius: 999,
-    background: "var(--bg-soft)",
-    color: "var(--on-bg-soft)",
+    borderRadius: "var(--radius-pill)",
+    border: "1px solid",
+    color: "inherit",
+    opacity: 0.85,
     whiteSpace: "nowrap",
   },
   cardPath: {
