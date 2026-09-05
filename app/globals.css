@@ -1,46 +1,46 @@
 :root {
-  /* ── Brand tokens (mirror lib/theme.ts) ── */
-  --bg: #0b1020;
-  --bg-soft: #12182e;
-  --surface: #1a2140;
-  --border: #2a335c;
+  /* ── Brand tokens (mirror lib/theme.ts) — Main Street ── */
+  --bg: #f7f7f5;
+  --bg-soft: #f1e9d8;
+  --surface: #015237;
+  --border: #ddd5c2;
 
-  --text: #e8ecff;
+  --text: #0f1805;
 
-  --primary: #7c5cff;
-  --accent: #ffb84d;
+  --primary: #015237;
+  --accent: #be6e46;
 
-  --success: #4ade80;
-  --danger: #ff6b6b;
+  --success: #1e7a44;
+  --danger: #b3261e;
 
   /* ── Contrast pairs ── the readable foreground for content sitting ON each
      fill. Recomputed from the admin palette in lib/theme.ts, so anything
      inside a primary button / accent chip / card stays legible. Never use a
      foreground from one fill's group on top of another fill. */
-  --on-primary: #ffffff;
-  --on-accent: #10131c;
-  --on-surface: #e8ecff;
-  --on-bg-soft: #e8ecff;
+  --on-primary: #f1e9d8;
+  --on-accent: #0f1805;
+  --on-surface: #f1e9d8;
+  --on-bg-soft: #0f1805;
 
   /* The accent hue as *text*, one copy per fill it can land on — each already
      nudged to clear 4.5:1 there. Links, tags, and highlighted words use these
      instead of --accent, which is a fill and can vanish on another fill. */
-  --accent-on-bg: #ffb84d;
-  --accent-on-bg-soft: #ffb84d;
-  --accent-on-surface: #ffb84d;
+  --accent-on-bg: #9c4f2b;
+  --accent-on-bg-soft: #94491f;
+  --accent-on-surface: #e8b491;
 
   /* Same treatment for the semantic hues — a fixed red or green will collide
      with some fill the admin picks, so each fill gets a readable copy. */
-  --danger-on-bg: #ff6b6b;
-  --danger-on-bg-soft: #ff6b6b;
-  --danger-on-surface: #ff6b6b;
-  --success-on-bg: #4ade80;
-  --success-on-bg-soft: #4ade80;
-  --success-on-surface: #4ade80;
+  --danger-on-bg: #b3261e;
+  --danger-on-bg-soft: #a82115;
+  --danger-on-surface: #ffb4a8;
+  --success-on-bg: #1e7a44;
+  --success-on-bg-soft: #176b3a;
+  --success-on-surface: #8fd8a8;
 
-  --radius-sm: 8px;
-  --radius-md: 14px;
-  --radius-lg: 22px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
   --radius-pill: 999px;
 
   /* Typography scale (admin-controllable). */
@@ -78,7 +78,7 @@ h3,
 .font-heading {
   font-family: var(--font-heading), system-ui, sans-serif;
   font-weight: var(--heading-weight);
-  letter-spacing: -0.02em;
+  letter-spacing: 0;
 }
 
 code,

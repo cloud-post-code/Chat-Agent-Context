@@ -34,10 +34,14 @@ export default async function DirectoryPage() {
     <main style={s.page}>
       <div style={s.wrap}>
         <header style={s.header}>
+          <div style={s.sign} data-fill="surface">
+            MAIN STREET
+          </div>
           <h1 style={s.h1}>Agent directory</h1>
           <p style={s.lede}>
-            Every agent page on this site. Each one chats from its owner&apos;s own
-            knowledge, in its owner&apos;s own voice.
+            The joy of Main Street, delivered to your door. Every agent page on
+            this site chats from its owner&apos;s own knowledge, in its
+            owner&apos;s own voice.
           </p>
           <nav style={s.nav}>
             <Link href="/signup" style={s.cta}>
@@ -81,6 +85,21 @@ const s: Record<string, React.CSSProperties> = {
   page: { minHeight: "100dvh", background: "var(--bg)", padding: "48px 20px" },
   wrap: { maxWidth: 720, margin: "0 auto", display: "flex", flexDirection: "column", gap: 28 },
   header: { display: "flex", flexDirection: "column", gap: 10 },
+  // The street-sign wordmark: green plate, thin inner keyline, spaced serif caps.
+  sign: {
+    alignSelf: "flex-start",
+    background: "var(--primary)",
+    color: "var(--on-primary)",
+    fontFamily: "var(--font-heading), serif",
+    fontWeight: 700,
+    fontSize: 20,
+    letterSpacing: "0.22em",
+    padding: "12px 26px 12px calc(26px + 0.22em)",
+    border: "5px solid var(--primary)",
+    borderRadius: "var(--radius-md)",
+    boxShadow: "inset 0 0 0 1.5px var(--on-primary)",
+    marginBottom: 6,
+  },
   h1: { fontSize: 36, lineHeight: 1.15, margin: 0 },
   lede: { fontSize: 16, lineHeight: 1.6, color: "var(--text)", opacity: 0.8, margin: 0 },
   nav: { display: "flex", gap: 18, alignItems: "center", marginTop: 6 },

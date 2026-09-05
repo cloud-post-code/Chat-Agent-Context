@@ -1,47 +1,48 @@
 /**
- * ── BLAKE BRAND · single source of truth ──────────────────────────────
+ * ── MAIN STREET BRAND · single source of truth ────────────────────────
  *
- * Vibe: "Curious builder." Technical but warm, playful but not gimmicky.
- * A terminal that went to art school. Confident, a little retro-future.
+ * Vibe: the joy of Main Street, delivered to your door. Classic street-sign
+ * green on warm paper, serif type, hometown-storefront charm.
  *
  * Change the values here and the whole site re-skins. These are emitted as
  * CSS custom properties in app/globals.css / the <html> style, so both React
  * components and raw CSS read from the same tokens.
  *
- * To rebrand from your real LinkedIn later: swap the colors + fonts below,
- * update the persona seed in prisma seed / admin, done.
+ * Note: tenant surfaces (/a/[slug] and the admin dashboard) inject their own
+ * ThemeConfig overrides on top of these defaults, so this brand is what every
+ * shared/default surface (directory, signup, login, onboarding) wears.
  */
 
 export const brand = {
-  name: "Blake",
-  tagline: "Curious builder. I make things and talk about them.",
+  name: "Main Street",
+  tagline: "The joy of Main Street, delivered to your door.",
 
   // ── Color ──
   color: {
-    // Deep ink navy base — the "night terminal" background.
-    bg: "#0B1020",
-    bgSoft: "#12182E",
-    surface: "#1A2140",
-    border: "#2A335C",
+    // Warm paper ground with a cream soft tone.
+    bg: "#F7F7F5",
+    bgSoft: "#F1E9D8",
+    surface: "#015237",
+    border: "#DDD5C2",
 
-    text: "#E8ECFF",
+    text: "#0F1805",
 
-    // Electric "signal violet" — primary accent / brand.
-    primary: "#7C5CFF",
-    primarySoft: "#A48BFF",
+    // Street-sign green — primary brand fill (cards & buttons).
+    primary: "#015237",
+    primarySoft: "#7A9E7E",
 
-    // Warm amber — the spark / highlight / call-to-action glow.
-    accent: "#FFB84D",
+    // Terracotta brick — the hometown accent.
+    accent: "#BE6E46",
 
     // Semantic
-    success: "#4ADE80",
-    danger: "#FF6B6B",
+    success: "#1E7A44",
+    danger: "#B3261E",
   },
 
   // ── Type ── (both open-source, commercial-safe, loaded via next/font)
   font: {
-    heading: "var(--font-heading)", // Space Grotesk
-    body: "var(--font-body)",       // Inter
+    heading: "var(--font-heading)", // Playfair Display
+    body: "var(--font-body)",       // Lora
     mono: "var(--font-mono)",       // system mono for code / terminal bits
   },
 
