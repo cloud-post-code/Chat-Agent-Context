@@ -28,7 +28,19 @@ existing deployments get the feature without new configuration.
 - An operator can **set a replacement password** for an account: a generated
   password is shown once to the operator; the stored hash uses the existing
   scrypt format from `lib/auth.ts`.
-- No account is ever hard-deleted from this tab.
+- An operator can **create an account** (name + email): the account gets the
+  same starter provisioning as signup and a generated password shown once.
+  Duplicate emails are a readable error.
+- An operator can **delete an account** after an explicit confirmation step.
+  The delete is hard: every row the account owns goes with it (the schema
+  cascades), other accounts are untouched, and operators cannot delete
+  themselves.
+- An operator can **view an account's chat history**: the visitor
+  conversations (sessions and their messages) that account's agent page has
+  had, read-only.
+- An operator can **enter an account** ("log in as"): one click switches the
+  operator's session to that account, landing on its control room. Logging
+  out returns to the login page.
 
 ## Scope
 - New `disabledAt DateTime?` column on `User` via a Prisma migration.
@@ -42,9 +54,10 @@ existing deployments get the feature without new configuration.
 - No role/permission system beyond the operator gate above.
 - No changes to signup, guided onboarding, or the public `/a/<slug>` pages
   (a disabled account's public page is untouched).
-- No email delivery for password resets; the operator hands the generated
-  password to the user out of band.
-- No hard delete, no impersonation, no audit log.
+- No email delivery for password resets or new accounts; the operator hands
+  the generated password over out of band.
+- No audit log, no soft-delete/undo, no "return to operator" shortcut after
+  entering an account (log out and back in).
 
 ## Scenarios
 - Operator searches "blake", opens the account, fixes a typo in the slug, and
@@ -57,6 +70,12 @@ existing deployments get the feature without new configuration.
   validation error, not a 500.
 - A non-operator user's dashboard shows no Users tab, and calling the account
   actions directly returns an authorization error.
+- Operator creates an account for a client, hands over the shown-once
+  password, and the client logs in straight to onboarding.
+- Operator deletes a spam account; its data is gone but every other account's
+  rows are exactly as before. Trying to delete their own account is refused.
+- Operator opens a user's chat history and reads what visitors asked; opens
+  "log in as" to see that user's control room exactly as the user does.
 
 ## Constraints
 - Disabling must not delete or alter any of the user's owned rows.

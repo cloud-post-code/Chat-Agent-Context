@@ -19,8 +19,11 @@ import {
   verifyPassword,
 } from "@/lib/auth";
 import {
+  createAccount,
+  deleteAccount,
   isOperator,
   issuePassword,
+  listChatSessions,
   setAccountDisabled,
   updateAccount,
 } from "@/lib/accountAdmin";
@@ -202,6 +205,43 @@ export async function setAccountDisabledAction(formData: FormData) {
 export async function issuePasswordAction(id: string) {
   await requireOperator();
   return issuePassword(id);
+}
+
+/** Returns the new account's generated password once. */
+export async function createAccountAction(formData: FormData) {
+  await requireOperator();
+  const result = await createAccount({
+    name: String(formData.get("name") ?? ""),
+    email: String(formData.get("email") ?? ""),
+  });
+  revalidatePath("/admin/dashboard");
+  return result;
+}
+
+export async function deleteAccountAction(formData: FormData) {
+  const operator = await requireOperator();
+  const result = await deleteAccount(String(formData.get("id") ?? ""), operator.id);
+  revalidatePath("/admin/dashboard");
+  return result;
+}
+
+/** Read-only: one account's visitor conversations for the Users tab. */
+export async function listUserChatsAction(id: string) {
+  await requireOperator();
+  return listChatSessions(id);
+}
+
+/**
+ * "Log in as": swap the operator's session for the target account's and land
+ * on its control room. One-way by design — log out to leave.
+ */
+export async function impersonateAction(formData: FormData) {
+  await requireOperator();
+  const id = String(formData.get("id") ?? "");
+  const target = await prisma.user.findUnique({ where: { id } });
+  if (!target || !accountActive(target)) throw new Error("No such active account.");
+  await createSession(target.id);
+  redirect("/admin/dashboard");
 }
 
 // ── Profile (business identity) ──

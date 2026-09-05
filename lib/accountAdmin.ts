@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { prisma } from "@/lib/db";
 import { accountActive, hashPassword } from "@/lib/auth";
-import { foundingUser, slugify, uniqueSlug } from "@/lib/users";
+import { createUser, foundingUser, slugify, uniqueSlug } from "@/lib/users";
 
 export { accountActive };
 
@@ -155,4 +155,57 @@ export async function issuePassword(id: string): Promise<{ password: string } | 
   const password = randomBytes(12).toString("base64url");
   await prisma.user.update({ where: { id }, data: { passwordHash: hashPassword(password) } });
   return { password };
+}
+
+/**
+ * Create an account on a user's behalf: the same signup path (validation,
+ * slug, starter provisioning), with a generated password returned exactly
+ * once for the operator to hand over.
+ */
+export async function createAccount(input: {
+  name: string;
+  email: string;
+}): Promise<{ password: string } | Err> {
+  const password = randomBytes(12).toString("base64url");
+  const result = await createUser({ name: input.name, email: input.email, password });
+  return "error" in result ? result : { password };
+}
+
+/**
+ * Hard-delete an account. Every owned row goes with it — the schema cascades
+ * all user-owned tables — and nothing else is touched. Never self.
+ */
+export async function deleteAccount(id: string, actorId: string): Promise<Ok | Err> {
+  if (id === actorId) return { error: "You can't delete your own account." };
+  try {
+    await prisma.user.delete({ where: { id } });
+  } catch {
+    return { error: "No such account." };
+  }
+  return { ok: true };
+}
+
+export type ChatHistorySession = {
+  id: string;
+  firstQuery: string;
+  updatedAt: Date;
+  messages: { id: string; role: string; content: string; createdAt: Date }[];
+};
+
+/** A user's visitor conversations, newest first, messages in order. */
+export async function listChatSessions(userId: string): Promise<ChatHistorySession[]> {
+  return prisma.chatSession.findMany({
+    where: { userId },
+    orderBy: { updatedAt: "desc" },
+    take: 50,
+    select: {
+      id: true,
+      firstQuery: true,
+      updatedAt: true,
+      messages: {
+        orderBy: { createdAt: "asc" },
+        select: { id: true, role: true, content: true, createdAt: true },
+      },
+    },
+  });
 }

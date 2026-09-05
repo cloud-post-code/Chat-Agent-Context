@@ -43,8 +43,17 @@ Expected evidence — all assertions PASS:
    passes.
 7. **Disable is non-destructive** — a disabled user's owned rows (sources)
    are byte-count identical before and after disable/enable.
-8. **Cleanup** — seeded users and their rows are removed; table counts return
-   to the pre-run baseline.
+8. **Create account** — `createAccount` provisions a user with the signup
+   starter rows (profile/persona/theme singletons exist), returns a generated
+   password that verifies against the stored hash, and refuses a duplicate
+   email with a readable error.
+9. **Delete account** — `deleteAccount` refuses self-delete; deleting another
+   account removes the user row and its owned rows (sources, chat sessions)
+   while other accounts' rows are untouched.
+10. **Chat history** — `listChatSessions` returns a seeded visitor session
+    with its messages in order, scoped to that user only.
+11. **Cleanup** — seeded users and their rows are removed; table counts
+    return to the pre-run baseline.
 
 Secondary guards (not proof):
 - `npx tsc --noEmit` clean.
@@ -78,3 +87,6 @@ Before implementation the script fails at import time:
 - Nav visibility (Users tab hidden from non-operators) and the panel's
   rendered UI are verified manually in the running app; the repo has no
   browser E2E harness yet.
+- "Log in as" (operator session switch) needs a request context for the
+  session cookie, so it is verified manually in the running app; the action
+  is a thin requireOperator + createSession + redirect wrapper.

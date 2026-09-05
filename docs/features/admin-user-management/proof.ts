@@ -35,9 +35,12 @@ async function main() {
   const { hashPassword, verifyPassword } = await import("../../../lib/auth");
   const {
     accountActive,
+    createAccount,
+    deleteAccount,
     isOperator,
     issuePassword,
     listAccounts,
+    listChatSessions,
     setAccountDisabled,
     updateAccount,
   } = await import("../../../lib/accountAdmin");
@@ -184,6 +187,89 @@ async function main() {
     await setAccountDisabled(bob.id, false, alice.id);
     const afterRows = await prisma.source.count({ where: { userId: bob.id } });
     check("disable/enable leaves owned rows intact", beforeRows === 1 && afterRows === 1);
+
+    // ── 8. Create account ──
+    const created = await createAccount({ name: "Proof Dave", email: MAIL("dave") });
+    const dave = await prisma.user.findUnique({ where: { email: MAIL("dave") } });
+    const [daveProfile, davePersona, daveTheme] = dave
+      ? await Promise.all([
+          prisma.profile.findUnique({ where: { userId: dave.id } }),
+          prisma.personaConfig.findUnique({ where: { userId: dave.id } }),
+          prisma.themeConfig.findUnique({ where: { userId: dave.id } }),
+        ])
+      : [null, null, null];
+    check(
+      "createAccount provisions signup starter rows",
+      "password" in created && dave !== null && !!daveProfile && !!davePersona && !!daveTheme,
+    );
+    check(
+      "created account's shown-once password verifies",
+      "password" in created && dave !== null && verifyPassword(created.password, dave.passwordHash),
+    );
+    const dupCreate = await createAccount({ name: "Dupe", email: MAIL("dave") });
+    check("createAccount refuses a duplicate email", "error" in dupCreate);
+
+    // ── 9. Delete account ──
+    const selfDelete = await deleteAccount(alice.id, alice.id);
+    check(
+      "self-delete is refused",
+      "error" in selfDelete &&
+        (await prisma.user.findUnique({ where: { id: alice.id } })) !== null,
+    );
+    // Bob owns a source and a chat session; deleting him must take both and
+    // leave everyone else's rows alone.
+    await prisma.chatSession.create({
+      data: {
+        userId: bob.id,
+        visitorKey: "useradminproof-visitor",
+        firstQuery: "hours?",
+        messages: {
+          create: [
+            { role: "user", content: "What are your hours?" },
+            { role: "assistant", content: "Nine to five." },
+          ],
+        },
+      },
+    });
+    const carolRowsBefore = await prisma.user.count({ where: { id: carol.id } });
+    const deleted = await deleteAccount(bob.id, alice.id);
+    check(
+      "deleteAccount removes the user and its owned rows",
+      "ok" in deleted &&
+        (await prisma.user.findUnique({ where: { id: bob.id } })) === null &&
+        (await prisma.source.count({ where: { userId: bob.id } })) === 0 &&
+        (await prisma.chatSession.count({ where: { userId: bob.id } })) === 0,
+    );
+    check(
+      "other accounts are untouched by delete",
+      (await prisma.user.count({ where: { id: carol.id } })) === carolRowsBefore,
+    );
+
+    // ── 10. Chat history ──
+    await prisma.chatSession.create({
+      data: {
+        userId: carol.id,
+        visitorKey: "useradminproof-visitor2",
+        firstQuery: "do you deliver?",
+        messages: {
+          create: [
+            { role: "user", content: "Do you deliver?" },
+            { role: "assistant", content: "Only on weekdays." },
+          ],
+        },
+      },
+    });
+    const carolChats = await listChatSessions(carol.id);
+    const aliceChats = await listChatSessions(alice.id);
+    check(
+      "listChatSessions returns the user's sessions with ordered messages",
+      carolChats.length === 1 &&
+        carolChats[0].firstQuery === "do you deliver?" &&
+        carolChats[0].messages.length === 2 &&
+        carolChats[0].messages[0].role === "user" &&
+        carolChats[0].messages[1].content === "Only on weekdays.",
+    );
+    check("chat history is scoped to the requested user", aliceChats.length === 0);
   } finally {
     if (savedOperatorEmails === undefined) delete process.env.OPERATOR_EMAILS;
     else process.env.OPERATOR_EMAILS = savedOperatorEmails;
