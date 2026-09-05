@@ -359,10 +359,12 @@
       "notes": "Builder (SourceBuilder chat + manual form) extracted to app/admin/NewSourcePanel.tsx and mounted as the Content strip's last sub-tab (key new-source, deep-linkable via ?tab=new-source). /admin/sources/new redirects there; create-action error redirect follows. Proof green; verified in dev browser."
     },
     {
-      "id": "theme-extraction-normalize",
-      "title": "Normalize extracted onboarding themes (WCAG contrast, neutral bg, derived accent, preset fallback)",
-      "status": "done",
-      "notes": "normalizeExtractedTheme in lib/theme.ts, applied in extractTheme; OnboardingFlow passes the full seven-role palette to ThemePicker. Proof: npx tsx docs/features/theme-extraction-normalize/proof.ts (33 checks). Gate PASS, evaluator PASS."
+      "id": "owner-extraction-llm",
+      "feature_dir": "docs/features/owner-extraction-llm",
+      "proof": "docs/features/owner-extraction-llm/PROOF.md",
+      "priority": 15,
+      "status": "passing",
+      "notes": "Owner-name extraction: lib/onboarding/owners.ts (OWNERS_SYSTEM_PROMPT LLM extraction across discovered About/Team/Our Story/Staff/Contact pages, multi-owner with case-insensitive dedupe, deterministic pattern fallback without a key); runCore sets step1.owner_name to comma-joined distinct names. Proof green (29 assertions), gate PASS, evaluator PASS."
     }
   ]
 }

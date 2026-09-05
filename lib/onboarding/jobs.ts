@@ -4,6 +4,7 @@ import {
   extractCoreInfo, extractTheme, type CoreInfo, type Location, type ThemeExtract,
 } from "./extract";
 import { discoverLocationPages, extractLocations } from "./locations";
+import { discoverOwnerPages, extractOwners, ownersToOwnerName } from "./owners";
 import { extractImages, type GalleryImage } from "./images";
 import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
@@ -174,6 +175,18 @@ async function runCore(job: Job): Promise<void> {
   job.progress = 80;
   job.step1 = await extractCoreInfo(crawler, [home, ...job.extras]);
   const s1 = job.step1;
+
+  // Owner names live in prose on about/team pages, not under labels — the
+  // dedicated module reads more pages and understands bios (lib/onboarding/owners.ts).
+  log(job, "Looking for the owner's name on about and team pages");
+  const ownerPages = await discoverOwnerPages(crawler, home, job.extras);
+  job.progress = 90;
+  const owners = await extractOwners(ownerPages, onEvent);
+  if (owners.length) s1.owner_name = ownersToOwnerName(owners);
+  log(job, s1.owner_name
+    ? `Owner${owners.length > 1 ? "s" : ""}: ${s1.owner_name}`
+    : "No owner name found");
+
   log(job, s1.company_name ? `Company name: ${s1.company_name}` : "No company name found");
   log(job, s1.company_phone_number ? `Phone: ${s1.company_phone_number}` : "No phone number listed");
   log(job, s1.company_email ? `Email: ${s1.company_email}` : "No email address listed");
