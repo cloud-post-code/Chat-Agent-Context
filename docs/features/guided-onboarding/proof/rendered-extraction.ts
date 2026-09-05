@@ -21,6 +21,9 @@ import { collectImageCandidates } from "@/lib/onboarding/images";
 const PORT = Number(process.env.PROOF_FIXTURE_PORT || 4179);
 const ROOT = join(__dirname, "fixtures", "rendered-site");
 const SITE = `http://localhost:${PORT}`;
+const DARK_PORT = Number(process.env.PROOF_DARK_FIXTURE_PORT || 4317);
+const DARK_ROOT = join(__dirname, "fixtures", "dark-site");
+const DARK_SITE = `http://localhost:${DARK_PORT}`;
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -35,13 +38,13 @@ function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures++;
 }
 
-function serve(): Promise<() => void> {
+function serve(root = ROOT, port = PORT): Promise<() => void> {
   const server = createServer(async (req, res) => {
     let path = (req.url || "/").split("?")[0];
     if (path === "/") path = "/index.html";
     try {
-      const file = normalize(join(ROOT, path));
-      if (!file.startsWith(ROOT)) throw new Error("traversal");
+      const file = normalize(join(root, path));
+      if (!file.startsWith(root)) throw new Error("traversal");
       const body = await readFile(file);
       res.writeHead(200, { "content-type": MIME[extname(file)] || "application/octet-stream" });
       res.end(body);
@@ -50,7 +53,7 @@ function serve(): Promise<() => void> {
     }
   });
   return new Promise((resolve) =>
-    server.listen(PORT, () => resolve(() => server.close())),
+    server.listen(port, () => resolve(() => server.close())),
   );
 }
 
@@ -103,6 +106,24 @@ async function main() {
   } finally {
     await crawler.close();
     stop();
+  }
+
+  // Regression: a white <body> whose real ground is painted by dark stacked
+  // sections (the Webflow shape) must measure as the dark ground, not white.
+  console.log("dark-sectioned ground:");
+  const stopDark = await serve(DARK_ROOT, DARK_PORT);
+  const darkCrawler = new Crawler(DARK_SITE);
+  try {
+    const darkHome = await darkCrawler.load(DARK_SITE);
+    check("dark fixture loaded", !!darkHome);
+    check(
+      "sectioned dark ground wins over white body",
+      darkHome?.rendered?.bg === "#1f2724",
+      `got ${darkHome?.rendered?.bg}`,
+    );
+  } finally {
+    await darkCrawler.close();
+    stopDark();
   }
 
   console.log(failures ? `PROOF FAIL (${failures})` : "PROOF PASS");

@@ -113,6 +113,27 @@ function separated(name: string, t: ThemeColors) {
     JSON.stringify(textOnly) === JSON.stringify(fallback), JSON.stringify(textOnly));
 }
 
+// ── Dark-branded site: the ground keeps its hue, the second color lands on accent ──
+{
+  // Title City Barbers shape: dark green page, green brand, gold accents.
+  const t = normalizeExtractedTheme({
+    bg: "#1e2b22", text: "#f5efe2", primary: "#1e2b22", accent: "#c99b45",
+  });
+  contract("dark-brand", t);
+  readable("dark-brand", t);
+  separated("dark-brand", t);
+  check("dark-brand: dark ground kept dark", (() => {
+    const [r, g, b] = rgbOf(t.bg!);
+    return (r + g + b) / 3 < 96;
+  })(), String(t.bg));
+  check("dark-brand: ground keeps a green hue (not grayed)",
+    sat(t.bg!) > 0.15 && hueDist(hue(t.bg!), hue("#1e2b22")) <= 40,
+    `${t.bg} sat=${sat(t.bg!)} hue=${hue(t.bg!)}`);
+  check("dark-brand: extracted second color drives the accent",
+    !!t.accent && hueDist(hue(t.accent), hue("#c99b45")) <= 40,
+    `${t.accent} hue=${t.accent ? hue(t.accent) : "-"}`);
+}
+
 // ── Pass-through: an already-good palette is not mangled ──
 {
   const t = normalizeExtractedTheme({ bg: "#ffffff", text: "#111827", primary: "#0f4c81" });

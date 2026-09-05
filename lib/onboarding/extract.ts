@@ -115,7 +115,8 @@ Rules:
 - Report ONLY what the input states. A value you cannot find stays "".
 - The RENDERED section is measured ground truth; when it and the CSS text disagree, RENDERED wins.
 - "background" and "text_color" are the page body's background and text colors as hex values.
-- "primary" is the site's most prominent saturated brand color as a hex value — not a gray, near-white, or near-black. Prefer the RENDERED fill that reads as the brand (buttons, headers, accents) over incidental colors.
+- "primary" is the site's most prominent saturated brand color as a hex value — not a gray, near-white, or near-black. Prefer the RENDERED fill that reads as the brand (buttons, headers, accents) over incidental colors. When the page background itself IS the brand color (a dark green or navy site), that hue is still the primary.
+- "secondary" is the site's second brand color as a hex value — a genuinely different hue used for accents (gold on a green site, orange on a navy site), not a shade of "primary" and not a gray. "" when the site uses only one brand color.
 - "font_key" is the closest match for the body font family, chosen from exactly this list: FONT_KEYS. The RENDERED body font is what the site actually uses — when it is not on the list, pick the list entry closest in style (a serif site gets a serif key, a geometric sans gets one). "" only when no body font appears anywhere.
 - "radius" is "pill" when controls are rounded into pills (radius ≥ 100px or ≥ half the control height), "rounded" for any smaller nonzero radius, "sharp" when nothing is rounded.
 - "font_size_px" is the body font size in pixels as a bare number string (e.g. "16"), "" when unstated.
@@ -123,7 +124,7 @@ Rules:
 - "logo_url" is the url of the image that is the site's logo, copied exactly from the IMAGES list; "" when none of the listed images is a logo.
 
 Respond with ONLY this JSON, no other text:
-{"background":"","text_color":"","primary":"","font_key":"","radius":"","font_size_px":"","heading_weight":"","logo_url":""}`;
+{"background":"","text_color":"","primary":"","secondary":"","font_key":"","radius":"","font_size_px":"","heading_weight":"","logo_url":""}`;
 
 const HEX_VALUE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/;
 
@@ -146,6 +147,7 @@ export async function extractTheme(
     bg: hexOr(raw.background),
     text: hexOr(raw.text_color),
     primary: hexOr(raw.primary),
+    accent: hexOr(raw.secondary),
   }) } as Record<string, string>;
 
   const fontKey = str(raw.font_key, 60);

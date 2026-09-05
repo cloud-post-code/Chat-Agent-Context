@@ -19,8 +19,9 @@ export const brand = {
 
   // ── Color ──
   color: {
-    // Warm paper ground with a cream soft tone.
-    bg: "#F7F7F5",
+    // Warm paper ground with a cream soft tone — muted, low-glare cream
+    // rather than a bright near-white, so long reads are easy on the eyes.
+    bg: "#F4EFE3",
     bgSoft: "#F1E9D8",
     surface: "#015237",
     border: "#DDD5C2",
@@ -443,18 +444,30 @@ export function normalizeExtractedTheme(raw: {
   bg?: string;
   text?: string;
   primary?: string;
+  accent?: string;
 }): ThemeColors {
   const rawBg = hex(raw.bg);
   const rawText = hex(raw.text);
   const primary = hex(raw.primary);
+  const rawAccent = hex(raw.accent);
 
   // Too few usable colors — a full curated preset beats a partial palette.
   if (!rawBg && !primary) return { ...THEME_PRESETS[0].colors };
 
-  // Neutral foundation: the page background never keeps a loud hue, and is
-  // settled where a readable text color is reachable.
-  const bg = settleFill(desaturate(rawBg ?? "#FFFFFF"));
-  const text = readableOn(rawText ?? contrastOn(bg), bg);
+  // Neutral foundation: a light or mid-tone background never keeps a loud
+  // hue. DARK grounds are the exception — a forest-green or navy page reads
+  // as a ground, not a loud fill, and neutralizing it grays out the whole
+  // identity of a dark-branded site. Either way it is settled where a
+  // readable text color is reachable.
+  const bgBase = rawBg ?? "#FFFFFF";
+  const bg = settleFill(luminance(bgBase) < 0.1 ? bgBase : desaturate(bgBase));
+
+  // A text color deeply unreadable on the ground (black body text on a
+  // dark-sectioned site) was measured off some OTHER surface — discard it
+  // rather than walk it to a muddy midtone.
+  const textBase =
+    rawText && contrastRatio(rawText, bg) >= 2 ? rawText : contrastOn(bg);
+  const text = readableOn(textBase, bg);
 
   // The brand color lands on surface (cards & primary buttons), never the
   // full page; without one the surface stays a derived shade of the bg.
@@ -470,12 +483,13 @@ export function normalizeExtractedTheme(raw: {
     border: derivedSurfaces(bg).border,
   };
 
-  // Restraint: the accent is a shade of the one brand hue, never an unrelated
-  // color, and never doubles as body text.
-  if (primary) {
-    const accent = settleFill(
-      separate(shift(primary, isLight(bg) ? -0.18 : 0.18), [bg, surface]),
-    );
+  // Accent: the site's own second brand color when it has one (gold on
+  // green, orange on navy); otherwise a shade of the one brand hue, never an
+  // unrelated color, and never doubling as body text.
+  if (primary || rawAccent) {
+    const accentBase =
+      rawAccent ?? shift(primary!, isLight(bg) ? -0.18 : 0.18);
+    const accent = settleFill(separate(accentBase, [bg, surface]));
     out.accent = accent;
     out.accentText = readableOn(contrastOn(accent), accent);
   }

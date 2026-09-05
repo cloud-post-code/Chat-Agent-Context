@@ -32,6 +32,38 @@ export type Page = { url: string; html: string; $: cheerio.CheerioAPI; rendered?
 // inject module-scope helpers (esbuild's __name) into compiled functions,
 // which don't exist inside the browser page and throw ReferenceError there.
 
+/**
+ * Runs in the page BEFORE the lazy scroll: measure the page's real ground.
+ * Many sites leave <body> white and paint the real background per-section
+ * (dark sections stacked down the page) or on a full-page wrapper — the
+ * body's computed color is then NOT what a visitor sees. Tally full-width
+ * painted elements by the page height each fill covers; when one fill covers
+ * enough of the page it IS the ground. Evaluates to a hex string or "".
+ * Must run pre-scroll: scroll-triggered animations (Webflow interactions)
+ * transform and collapse sections, wrecking the height tally afterwards.
+ */
+const groundProbe = `(() => {
+  const toHex = (c) => {
+    const m = c.match(/rgba?\\((\\d+),\\s*(\\d+),\\s*(\\d+)(?:,\\s*([\\d.]+))?\\)/);
+    if (!m || (m[4] !== undefined && Number(m[4]) < 0.5)) return "";
+    return "#" + [m[1], m[2], m[3]]
+      .map((v) => Number(v).toString(16).padStart(2, "0")).join("");
+  };
+  const pageH = Math.max(document.body.scrollHeight, window.innerHeight);
+  const tally = new Map();
+  for (const el of [...document.querySelectorAll("*")].slice(0, 2000)) {
+    if (el === document.body || el === document.documentElement) continue;
+    const fill = toHex(getComputedStyle(el).backgroundColor);
+    if (!fill || el.offsetWidth < window.innerWidth * 0.85) continue;
+    // A child repainting its parent's fill covers no new ground.
+    if (el.parentElement &&
+      toHex(getComputedStyle(el.parentElement).backgroundColor) === fill) continue;
+    tally.set(fill, (tally.get(fill) ?? 0) + el.offsetHeight);
+  }
+  const top = [...tally.entries()].sort((a, b) => b[1] - a[1])[0];
+  return top && top[1] >= pageH * 0.4 ? top[0] : "";
+})()`;
+
 /** Runs in the page: walk the document once so lazily-loaded media appears. */
 const lazyScroll = `(async () => {
   const step = Math.max(400, Math.floor(window.innerHeight * 0.8));
@@ -86,7 +118,9 @@ const renderDigest = `(() => {
     const cs = getComputedStyle(el);
     if (el.offsetWidth > 0 && el.offsetHeight > 0) {
       const fill = toHex(cs.backgroundColor);
-      if (fill && satOf(fill) > 0.25 && lumOf(fill) > 0.15 && lumOf(fill) < 0.85) {
+      // Muted and dark brand fills count too (forest green, navy) — only
+      // near-grays, near-black, and near-white are excluded as non-colors.
+      if (fill && satOf(fill) > 0.18 && lumOf(fill) > 0.04 && lumOf(fill) < 0.85) {
         tally.set(fill, (tally.get(fill) ?? 0) + 1);
       }
       if (el.matches('a, button, input, [class*="btn" i], [class*="button" i]')) {
@@ -181,11 +215,14 @@ export class Crawler {
         // JS-built sites paint after domcontentloaded; give the network a
         // beat to settle and scroll once so lazy content actually loads.
         await p.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+        // Measure the ground BEFORE scrolling — scroll animations distort it.
+        const ground = (await p.evaluate(groundProbe).catch(() => "")) as string;
         await p.evaluate(lazyScroll).catch(() => {});
         await p.waitForTimeout(300);
         rendered = (await p.evaluate(renderDigest).catch(() => undefined)) as
           | Rendered
           | undefined;
+        if (rendered && ground) rendered.bg = ground;
         html = await p.content();
       }
     } catch {
