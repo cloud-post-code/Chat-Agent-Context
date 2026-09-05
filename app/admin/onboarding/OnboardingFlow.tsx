@@ -28,6 +28,7 @@ type Status = {
   step1?: Record<string, unknown>; step2?: Record<string, unknown>;
   stepLoc?: { locations?: Record<string, unknown>[] };
   stepImages?: { images?: { src?: string; caption?: string }[] };
+  stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
   chunkCount?: number;
   report?: { blog?: { postsSaved: number }; testimonials?: { count: number }; team?: { blocks: number } };
 };
@@ -176,6 +177,13 @@ export function OnboardingFlow() {
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [themeInitial, setThemeInitial] = useState<ThemeInitial>(defaultTheme());
   const [logo, setLogo] = useState("");
+  // Brand voice, extracted with the theme. The source flag records where the
+  // PREFILL came from; editing the tagline text makes it the user's own.
+  const [tagline, setTagline] = useState("");
+  const [taglineSource, setTaglineSource] = useState("");
+  const [extractedTagline, setExtractedTagline] = useState("");
+  const [brandValues, setBrandValues] = useState("");
+  const [tone, setTone] = useState("");
   const [picked, setPicked] = useState<string[]>(EXTRACTOR_OPTIONS.map((o) => o.key));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -267,6 +275,12 @@ export function OnboardingFlow() {
           ),
         });
         setLogo(String(t2.themeLogo ?? ""));
+        const b = s.stepBrand ?? {};
+        setTagline(String(b.tagline ?? ""));
+        setExtractedTagline(String(b.tagline ?? ""));
+        setTaglineSource(String(b.taglineSource ?? ""));
+        setBrandValues((Array.isArray(b.values) ? b.values : []).join("\n"));
+        setTone(String(b.tone ?? ""));
         setStep("review-theme");
       }
     }, 1500);
@@ -390,6 +404,14 @@ export function OnboardingFlow() {
         themeHeadingWeight: v("themeHeadingWeight"),
         themeColors,
         themeLogo: logo,
+      },
+      brand: {
+        tagline,
+        // Edited text is the user's own wording — the provenance flag only
+        // survives while the tagline is exactly what extraction produced.
+        taglineSource: tagline === extractedTagline ? taglineSource : "",
+        values: brandValues.split("\n").map((s) => s.trim()).filter(Boolean),
+        tone,
       },
     });
     if (!res.ok) {
@@ -648,8 +670,8 @@ export function OnboardingFlow() {
             <p style={{ margin: 0 }}>
               <Typewriter
                 text={manual
-                  ? "Pick the look for your agent page."
-                  : "Here's the look I pulled from your site — tweak it to taste."}
+                  ? "Pick the look for your agent page, and tell me about your brand voice."
+                  : "Here's the look and brand voice I pulled from your site — tweak them to taste."}
                 onDone={() => setTextDone(true)}
               />
             </p>
@@ -663,6 +685,57 @@ export function OnboardingFlow() {
                   Logo imported from your site.
                 </p>
               )}
+              {/* Brand voice: tagline (with its provenance), values, tone. */}
+              <div style={{ marginBottom: 16 }}>
+                <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>Brand voice</strong>
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ fontSize: 13, display: "block", marginBottom: 4 }}>
+                    Tagline
+                    {tagline && tagline === extractedTagline && taglineSource === "suggested" && (
+                      <span
+                        style={{
+                          marginLeft: 8, fontSize: 11, padding: "2px 8px", borderRadius: 999,
+                          background: "var(--bg-soft)", border: "1px solid var(--border)",
+                          fontStyle: "italic",
+                        }}
+                        title="Your site doesn't state a tagline, so this one was written from your site's own copy. Edit it or keep it."
+                      >
+                        suggested — not from your site
+                      </span>
+                    )}
+                  </label>
+                  <input
+                    style={a2uiField}
+                    value={tagline}
+                    placeholder="A one-line motto for your business"
+                    onChange={(e) => setTagline(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ fontSize: 13, display: "block", marginBottom: 4 }}>
+                    Brand values (one per line)
+                  </label>
+                  <textarea
+                    style={{ ...a2uiField, resize: "vertical" }}
+                    rows={3}
+                    value={brandValues}
+                    placeholder={"Local first\nHonest craftsmanship"}
+                    onChange={(e) => setBrandValues(e.target.value)}
+                  />
+                </div>
+                <div style={{ marginTop: 10 }}>
+                  <label style={{ fontSize: 13, display: "block", marginBottom: 4 }}>
+                    Tone of voice (how your agent should write)
+                  </label>
+                  <textarea
+                    style={{ ...a2uiField, resize: "vertical" }}
+                    rows={2}
+                    value={tone}
+                    placeholder="Warm and conversational; short sentences; no jargon."
+                    onChange={(e) => setTone(e.target.value)}
+                  />
+                </div>
+              </div>
               {/* The dashboard's own Theme panel, pre-filled by extraction. */}
               <form ref={themeFormRef} onSubmit={(e) => { e.preventDefault(); void saveTheme(); }}>
                 <ThemePicker

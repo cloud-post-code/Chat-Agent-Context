@@ -109,7 +109,7 @@ WHO YOU ARE:
 ${company}${personaConfig.tagline ? ` — ${personaConfig.tagline}` : ""}${
     owner ? ` Owned and run by ${owner}.` : ""
   }
-
+${brandVoiceBlock(personaConfig.brandValues, personaConfig.toneOfVoice)}
 HOW TO CONNECT:
 ${connectBlock(profile)}
 
@@ -200,6 +200,22 @@ Always add a short spoken sentence alongside a card — the card supplements you
 /** The person the prompt refers to when citing the owner by name. */
 function speakerName(p: { owner_name: string; company_name: string }): string {
   return p.owner_name.trim() || p.company_name.trim() || "the owner";
+}
+
+/** Brand values + tone of voice as prompt blocks — only what is set renders,
+ *  so an un-onboarded persona adds nothing. */
+function brandVoiceBlock(brandValues: string, toneOfVoice: string): string {
+  let values: string[] = [];
+  try {
+    const parsed = JSON.parse(brandValues) as unknown;
+    if (Array.isArray(parsed)) values = parsed.filter((v): v is string => typeof v === "string");
+  } catch {
+    // malformed stored JSON reads as no values
+  }
+  const parts: string[] = [];
+  if (values.length) parts.push(`BRAND VALUES (what the business stands for):\n${values.map((v) => `- ${v}`).join("\n")}`);
+  if (toneOfVoice.trim()) parts.push(`TONE OF VOICE (write every answer in this style):\n${toneOfVoice.trim()}`);
+  return parts.length ? `\n${parts.join("\n\n")}\n` : "";
 }
 
 function connectBlock(p: {

@@ -47,6 +47,7 @@ import {
   type DirectiveKind,
 } from "@/lib/directives";
 import { saveAddressBookEntry, deleteAddressBookEntry } from "@/lib/addressBook";
+import { savePersonaBrand } from "@/lib/brand";
 import { saveUiCard, deleteUiCard } from "@/lib/uiCards";
 import { saveIngestionSource, setIngestionSourceHidden } from "@/lib/ingestionSources";
 import { deleteIngestionSourceAndData } from "@/lib/ingestedItems";
@@ -237,10 +238,15 @@ export async function savePersona(formData: FormData) {
     sections[s.key] = String(formData.get(`section_${s.key}`) ?? "");
   }
 
+  // A tagline edited here is the owner's own wording — the extracted/
+  // suggested provenance flag only survives while the text is unchanged.
+  const tagline = String(formData.get("tagline") ?? "");
+  const existing = await prisma.personaConfig.findUnique({ where: { userId: user.id } });
+  const taglineSource = existing && existing.tagline === tagline ? existing.taglineSource : "";
   await prisma.personaConfig.upsert({
     where: { userId: user.id },
-    update: { tagline: String(formData.get("tagline") ?? "") },
-    create: { userId: user.id, tagline: String(formData.get("tagline") ?? "") },
+    update: { tagline, taglineSource },
+    create: { userId: user.id, tagline, taglineSource },
   });
   await writePersonaSections(user.id, sections);
   await reindex("persona", () => indexPersona(user.id));
@@ -274,6 +280,22 @@ export async function saveTheme(formData: FormData) {
     where: { userId: user.id },
     update: theme,
     create: { userId: user.id, ...theme },
+  });
+
+  // Brand voice lives on the Theme tab too — tagline (with its extracted/
+  // suggested provenance flag), brand values (one per line), tone of voice.
+  // An edited tagline is the owner's own wording, so the provenance flag
+  // only survives while the text matches what is stored.
+  const tagline = String(formData.get("tagline") ?? "");
+  const existingPersona = await prisma.personaConfig.findUnique({ where: { userId: user.id } });
+  await savePersonaBrand(user.id, {
+    tagline,
+    taglineSource:
+      existingPersona && existingPersona.tagline === tagline.trim()
+        ? String(formData.get("taglineSource") ?? "")
+        : "",
+    values: String(formData.get("brandValues") ?? "").split("\n"),
+    tone: String(formData.get("toneOfVoice") ?? ""),
   });
   revalidateAll();
 }

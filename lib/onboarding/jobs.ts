@@ -6,6 +6,7 @@ import {
 import { discoverLocationPages, extractLocations } from "./locations";
 import { discoverOwnerPages, extractOwners, ownersToOwnerName } from "./owners";
 import { extractImages, type GalleryImage } from "./images";
+import { extractBrandIdentity, type BrandIdentity } from "./brand";
 import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
@@ -46,6 +47,9 @@ export type Job = {
   /** The gallery-images stage's result: stored photos with site captions. */
   stepImages?: { images: GalleryImage[] };
   step2?: ThemeExtract;
+  /** Brand voice extracted alongside the theme: tagline (flagged extracted
+   *  vs suggested), brand values, tone of voice. */
+  stepBrand?: BrandIdentity;
   chunkCount?: number;
   report?: Partial<KnowledgeReport>;
   /** Real activity lines, appended as work happens — the chat streams these. */
@@ -245,6 +249,29 @@ async function runTheme(job: Job): Promise<void> {
   if (s2.themeColors.primary) log(job, `Brand color: ${s2.themeColors.primary}`);
   log(job, `Body font matched: ${s2.themeBodyFont}; corners: ${s2.themeRadius}`);
   log(job, s2.themeLogo ? "Logo imported from your site" : "No importable logo found");
+
+  // Brand voice rides along with the theme stage — same pages, same review
+  // card. Fail-soft: a failed brand call must not take down the theme review,
+  // so the fields just come back empty for the user to fill in.
+  job.progress = 80;
+  log(job, "Reading your brand voice — tagline, values, and tone");
+  try {
+    job.stepBrand = await extractBrandIdentity(
+      [job.home!, ...(job.extras ?? [])], (m) => log(job, m));
+    const b = job.stepBrand;
+    log(job, b.tagline
+      ? b.taglineSource === "extracted"
+        ? `Tagline found on your site: “${b.tagline}”`
+        : `No stated tagline — suggested one from your copy: “${b.tagline}”`
+      : "No tagline found");
+    log(job, b.values.length
+      ? `Brand values: ${b.values.join(", ")}`
+      : "No brand values stated on the site");
+    log(job, b.tone ? "Tone of voice captured" : "Not enough copy to judge your tone of voice");
+  } catch {
+    log(job, "Couldn't read your brand voice — you can fill it in by hand");
+    job.stepBrand = { tagline: "", taglineSource: "", values: [], tone: "" };
+  }
   job.phase = "theme-done";
   job.progress = 100;
 }

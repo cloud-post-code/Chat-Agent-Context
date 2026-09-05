@@ -1,5 +1,6 @@
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { savePersonaBrand } from "@/lib/brand";
 import { DAYS, serializeHours, type Hours } from "@/lib/onboarding/extract";
 
 export const runtime = "nodejs";
@@ -23,6 +24,7 @@ export async function POST(req: Request) {
     locations?: Record<string, unknown>;
     gallery?: Record<string, unknown>;
     theme?: Record<string, unknown>;
+    brand?: Record<string, unknown>;
   };
   try {
     body = await req.json();
@@ -149,6 +151,18 @@ export async function POST(req: Request) {
       create: { userId: user.id, company_logo: logo },
     });
   }
+  }
+
+  // Brand voice, reviewed alongside the theme. savePersonaBrand validates
+  // the source flag (an edited-away tagline clears it) and clamps values.
+  if (body.brand) {
+    const b = body.brand;
+    await savePersonaBrand(user.id, {
+      tagline: str(b.tagline),
+      taglineSource: str(b.taglineSource),
+      values: (Array.isArray(b.values) ? b.values : []).map((v: unknown) => str(v)),
+      tone: str(b.tone),
+    });
   }
 
   return Response.json({ ok: true });

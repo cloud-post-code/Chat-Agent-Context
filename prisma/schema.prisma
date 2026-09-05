@@ -569,6 +569,15 @@ model PersonaConfig {
   /// /api/uploads/<file> — shown where the site needs a brand image.
   company_logo String?
   tagline      String  @default("")
+  /// Where the tagline came from: "extracted" (stated by the site),
+  /// "suggested" (generated from the site's copy — labeled as such in the
+  /// UI), or "" (typed by hand / unknown).
+  taglineSource String @default("")
+  /// JSON string[] — 3–5 short brand-value phrases from the site's copy.
+  brandValues  String @default("[]")
+  /// Style description of the brand's writing voice, injected into the
+  /// chatbot system prompt as a style instruction.
+  toneOfVoice  String @default("") @db.Text
   /// JSON {sectionKey: text} for the persona sections catalogued in
   /// lib/persona.ts. This is the persona the chatbot speaks from.
   personaSections String @default("{}") @db.Text
