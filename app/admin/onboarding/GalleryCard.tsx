@@ -43,7 +43,9 @@ export function GalleryCard({
                   src={img.src}
                   alt={img.caption || `Photo ${idx + 1}`}
                   style={{
-                    width: "100%", height: 110, objectFit: "cover",
+                    // Natural aspect ratio, never cropped: contain inside a
+                    // bounded box instead of cover-cropping to a fixed tile.
+                    width: "100%", maxHeight: 160, objectFit: "contain",
                     borderRadius: "var(--radius-sm)", display: "block",
                   }}
                 />

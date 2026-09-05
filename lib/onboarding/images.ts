@@ -1,16 +1,44 @@
 import type { Crawler, Page } from "./crawl";
 import { saveBytes } from "@/lib/uploads";
+import { llmExtractVision, type VisionImage, type VisionMediaType } from "./knowledgeLlm";
 
 /**
- * The gallery-images stage: photos from the user's site, each with the
- * caption the site itself gives it (figcaption, then alt, then title —
- * never invented; an uncaptioned photo stays uncaptioned for the user to
- * fill in). Every kept image is downloaded through the crawler (on-domain,
- * like the logo) and stored in the app's upload store, so the review card
- * previews `/api/uploads/...` URLs and saving is just row creation.
+ * The gallery-images stage. Candidates are collected from the crawled pages
+ * (rendered <img> sources plus CSS background heroes), downloaded, and then
+ * CURATED by the model looking at the actual pixels: it keeps only photos a
+ * potential customer would care about, writes each kept photo's caption from
+ * what the image shows (the site's alt text is context, never the caption —
+ * alt text is routinely a person's name), and steers the set toward variety.
+ * Kept images land in the app's upload store, so the review card previews
+ * `/api/uploads/...` URLs and saving is just row creation.
  */
 
 export const MAX_GALLERY_IMAGES = 25;
+
+/** Candidates downloaded for the model to look at; the rest never upload. */
+const MAX_CANDIDATE_DOWNLOADS = 40;
+
+/** Images per vision call — enough for cross-image diversity judgment. */
+const VISION_BATCH = 10;
+
+/** Anthropic's per-image request ceiling, with headroom. */
+const MAX_IMAGE_BYTES = 3_500_000;
+
+const VISION_TYPES = new Set<VisionMediaType>([
+  "image/jpeg", "image/png", "image/webp", "image/gif",
+]);
+
+export const GALLERY_SYSTEM_PROMPT = `You curate photos scraped from a business's website into the photo gallery of that business's customer-facing page, and caption the ones you keep. Each numbered image arrives with the site's own alt text as context.
+
+Rules:
+- "keep" is true only for an image a potential customer would find useful or interesting: the storefront or premises, work being done, finished work, products, food, spaces, equipment, the team at work. Genuine photos and realistic renderings of the business's work both count; when unsure whether a customer would care, keep it.
+- Always exclude: logos, icons, avatar or profile-picture tiles (letter/initial placeholders, generated avatars), webcam-style headshots, screenshots of software, charts, badges, text-only banners, and empty or decorative filler.
+- "caption" (kept images only) is one short sentence you write describing what the IMAGE SHOWS. Never use a person's name and never copy the alt text — alt text is often just a name ("Peter Richmond"), which tells a customer nothing. Describe the scene: "A barber trimming a client's hair at the chair."
+- "subject" is a 1-3 word category for the image ("storefront", "haircut", "products").
+- Keep the set diverse: when several images show the same subject, keep only the best one or two. ALREADY_KEPT lists subjects kept from earlier batches — avoid repeating them.
+
+Respond with ONLY this JSON, no other text:
+{"images":[{"index":0,"keep":false,"caption":"","subject":""}]}`;
 
 export type GalleryImage = { src: string; caption: string };
 
@@ -114,10 +142,77 @@ export function collectImageCandidates(crawler: Crawler, pages: Page[]): Candida
   return out;
 }
 
+type Downloaded = Candidate & { bytes: Buffer; mediaType: VisionMediaType };
+
+/** The type the BYTES say they are — servers mislabel content-type, and the
+ *  vision API rejects an image whose media_type doesn't match its bytes. */
+function sniffImageType(bytes: Buffer): VisionMediaType | null {
+  if (bytes.length < 12) return null;
+  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) return "image/png";
+  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
+  if (bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
+      bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
+  return null;
+}
+
+/** Fetch candidate bytes the model can look at; the rest are dropped. */
+async function downloadCandidates(
+  crawler: Crawler,
+  candidates: Candidate[],
+): Promise<Downloaded[]> {
+  const out: Downloaded[] = [];
+  for (const c of candidates) {
+    if (out.length >= MAX_CANDIDATE_DOWNLOADS) break;
+    const got = await crawler.loadImageBytes(c.url);
+    if (!got || got.bytes.length > MAX_IMAGE_BYTES) continue;
+    const mediaType = sniffImageType(got.bytes);
+    if (!mediaType || !VISION_TYPES.has(mediaType)) continue;
+    out.push({ ...c, bytes: got.bytes, mediaType });
+  }
+  return out;
+}
+
+const capStr = (v: unknown, max: number): string =>
+  typeof v === "string" ? v.trim().slice(0, max) : "";
+
 /**
- * Download candidates into the upload store until MAX_GALLERY_IMAGES stick.
- * Failures (off-domain, unsupported format, dead link) are skipped silently —
- * the gallery is best-effort by design.
+ * The model pass over one batch of downloaded images: keep/exclude, a
+ * model-written caption for each kept image, and its subject for diversity.
+ */
+async function curateBatch(
+  batch: Downloaded[],
+  keptSubjects: string[],
+  log: (msg: string) => void,
+): Promise<{ item: Downloaded; caption: string; subject: string }[]> {
+  const visionImages: VisionImage[] = batch.map((d, i) => ({
+    bytes: d.bytes,
+    mediaType: d.mediaType,
+    label: `IMAGE index ${i} | site alt text: ${d.caption || "(none)"}`,
+  }));
+  const raw = await llmExtractVision(
+    GALLERY_SYSTEM_PROMPT,
+    visionImages,
+    `ALREADY_KEPT: ${keptSubjects.join(", ") || "(none)"}`,
+    1500,
+    log,
+  );
+  if (process.env.DEBUG_GALLERY) console.error("curate raw:", JSON.stringify(raw));
+  const out: { item: Downloaded; caption: string; subject: string }[] = [];
+  if (!Array.isArray(raw.images)) return out;
+  for (const entry of raw.images) {
+    const e = (entry ?? {}) as Record<string, unknown>;
+    const item = typeof e.index === "number" ? batch[e.index] : undefined;
+    if (!item || e.keep !== true) continue;
+    out.push({ item, caption: capStr(e.caption, 300), subject: capStr(e.subject, 60) });
+  }
+  return out;
+}
+
+/**
+ * Collect → download → model curation → upload store. Download failures and
+ * unsupported formats are skipped silently; a failed model call throws, like
+ * every other extraction stage.
  */
 export async function extractImages(
   crawler: Crawler,
@@ -130,19 +225,27 @@ export async function extractImages(
   log(candidates.length
     ? `Found ${candidates.length} photo${candidates.length === 1 ? "" : "s"} across ${pages.length} page${pages.length === 1 ? "" : "s"}`
     : "No photos found on this site");
+  if (!candidates.length) return [];
+
+  const downloaded = await downloadCandidates(crawler, candidates);
+  log(`Looking at ${downloaded.length} of them to pick the ones customers would care about`);
 
   const images: GalleryImage[] = [];
-  for (const c of candidates) {
-    if (images.length >= MAX_GALLERY_IMAGES) break;
-    const got = await crawler.loadImageBytes(c.url);
-    if (!got) continue;
-    try {
-      const filename = await saveBytes(got.bytes, got.contentType);
-      images.push({ src: `/api/uploads/${filename}`, caption: c.caption });
-      log(c.caption ? `Imported photo: ${c.caption}` : `Imported photo ${images.length}`);
-    } catch {
-      // unsupported format — skip
+  const keptSubjects: string[] = [];
+  for (let i = 0; i < downloaded.length && images.length < MAX_GALLERY_IMAGES; i += VISION_BATCH) {
+    const kept = await curateBatch(downloaded.slice(i, i + VISION_BATCH), keptSubjects, log);
+    for (const k of kept) {
+      if (images.length >= MAX_GALLERY_IMAGES) break;
+      try {
+        const filename = await saveBytes(k.item.bytes, k.item.mediaType);
+        images.push({ src: `/api/uploads/${filename}`, caption: k.caption });
+        if (k.subject) keptSubjects.push(k.subject);
+        log(k.caption ? `Kept photo: ${k.caption}` : `Kept photo ${images.length}`);
+      } catch {
+        // upload-store rejection — skip
+      }
     }
   }
+  log(`Gallery: kept ${images.length} of ${downloaded.length} photos`);
   return images;
 }

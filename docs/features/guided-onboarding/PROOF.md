@@ -43,6 +43,11 @@ Expected evidence:
   fixture exactly; Saturday/Sunday are EMPTY because the site never states
   them, and the owner is exactly the stated founder, "Priya Raman" — any
   other name is fabrication.
+- Step 1c: the gallery keeps ≥ 2 consumer-relevant fixture photos (real
+  public-domain shop/warehouse/dock photographs from Wikimedia Commons),
+  every kept photo carries a model-WRITTEN caption (not the site's alt text,
+  never a bare person's name), and the letter-avatar placeholder tile —
+  which passes the size pre-filter — is excluded by the vision curation.
 - Step 2: `themeBodyFont` is a curated `lib/fonts` key, `themeRadius` ∈
   sharp|rounded|pill, `themeHeadingWeight` ∈ 500–800, colors are hex and
   include the fixture's brand `#0f4c81`, logo lands under `/api/uploads/`.

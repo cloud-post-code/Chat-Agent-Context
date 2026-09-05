@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { Page } from "./crawl";
 
@@ -93,6 +94,55 @@ export async function llmExtract(
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: userText }],
+      });
+      const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
+      const json = text.match(/\{[\s\S]*\}/)?.[0];
+      if (!json) throw new Error("model returned no JSON");
+      return JSON.parse(json) as Record<string, unknown>;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
+      if (attempt >= LLM_RETRIES) {
+        throw new Error(`Model extraction failed after ${LLM_RETRIES + 1} attempts: ${msg}`);
+      }
+      log(`Model call failed (${msg}) — retrying`);
+    }
+  }
+}
+
+export type VisionMediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+export type VisionImage = { bytes: Buffer; mediaType: VisionMediaType; label: string };
+
+/**
+ * One vision extraction call: system prompt + labeled images + closing text
+ * in, parsed JSON out. Same failure policy as llmExtract — retry twice, then
+ * throw. Each image is preceded by its label so the model can address images
+ * by the index the label states.
+ */
+export async function llmExtractVision(
+  system: string,
+  images: VisionImage[],
+  userText: string,
+  maxTokens: number,
+  log: (m: string) => void,
+): Promise<Record<string, unknown>> {
+  if (!process.env.ANTHROPIC_API_KEY) {
+    throw new Error("ANTHROPIC_API_KEY is not set — onboarding extraction requires the model");
+  }
+  const content: Anthropic.ContentBlockParam[] = images.flatMap((im) => [
+    { type: "text", text: im.label } as const,
+    {
+      type: "image",
+      source: { type: "base64", media_type: im.mediaType, data: im.bytes.toString("base64") },
+    } as const,
+  ]);
+  content.push({ type: "text", text: userText });
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await claude().messages.create({
+        model: claudeModel(),
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: "user", content }],
       });
       const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const json = text.match(/\{[\s\S]*\}/)?.[0];

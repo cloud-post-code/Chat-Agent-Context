@@ -445,11 +445,13 @@ function Filmstrip({ items }: { items: PhotoCard[] }) {
             onClick={() => setOpen(idx)}
             style={{ flex: "0 0 auto", border: "none", background: "none", padding: 0, cursor: "pointer" }}
           >
+            {/* Fixed height, natural width: thumbnails keep their aspect
+                ratio instead of being cover-cropped into squares. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={ph.src}
               alt={ph.description}
-              style={{ height: 96, width: 96, objectFit: "cover", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)" }}
+              style={{ height: 96, width: "auto", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", display: "block" }}
             />
           </button>
         ))}

@@ -97,7 +97,9 @@ async function main() {
     check("css hero background is a candidate", urls.some((u) => u.includes("/hero.jpg")));
     check("rendered-tiny icon dropped", !urls.some((u) => u.endsWith("/tiny.png")));
     const injected = candidates.find((c) => c.url.endsWith("/photo1.jpg"));
-    check("caption comes from the site's own alt", injected?.caption === "Morning bake");
+    // Candidates carry the site's stated alt as CONTEXT for the curation
+    // model; the model writes the final caption itself (asserted in the E2E).
+    check("site alt text carried as candidate context", injected?.caption === "Morning bake");
   } finally {
     await crawler.close();
     stop();

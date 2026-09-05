@@ -39,13 +39,21 @@ website URL with Playwright, or manually via the same forms left empty.
   the user's `Profile` row (hours serialize into the free-text
   `company_hours` field in a consistent per-day format).
 
-### Step 1c — Gallery photos (added 2026-09-03)
+### Step 1c — Gallery photos (added 2026-09-03; curation revised 2026-09-05)
 - After the locations review, extract up to 25 content images from the site
-  (gallery/portfolio/about pages plus the pages already crawled), each with
-  the caption the site itself states (figcaption, then alt, then title —
-  never invented). Logos, icons, sprites, and tracking pixels are excluded.
-- Every kept image is downloaded on-domain and stored via `lib/uploads.ts`,
-  so the review previews `/api/uploads/...` URLs.
+  (gallery/portfolio/about pages plus the pages already crawled).
+- Revision (2026-09-05, user-requested): candidates are CURATED by the model
+  looking at the downloaded pixels. Keep only photos a potential customer
+  would find useful or interesting (premises, work, products, spaces, team
+  at work) and keep the set diverse; exclude avatar/letter-placeholder
+  tiles, headshots, logos, icons, screenshots, and decorative filler. Every
+  kept photo's caption is model-WRITTEN from what the image shows — never a
+  person's name, never the site's alt text (which is routinely just a name).
+  The site's stated captions remain context for the model only.
+- Every kept image is downloaded and stored via `lib/uploads.ts`,
+  so the review previews `/api/uploads/...` URLs. Gallery photos render at
+  their natural aspect ratio everywhere (review card, filmstrip thumbnails,
+  carousel, lightbox) — never cover-cropped.
 - The review's A2UI element shows THREE photos at a time with a
   "page / pages" counter and prev/next arrows; captions are editable in
   place and any photo can be removed. Saving creates `Photo` rows

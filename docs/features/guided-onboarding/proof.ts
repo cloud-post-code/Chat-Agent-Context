@@ -194,22 +194,38 @@ async function main() {
     });
     check("locations save accepted", saveLoc.res.status === 200, String(saveLoc.res.status));
 
-    console.log("== gallery-images stage: photos with the site's own captions");
+    console.log("== gallery-images stage: model-curated photos with model-written captions");
     const advI = await postJson(jar, "/api/admin/onboarding/advance", { jobId, stage: "images" });
     check("advance to images accepted", advI.res.status === 200, String(advI.res.status));
     const imaged = await pollJob(jar, jobId, ["images-done"]);
     check("images stage finished", imaged.phase === "images-done", imaged.error || imaged.phase);
     const gallery: { src: string; caption: string }[] = imaged.stepImages?.images || [];
-    check("content photos found (gallery page + about portrait)",
-      gallery.length >= 4 && gallery.length <= 25, String(gallery.length));
+    check("consumer-relevant photos kept (shop scenes)",
+      gallery.length >= 2 && gallery.length <= 25, String(gallery.length));
     check("every photo stored via app uploads",
       gallery.every((g) => /^\/api\/uploads\//.test(g.src)));
-    check("figcaption used as the caption",
-      gallery.some((g) => g.caption === "The forming line on the main shop floor"));
-    check("alt text used when there is no figcaption",
-      gallery.some((g) => g.caption === "Rivet inspection bench"));
-    check("logo and tracking pixel excluded",
-      gallery.every((g) => !/logo|pixel/i.test(g.caption)));
+    check("every kept photo has a model-written caption",
+      gallery.every((g) => g.caption.trim().length > 0),
+      JSON.stringify(gallery.map((g) => g.caption)));
+    check("captions describe the image, not copied site alt text",
+      gallery.every((g) =>
+        g.caption !== "Rivet inspection bench" &&
+        g.caption !== "Finished-goods warehouse" &&
+        g.caption !== "The forming line on the main shop floor"),
+      JSON.stringify(gallery.map((g) => g.caption)));
+    check("no caption is a bare person's name",
+      gallery.every((g) => !/^(randy delgado|marta ellingsen|priya raman)$/i.test(g.caption.trim())),
+      JSON.stringify(gallery.map((g) => g.caption)));
+    // The avatar tile passes the size pre-filter; only model curation can
+    // drop it. Compare stored bytes against the fixture's avatar file.
+    const avatarBytes = await readFile(join(FIXTURE_ROOT, "avatar-tile.png"));
+    const storedSizes = await Promise.all(gallery.map(async (g) => {
+      const name = g.src.replace("/api/uploads/", "");
+      const b = await readFile(join(process.cwd(), "data", "uploads", name)).catch(() => null);
+      return b?.length ?? -1;
+    }));
+    check("letter-avatar placeholder excluded by curation",
+      !storedSizes.includes(avatarBytes.length), JSON.stringify(storedSizes));
     const editedGallery = gallery.map((g, i) =>
       i === 0 ? { ...g, caption: "Caption fixed in review" } : g);
     const saveGal = await postJson(jar, "/api/admin/onboarding/save", {
