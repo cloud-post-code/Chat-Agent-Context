@@ -2,8 +2,12 @@
 
 ## Primary proof command
 ```
-npx tsx docs/features/booking-on-by-default/proof.ts
+npx tsx --tsconfig docs/features/booking-on-by-default/tsconfig.proof.json docs/features/booking-on-by-default/proof.ts
 ```
+(The `--tsconfig` override sets `jsx: react-jsx` for this run only. The repo
+builds with `jsx: preserve` for Next, under which tsx renders no component —
+the proof renders `CalendarPanel` for real, so it needs the automatic runtime.
+Path aliases still come from the extended root tsconfig.)
 Runs against the local dev Postgres (`.env` `DATABASE_URL`; the script loads
 `.env` itself, the `onboarding-booking-extraction/proof.ts` precedent). Seeds
 throwaway users, drives the real `extractServicesAndBooking` with fixture

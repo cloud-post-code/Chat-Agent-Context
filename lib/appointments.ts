@@ -1,4 +1,5 @@
 import { prisma, getProfile } from "./db";
+import { FIELD_TYPES, type FieldType, type AppointmentFieldRow, type BookingConfig } from "./appointmentTypes";
 import { indexAppointment } from "./retrieval/origins";
 import { dropOrigin } from "./retrieval/indexer";
 
@@ -15,18 +16,14 @@ import { dropOrigin } from "./retrieval/indexer";
  * wins a race for the same instant.
  */
 
-export const FIELD_TYPES = ["short_text", "long_text", "email", "phone"] as const;
-export type FieldType = (typeof FIELD_TYPES)[number];
-
-export type AppointmentFieldRow = {
-  key: string;
-  label: string;
-  type: FieldType;
-  required: boolean;
-  order: number;
-};
-
-export type BookingConfig = { enabled: boolean; fields: AppointmentFieldRow[] };
+// Shapes live in lib/appointmentTypes.ts (import-free, so the client Calendar
+// can reach them); re-exported here so this stays the one import for the store.
+export {
+  FIELD_TYPES,
+  type FieldType,
+  type AppointmentFieldRow,
+  type BookingConfig,
+} from "./appointmentTypes";
 
 export type AppointmentRow = {
   id: string;

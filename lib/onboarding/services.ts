@@ -7,12 +7,13 @@ import { saveKnowledgeRecord } from "./knowledge";
 /**
  * The services-and-booking extractor: one read of the pages most likely to
  * describe what the business sells and how it takes bookings. Services become
- * knowledge (the sibling extractors' Source+Chunk path); booking requirements
- * pre-seed the appointment-question catalog so the tenant's first flip of the
- * Appointments toggle already asks the right things.
+ * knowledge (the sibling extractors' Source+Chunk path), and they also seed the
+ * appointment-question catalog: the stage always leaves a usable form, asking
+ * in the tenant's own words about the services the crawl actually found.
  *
- * Extraction never enables booking and never touches a catalog that already
- * has questions — it configures, the tenant decides.
+ * Booking itself is on by default (Profile.bookingEnabled), so this stage is
+ * configuring a live capability, not staging one behind a toggle. It never
+ * touches a catalog that already has questions — that one is the tenant's.
  */
 
 export const SERVICES_SYSTEM_PROMPT = `You read text from a business's website and report (1) the services it offers and (2) how it takes bookings. The text contains multiple pages, each preceded by "=== <url>".
@@ -154,20 +155,64 @@ export async function extractServicesAndBooking(
     chunks = saved.chunks;
   }
 
-  // Seed the question catalog only when booking info exists and the tenant
-  // has no questions yet — an existing catalog is theirs, never ours.
-  if (clean.takesAppointments && clean.requirements.length) {
-    const existing = await prisma.appointmentField.count({ where: { userId } });
-    if (existing === 0) {
-      for (const f of DEFAULT_APPOINTMENT_FIELDS.filter((d) => d.key !== "reason")) {
-        await saveAppointmentField(userId, f);
-        report.seededFields++;
-      }
-      for (const r of clean.requirements) {
-        const err = await saveAppointmentField(userId, r);
-        if (err === null) report.seededFields++;
-      }
-    }
+  // One rule: after this stage the tenant has a usable form. An empty catalog
+  // is the only gate — an existing one is theirs, never ours. Best-effort, so
+  // a field write that fails never costs the knowledge saved above.
+  try {
+    report.seededFields = await seedBookingForm(userId, clean);
+  } catch {
+    // Left as-is; the tenant can still build the form by hand.
   }
   return { report, chunks };
+}
+
+/** `saveAppointmentField` caps labels at 120; keep the picker under it. */
+const PICKER_LABEL_CAP = 120;
+
+/**
+ * The generated service-picker question. Names the tenant's own services so
+ * the wizard asks in their words, and drops whole names — never a fragment —
+ * to stay inside the label cap.
+ */
+export function servicePickerLabel(services: ServiceItem[]): string {
+  const names = services.map((s) => s.name).filter(Boolean);
+  if (!names.length) return "";
+  const head = "Which service are you booking? ";
+  const kept: string[] = [];
+  for (const n of names) {
+    const next = [...kept, n].join(", ");
+    // "…, or more" is appended when anything is left out, so budget for it.
+    const suffix = kept.length + 1 < names.length ? ", or something else" : "";
+    if ((head + next + suffix).length > PICKER_LABEL_CAP) break;
+    kept.push(n);
+  }
+  // Not even one name fits: ask the plain question rather than a truncated one.
+  if (!kept.length) return "Which service are you booking?";
+  const tail = kept.length < names.length ? ", or something else" : "";
+  return `${head}${kept.join(", ")}${tail}`;
+}
+
+/**
+ * Seed the question catalog when it is empty. Returns how many questions were
+ * written. The order is defaults → service picker → extracted requirements:
+ * who they are, what they want, then the specifics the site asks for.
+ */
+async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<number> {
+  if ((await prisma.appointmentField.count({ where: { userId } })) > 0) return 0;
+
+  const picker = servicePickerLabel(clean.services);
+  // "reason" is the generic catch-all; keep it only when nothing more specific
+  // takes its place, so the fallback form still asks something useful.
+  const replaced = Boolean(picker) || clean.requirements.length > 0;
+  const defaults = DEFAULT_APPOINTMENT_FIELDS.filter((d) => !(replaced && d.key === "reason"));
+
+  let seeded = 0;
+  const write = async (f: { key?: string; label: string; type: string; required: boolean }) => {
+    if ((await saveAppointmentField(userId, f)) === null) seeded++;
+  };
+
+  for (const f of defaults) await write(f);
+  if (picker) await write({ key: "service", label: picker, type: "short_text", required: true });
+  for (const r of clean.requirements) await write(r);
+  return seeded;
 }

@@ -148,13 +148,13 @@ export default async function Dashboard({
               <SubTabs
                 initial={initialSub}
                 ariaLabel="Agent Behavior sections"
-                tabs={sub(["answers", "goals", "rules", "contacts", "a2ui", "booking"])}
+                tabs={sub(["answers", "goals", "rules", "contacts", "a2ui"])}
               />
             ),
           },
-          ...(set.bookingEnabled
-            ? [{ key: "calendar", label: "Calendar", content: flat.calendar }]
-            : []),
+          // Unconditional: the Calendar carries the Appointments settings, so
+          // turning booking off must not remove the way to turn it back on.
+          { key: "calendar", label: "Calendar", content: flat.calendar },
           ...(set.operator ? [{ key: "users", label: "Users", content: flat.users }] : []),
         ]}
       />

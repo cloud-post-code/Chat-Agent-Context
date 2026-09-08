@@ -2,14 +2,23 @@
 
 import { useState } from "react";
 import { PendingButton } from "./PendingButton";
+import { BookingSettings } from "./BookingPanel";
 import { panel, btnGhost, btnDanger, SectionTitle } from "./ui";
+import type { BookingConfig } from "@/lib/appointmentTypes";
 
 /**
  * The Calendar panel: a month grid of booked appointments with each day's
- * bookings expandable to their answers, plus Cancel. One implementation for
- * both admin surfaces — the dashboard tab and the chat's revealed panel.
- * Client-side only for month paging and expansion; every write goes through
- * the server action passed in as a prop (the UsersPanel pattern).
+ * bookings expandable to their answers, plus Cancel — and below them the
+ * appointment settings, so the booking toggle and the question catalog sit
+ * with the bookings they produce. One implementation for both admin surfaces:
+ * the dashboard tab and the chat's revealed panel.
+ *
+ * This panel is ALWAYS present, including when booking is off, because it now
+ * holds the only control that turns booking back on. Booking off hides the
+ * grid (there is nothing to show) but never the settings.
+ *
+ * Client-side only for month paging and expansion; every write goes through a
+ * server action passed in as a prop (the UsersPanel pattern).
  */
 
 export type CalendarAppointment = {
@@ -24,11 +33,13 @@ type Props = {
   /** Question labels per field key, so answers read as asked. */
   fieldLabels: Record<string, string>;
   cancelAction: (formData: FormData) => Promise<void>;
+  /** The booking toggle and question catalog, rendered below the grid. */
+  config: BookingConfig;
 };
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function CalendarPanel({ rows, fieldLabels, cancelAction }: Props) {
+export function CalendarPanel({ rows, fieldLabels, cancelAction, config }: Props) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -63,6 +74,10 @@ export function CalendarPanel({ rows, fieldLabels, cancelAction }: Props) {
 
   return (
     <section>
+      {/* Nothing to show a calendar of while booking is off — but the settings
+          below stay, because they hold the switch that turns it back on. */}
+      {config.enabled ? (
+        <>
       <div data-fill="surface" style={panel}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
           <SectionTitle>Calendar</SectionTitle>
@@ -165,6 +180,10 @@ export function CalendarPanel({ rows, fieldLabels, cancelAction }: Props) {
           </div>
         ))
       )}
+        </>
+      ) : null}
+
+      <BookingSettings config={config} />
     </section>
   );
 }

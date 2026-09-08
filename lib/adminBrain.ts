@@ -75,7 +75,7 @@ const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "rules", label: "Rules" },
   { key: "contacts", label: "Contacts" },
   { key: "a2ui", label: "A2UI cards" },
-  { key: "booking", label: "Appointments" },
+  { key: "calendar", label: "Calendar" },
   { key: NEW_SOURCE_TAB_KEY, label: "New ingestion source" },
 ];
 
@@ -88,16 +88,12 @@ export async function adminPanelKeys(
   userId: string,
   operator = false,
 ): Promise<Array<{ key: string; label: string }>> {
-  const [sources, booking] = await Promise.all([
-    listIngestionSources(userId),
-    getBookingConfig(userId),
-  ]);
+  const sources = await listIngestionSources(userId);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
+    // The Calendar is fixed and unconditional: it carries the Appointments
+    // settings, so it is the one place booking can be turned back on.
     ...FIXED_PANELS,
-    // The Calendar exists only while booking does; the Appointments settings
-    // panel (key "booking") is fixed so there is always a place to enable it.
-    ...(booking.enabled ? [{ key: "calendar", label: "Calendar" }] : []),
     ...(operator ? [{ key: "users", label: "Users" }] : []),
   ];
 }

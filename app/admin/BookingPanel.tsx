@@ -6,13 +6,16 @@ import {
 } from "./actions";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./ui";
-import { FIELD_TYPES, type BookingConfig } from "@/lib/appointments";
+import { FIELD_TYPES, type BookingConfig } from "@/lib/appointmentTypes";
 
 /**
- * The Appointments settings panel: the booking toggle and the question
- * catalog the wizard asks from. Always present (it is where booking gets
- * turned on); the Calendar panel appears alongside it once enabled. Same
+ * The Appointments settings: the booking toggle and the question catalog the
+ * wizard asks from. Rendered inside the Calendar panel, below the month grid,
+ * so the switch and the questions live with the bookings they produce. Same
  * form-per-row idiom as DirectivesPanel.
+ *
+ * Exported as a fragment rather than its own <section>: the Calendar panel
+ * owns the section these render into.
  */
 
 const TYPE_LABELS: Record<string, string> = {
@@ -22,9 +25,9 @@ const TYPE_LABELS: Record<string, string> = {
   phone: "Phone",
 };
 
-export function BookingPanel({ config }: { config: BookingConfig }) {
+export function BookingSettings({ config }: { config: BookingConfig }) {
   return (
-    <section>
+    <>
       <div data-fill="surface" style={panel}>
         <SectionTitle>Appointments</SectionTitle>
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13, marginBottom: 10 }}>
@@ -118,7 +121,7 @@ export function BookingPanel({ config }: { config: BookingConfig }) {
           </form>
         </>
       ) : null}
-    </section>
+    </>
   );
 }
 

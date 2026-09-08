@@ -601,9 +601,11 @@ model Profile {
   /// JSON [{platform, url}] — the business's own social media profiles.
   social_links         String   @default("[]")
   /// Gates the whole booking capability: the show_booking tool, the submit
-  /// path, and the admin Calendar panel. Defaults off so a fresh tenant
-  /// never shows visitors a booker nobody configured.
-  bookingEnabled       Boolean  @default(false)
+  /// path, and the admin Calendar panel. Defaults ON: booking is the headline
+  /// capability, and onboarding always leaves a usable question catalog, so a
+  /// fresh tenant is never showing visitors an unconfigured booker. Tenants
+  /// who turn it off stay off — the migration changes the column default only.
+  bookingEnabled       Boolean  @default(true)
   updatedAt            DateTime @updatedAt
 }
 

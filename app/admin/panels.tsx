@@ -32,7 +32,6 @@ import {
   impersonateAction,
   cancelAppointmentAction,
 } from "./actions";
-import { BookingPanel } from "./BookingPanel";
 import { CalendarPanel } from "./CalendarPanel";
 import { getBookingConfig, listAppointments } from "@/lib/appointments";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
@@ -85,7 +84,6 @@ export type AdminPanelSet = {
   /** Disabled sources, for the dashboard's "hidden sources" strip. */
   hiddenSources: { id: string; label: string }[];
   /** Whether the Calendar tab/panel exists (the Appointments toggle). */
-  bookingEnabled: boolean;
   operator: boolean;
   themeConfig: Awaited<ReturnType<typeof getThemeConfig>>;
   slug: string;
@@ -679,7 +677,7 @@ export async function buildAdminPanels(
     rules: "Rules",
     contacts: "Contacts",
     a2ui: "A2UI",
-    booking: "Appointments",
+    booking: "Calendar",
     calendar: "Calendar",
     [NEW_SOURCE_TAB_KEY]: "+ New ingestion source",
     users: "Users",
@@ -705,23 +703,25 @@ export async function buildAdminPanels(
     contacts: <ContactsPanel rows={addressBook} gmail={gmail} message={query.gmail} />,
     a2ui: <A2uiPanel rows={uiCards} slug={user.slug} />,
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
-    booking: <BookingPanel config={bookingConfig} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
-  // The Calendar exists only while booking does — matching adminPanelKeys.
-  if (bookingConfig.enabled) {
-    flat.calendar = (
-      <CalendarPanel
-        rows={appointments.map((a) => ({
-          id: a.id,
-          startsAt: a.startsAt.toISOString(),
-          answers: a.answers,
-        }))}
-        fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
-        cancelAction={cancelAppointmentAction}
-      />
-    );
-  }
+  // Always present: the Calendar now carries the Appointments settings, so it
+  // is where booking gets turned back on after it has been turned off.
+  flat.calendar = (
+    <CalendarPanel
+      rows={appointments.map((a) => ({
+        id: a.id,
+        startsAt: a.startsAt.toISOString(),
+        answers: a.answers,
+      }))}
+      fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
+      cancelAction={cancelAppointmentAction}
+      config={bookingConfig}
+    />
+  );
+  // The retired standalone Appointments panel: anything still naming "booking"
+  // (a canned answer, a saved chat request) lands on the Calendar instead.
+  flat.booking = flat.calendar;
   if (operator) {
     flat.users = (
       <UsersPanel
@@ -744,7 +744,6 @@ export async function buildAdminPanels(
     hiddenSources: ingestionSources
       .filter((s) => !s.enabled)
       .map((s) => ({ id: s.id, label: s.label })),
-    bookingEnabled: bookingConfig.enabled,
     operator,
     themeConfig,
     slug: user.slug,
