@@ -178,14 +178,25 @@ async function* runModel(
   message: string,
   history: Msg[],
   client: ModelClient,
+  /**
+   * An owner-approved answer for this exact question (a canned/starter row with
+   * no card attached). The model must speak it as written — it is here only so
+   * the turn can still carry an A2UI card the prose alone couldn't show.
+   */
+  script?: string,
 ): AsyncGenerator<BrainEvent> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [system, catalog, booking] = await Promise.all([
+  const [basePrompt, catalog, booking] = await Promise.all([
     buildSystemPrompt(userId, message),
     cardCatalog(userId),
     getBookingConfig(userId),
   ]);
+  const system = script
+    ? `${basePrompt}\n\nAPPROVED ANSWER\nThe owner has already written the answer to this exact question. ` +
+      `Reply with it as written — do not reword, shorten, extend or add to it:\n\n${script}\n\n` +
+      `Your only remaining job is to show a card alongside it when one of the cards above genuinely fits.`
+    : basePrompt;
   // A tool is offered only when a catalog card names it — the catalog (the
   // admin's A2UI tab) decides what exists.
   const catalogTools = new Set(catalog.map((c) => c.tool));
@@ -255,7 +266,14 @@ export async function* answer(
 
   try {
     const canned = await findServableCanned(userId, message);
-    if (canned) {
+    // A canned row short-circuits the model ONLY when it can answer in full:
+    // either the channel takes no cards, or the owner attached the card this
+    // answer should come with. Starter questions are canned rows, so without
+    // this a visitor clicking "What nail services do you offer?" got flat prose
+    // and never a card, no matter what the A2UI catalog held. When no card is
+    // attached, the row's answer becomes the model's script and the model
+    // decides which card (if any) belongs with it.
+    if (canned && (!cards || canned.cardTool)) {
       spoken = canned.answer;
       yield { t: "text", v: canned.answer };
       if (cards && canned.cardTool) {
@@ -265,8 +283,15 @@ export async function* answer(
       await recordCannedHit(canned.id);
       return;
     }
+    if (canned) await recordCannedHit(canned.id);
 
-    for await (const event of runModel(userId, message, history, deps.client ?? claude())) {
+    for await (const event of runModel(
+      userId,
+      message,
+      history,
+      deps.client ?? claude(),
+      canned?.answer,
+    )) {
       if (event.t === "text") spoken += event.v;
       if (event.t === "card" && !cards) continue;
       yield event;

@@ -239,8 +239,10 @@ export async function buildAdminPanels(
       {/* Company logo — auto-uploads the moment a file is chosen. */}
       <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 20 }}>
         {personaConfig.company_logo ? (
+          /* "contain" so the preview shows the whole mark — the same rule the
+             public header uses; "cover" cropped wide wordmarks. */
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={personaConfig.company_logo} alt="company logo" style={{ width: 72, height: 72, borderRadius: "var(--radius-md)", objectFit: "cover", border: "1px solid var(--border)" }} />
+          <img src={personaConfig.company_logo} alt="company logo" style={{ width: 72, height: 72, borderRadius: "var(--radius-md)", objectFit: "contain", background: "var(--bg-soft)", padding: 6, border: "1px solid var(--border)" }} />
         ) : (
           <div style={{ width: 72, height: 72, borderRadius: "var(--radius-md)", background: "var(--bg-soft)", border: "1px solid var(--border)" }} />
         )}

@@ -30,7 +30,17 @@ function store(): Storage | null {
   }
 }
 
-/** A couple of short words from a question, for the compact chip row. */
+/**
+ * The label for a chip in the compact row under the composer.
+ *
+ * The generic seed questions have hand-written short forms; everything else is
+ * shown whole. This used to fall back to the question's FIRST TWO WORDS, which
+ * was fine while the only questions were the five seeds below — but starter
+ * questions are now written per business (lib/starterQuestions.ts), so real
+ * questions came out as "What nail", "How much", "Can I". A chip that stops
+ * mid-question tells the visitor nothing, so the full text is kept and the row
+ * wraps instead.
+ */
 function shortLabel(q: string): string {
   const map: Record<string, string> = {
     "What's your background and past experience?": "Background",
@@ -39,7 +49,7 @@ function shortLabel(q: string): string {
     "What are your recent projects?": "Projects",
     "Show me a bit about your life?": "My life",
   };
-  return map[q] ?? q.split(" ").slice(0, 2).join(" ");
+  return map[q] ?? q;
 }
 
 export default function Chat({
@@ -568,14 +578,16 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   starters: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 620 },
+  // Sized to its question rather than pinned to 340px: a fixed width left
+  // short questions padded with empty space and long ones cramped.
   chip: {
     background: "var(--bg-soft)",
     border: "1px solid var(--border)",
     color: "var(--on-bg-soft)",
     borderRadius: "var(--radius-pill)",
-    padding: "10px 16px",
+    padding: "10px 18px",
     fontSize: 14,
-    width: 340,
+    lineHeight: 1.35,
     maxWidth: "100%",
     textAlign: "center",
   },
@@ -628,11 +640,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 13,
     fontWeight: 500,
   },
+  // "contain", never "cover": a company logo is usually a wordmark, and
+  // cropping it to fill a circle cuts the ends off the name. Contain scales
+  // the whole mark to fit, so the padding it leaves gets a surface behind it.
   headerAvatar: {
     width: 72,
     height: 72,
     borderRadius: "var(--radius-pill)",
-    objectFit: "cover",
+    objectFit: "contain",
+    background: "var(--surface)",
+    padding: 6,
     border: "2px solid var(--border)",
     boxShadow: "var(--glow-primary)",
   },
@@ -686,12 +703,13 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   composerDock: { paddingTop: 10, display: "flex", flexDirection: "column", gap: 8 },
+  // Wraps rather than scrolling sideways: chips now carry whole questions, and
+  // a horizontal scroller hides every chip past the first two.
   startersRow: {
     display: "flex",
     gap: 8,
     justifyContent: "center",
-    flexWrap: "nowrap",
-    overflowX: "auto",
+    flexWrap: "wrap",
     padding: "0 0 10px",
   },
   chipSmall: {
@@ -703,7 +721,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
     fontWeight: 500,
     lineHeight: 1.2,
+    textAlign: "left",
+    // One line each, elided if a question is unusually long — the full text
+    // stays in the button's title attribute.
+    maxWidth: "100%",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
     whiteSpace: "nowrap",
-    flexShrink: 0,
   },
 };

@@ -164,6 +164,15 @@ export function AdminChat({
             {name} · <a href={`/a/${slug}`}>/a/{slug}</a>
           </span>
         </div>
+        {/* The chat is where every sign-in lands, so the two things the old
+            dashboard header carried have to live here too: the dashboard
+            itself, and the link to the owner's own public page. */}
+        <a href="/admin/dashboard" style={btnGhost as React.CSSProperties}>
+          Dashboard
+        </a>
+        <a href={`/a/${slug}`} style={btnGhost as React.CSSProperties}>
+          View site
+        </a>
         <form action={logout}>
           <PendingButton pendingLabel="…" style={btnGhost as React.CSSProperties}>
             Log out
@@ -191,24 +200,23 @@ export function AdminChat({
             }}
           >
             {menu.map((m) => (
-              <button
+              <a
                 key={m.key}
-                type="button"
                 role="menuitem"
-                onClick={() => reveal(m.key)}
+                href={`/admin/dashboard?tab=${m.key}`}
+                onClick={() => setMenuOpen(false)}
                 style={{
                   padding: "7px 10px",
                   borderRadius: "var(--radius-sm)",
                   fontSize: 14,
                   textAlign: "left",
-                  background: "none",
-                  border: "none",
                   color: "inherit",
-                  cursor: "pointer",
+                  textDecoration: "none",
+                  display: "block",
                 }}
               >
                 {m.label}
-              </button>
+              </a>
             ))}
           </nav>
         )}

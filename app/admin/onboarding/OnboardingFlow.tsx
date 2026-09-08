@@ -986,7 +986,10 @@ export function OnboardingFlow() {
                 <button style={btn} onClick={startKnowledge} disabled={busy || picked.length === 0}>
                   Start extraction
                 </button>
-                <button style={btnGhost} onClick={() => skipToDashboard("site")} disabled={busy}>
+                {/* Skipping runs no extraction, so completion must do the
+                    indexing and starter-question work itself — that is the
+                    "manual" path, whatever got us to this step. */}
+                <button style={btnGhost} onClick={() => skipToDashboard("manual")} disabled={busy}>
                   Skip this
                 </button>
               </div>

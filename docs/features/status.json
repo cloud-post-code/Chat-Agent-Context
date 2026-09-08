@@ -491,6 +491,21 @@
       "priority": 3,
       "status": "pending",
       "notes": "Phase 3 of 3. canonicalOrigin(user) becomes the one source for absolute tenant URLs; siteOrigin() stops trusting an arbitrary X-Forwarded-Host (closing the existing lib/util.ts:32 weakness); app/layout.tsx stops calling siteOrigin() with no headers (today that yields localhost OG URLs). /a/<slug> declares the custom domain canonical without redirecting. The eight foundingUser() discovery call sites become host-aware, finally using the userId A2ATask already carries. gmailRedirectUri pins to the platform origin. Out of scope and deliberately unchanged: /api/uploads/[name] tenant-blindness."
+    },
+    {
+      "id": "inkbox-omnichannel-agents",
+      "title": "Inkbox omnichannel agents: per-user external (public) and internal (owner-only) identities over email/SMS",
+      "status": "spec",
+      "notes": "Spec + design + proof contract written; not implemented. External identity answers anyone via lib/brain.ts; internal identity answers only the owner via lib/adminBrain.ts, gated by Inkbox whitelist mail rule + app-side sender check. Key insight: lib/brain.ts already has an open Channel union and CARD_CHANNELS gate, so web A2UI is untouched; the change is replacing the silent card drop at lib/brain.ts:272 with a UiBlock->text renderer. Blockers/risks documented in DESIGN.md sections 9a-9d: AdminEvent has panel/approve variants that must NOT auto-execute over email; admin chat persists nothing; classification/trust columns are inert at retrieval so the external channel inherits today's unfiltered corpus."
+    },
+    {
+      "id": "starter-questions-a2ui-cards",
+      "title": "Starter questions can show A2UI cards; onboarding triggers fire after extraction",
+      "feature_dir": "docs/features/starter-questions-a2ui-cards",
+      "proof": "docs/features/starter-questions-a2ui-cards/PROOF.md",
+      "status": "done",
+      "notes": "Round of reported regressions. (1) Knowledge indexing + starter-question generation moved OUT of /api/admin/onboarding/complete and INTO runKnowledge (lib/onboarding/jobs.ts): the flow calls complete the instant the knowledge stage is kicked off (void runKnowledge, fire-and-forget), so both ran against a DB with no sources, graph or goals and the questions fell back to the generic seeds. complete now only does that work on the manual/skip paths, fire-and-forget so the ~21s-per-origin embed pacing cannot time the request out. Skip this now sends mode manual, since it runs no extraction. (2) app/Chat.tsx shortLabel no longer truncates to the first two words - that map only covered the five generic seeds, so real per-business questions rendered as What nail / How much / Can I; chip rows wrap instead of scrolling and hero chips size to content. (3) Logo objectFit cover -> contain (public header + admin preview): cover cropped wide wordmarks. (4) Admin chat header gained Dashboard and View site buttons and the menu entries are now real links to /admin/dashboard?tab=<key> rather than inline reveals - the dashboard and View site were never deleted, just unreachable once chat became the landing page. (5) restartOnboarding now calls provisionUserDefaults after the wipe (it deleted ingestion sources/cards/answers/persona/theme and rebuilt nothing) and revalidateAll covers /admin/chat. (6) lib/brain.ts: a canned row with no attached card no longer short-circuits on card-capable channels - the owners answer is injected as an APPROVED ANSWER script and the model runs so a card can accompany it; rows WITH a card, and cardless channels, still cost zero model calls. Proof surfaced and fixed a real check-then-create race in lib/db.ts (getProfile/getPersonaConfig/getThemeConfig now upsert; they run concurrently in buildSystemPrompt and threw a unique-constraint error on fresh accounts). Proof: docs/features/starter-questions-a2ui-cards/proof.ts (10 assertions, red->green); gate PASS; chips + logo verified in browser.",
+      "next": "A2UI default-card list left untouched at the user request. canned-answers-and-brain, retrieval-engine-v1 and universal-knowledge-index proofs were already red before this work (stale pre-multi-tenant seed data) and remain so."
     }
   ]
 }

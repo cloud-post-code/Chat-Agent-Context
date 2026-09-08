@@ -11,8 +11,9 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
-import { indexOnboardingGraph, type GraphIndexReport } from "./graphIndex";
+import { indexOnboardingGraph, finishOnboardingIndex, type GraphIndexReport } from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
+import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
 
@@ -65,6 +66,8 @@ export type Job = {
   graph?: GraphIndexReport;
   /** The agent goals derived from this run (lib/onboarding/goals.ts). */
   goals?: GoalsReport;
+  /** How many business-specific starter questions replaced the generic seeds. */
+  starterQuestions?: number;
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -450,6 +453,31 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
               : "Nothing on your site pointed to a clear goal — you can add them under Agent Behavior");
     } catch {
       log(job, "Couldn't draft your agent's goals — you can write them under Agent Behavior");
+    }
+
+    // Index the profile/persona/photo origins the save route wrote straight to
+    // their tables, then rewrite the generic seeded starter questions into
+    // business-specific ones. BOTH used to run in /complete, which the flow
+    // calls the instant this stage is kicked off — so they read a database
+    // with no sources, no graph and no goals yet, and the questions fell back
+    // to the generic seeds. They belong here, at the real end of extraction.
+    // Best-effort, in order: the knowledge is already saved either way.
+    log(job, "Filing everything into your agent's memory");
+    try {
+      await finishOnboardingIndex(job.userId, { onEvent });
+    } catch {
+      log(job, "Couldn't file some details — they're saved and still shown on your page");
+    }
+
+    log(job, "Writing the questions visitors will see first");
+    try {
+      const written = await personalizeStarterQuestions(job.userId);
+      job.starterQuestions = written;
+      log(job, written
+        ? `Wrote ${written} starter question${written === 1 ? "" : "s"} for your page, editable under Presets`
+        : "Kept the standard starter questions — you can edit them under Presets");
+    } catch {
+      log(job, "Kept the standard starter questions — you can edit them under Presets");
     }
 
     log(job, "All done");

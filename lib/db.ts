@@ -11,23 +11,23 @@ export const prisma =
 
 if (process.env.NODE_ENV !== "production") globalForPrisma.prisma = prisma;
 
-/** Load one user's Profile row (business identity), creating a default if missing. */
+/**
+ * Load one user's Profile row (business identity), creating a default if
+ * missing. Upsert, not find-then-create: these three loaders run concurrently
+ * (buildSystemPrompt awaits them together), so on an account whose rows don't
+ * exist yet two of them raced and one threw a unique-constraint error —
+ * failing the visitor's whole answer.
+ */
 export async function getProfile(userId: string) {
-  const existing = await prisma.profile.findUnique({ where: { userId } });
-  if (existing) return existing;
-  return prisma.profile.create({ data: { userId } });
+  return prisma.profile.upsert({ where: { userId }, update: {}, create: { userId } });
 }
 
 /** Load one user's PersonaConfig row (brand voice), creating a default if missing. */
 export async function getPersonaConfig(userId: string) {
-  const existing = await prisma.personaConfig.findUnique({ where: { userId } });
-  if (existing) return existing;
-  return prisma.personaConfig.create({ data: { userId } });
+  return prisma.personaConfig.upsert({ where: { userId }, update: {}, create: { userId } });
 }
 
 /** Load one user's ThemeConfig row (site look), creating a default if missing. */
 export async function getThemeConfig(userId: string) {
-  const existing = await prisma.themeConfig.findUnique({ where: { userId } });
-  if (existing) return existing;
-  return prisma.themeConfig.create({ data: { userId } });
+  return prisma.themeConfig.upsert({ where: { userId }, update: {}, create: { userId } });
 }

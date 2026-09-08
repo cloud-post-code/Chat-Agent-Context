@@ -28,22 +28,31 @@ export async function POST(req: Request) {
     data: { onboardedAt: new Date() },
   });
 
-  // Index everything onboarding just saved. The save route writes Profile,
-  // hours, brand voice and photos straight to their tables without touching
-  // the retrieval index, so without this the chatbot cannot answer from the
-  // details the user just confirmed. Best-effort: completion must not fail
-  // because indexing did, and the data is on the page either way.
-  try {
-    await finishOnboardingIndex(user.id);
-  } catch (e) {
-    console.error(`finishOnboardingIndex(${user.id}) failed:`, e);
+  // Index everything onboarding just saved, then rewrite the generic seeded
+  // starter questions into business-specific ones.
+  //
+  // The "site" path does NOT do this here. That path calls /complete the
+  // instant the knowledge stage is kicked off — the extraction is still
+  // crawling, so there would be no sources, no graph and no goals to read,
+  // and the questions would fall back to the generic seeds. runKnowledge
+  // (lib/onboarding/jobs.ts) runs both steps itself once extraction really
+  // finishes. Here we cover only the paths where extraction never runs at
+  // all: "Set up manually", and "Skip this" on the extraction step.
+  //
+  // Fire-and-forget: indexing paces itself at ~21s per origin (EMBED_PACE_MS),
+  // which is far longer than this request may block. Awaiting it timed the
+  // request out, so starter questions never ran. Best-effort either way — the
+  // data is saved and on the page regardless.
+  if (mode === "manual") {
+    void (async () => {
+      try {
+        await finishOnboardingIndex(user.id);
+      } catch (e) {
+        console.error(`finishOnboardingIndex(${user.id}) failed:`, e);
+      }
+      await personalizeStarterQuestions(user.id);
+    })();
   }
-
-  // Rewrite the generic seeded starter questions into business-specific ones,
-  // now that the profile/goals/knowledge exist to generate from. Bounded and
-  // best-effort inside: a failure or timeout leaves the generic seeds and
-  // never blocks completion.
-  await personalizeStarterQuestions(user.id);
 
   return Response.json({ ok: true, mode });
 }

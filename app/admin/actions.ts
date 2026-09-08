@@ -27,7 +27,7 @@ import {
   setAccountDisabled,
   updateAccount,
 } from "@/lib/accountAdmin";
-import { createUser } from "@/lib/users";
+import { createUser, provisionUserDefaults } from "@/lib/users";
 import {
   cancelAppointment,
   deleteAppointmentField,
@@ -133,6 +133,10 @@ function isUpload(v: FormDataEntryValue | null): v is File {
 
 function revalidateAll() {
   revalidatePath("/admin/dashboard");
+  // The chat renders the very same panels as the dashboard, and is where
+  // signed-in owners land — leaving it out meant a save anywhere in the admin
+  // left the chat's revealed panels showing stale data.
+  revalidatePath("/admin/chat");
   revalidatePath("/projects");
   revalidatePath("/");
 }
@@ -321,6 +325,14 @@ export async function restartOnboarding() {
     }),
     prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } }),
   ]);
+
+  // The transaction above clears the rows a NEW account is provisioned with —
+  // ingestion sources, A2UI cards, starter answers, persona and theme. Without
+  // putting them back the account restarts onboarding with no content tabs, no
+  // cards and no starter questions, which is what "reset isn't working" looked
+  // like: it wiped everything and rebuilt nothing.
+  await provisionUserDefaults(user.id);
+
   revalidateAll();
   redirect("/admin/onboarding");
 }
