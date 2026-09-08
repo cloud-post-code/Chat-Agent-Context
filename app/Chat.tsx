@@ -3,6 +3,14 @@
 import { useRef, useState, useEffect } from "react";
 import { Cards, type UiBlock } from "./cards/Cards";
 import { Markdown } from "./Markdown";
+import {
+  listChats,
+  loadMessages,
+  saveChat,
+  deleteChat,
+  newChatId,
+  type ChatMeta,
+} from "@/lib/chatStore";
 
 type Msg = {
   role: "user" | "assistant";
@@ -10,6 +18,17 @@ type Msg = {
   cards?: UiBlock[];
 };
 type Starter = { q: string };
+
+/** localStorage, or null when unavailable (private mode) — history is then off. */
+function store(): Storage | null {
+  try {
+    if (typeof window === "undefined") return null;
+    window.localStorage.getItem("chats:probe");
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
 
 /** A couple of short words from a question, for the compact chip row. */
 function shortLabel(q: string): string {
@@ -40,28 +59,61 @@ export default function Chat({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [chats, setChats] = useState<ChatMeta[]>([]);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const sessionId = useRef<string>("");
+  // One id per conversation: it doubles as the /api/chat sessionId, so each
+  // sidebar chat is one ChatSession in the admin Activity tab.
+  const [chatId, setChatId] = useState<string>(() => newChatId());
   const started = messages.length > 0;
 
-  // A stable per-visitor id, kept in sessionStorage so every turn in the same
-  // browser tab groups into one conversation in the admin Activity tab.
+  // Saved conversations for this agent, from the visitor's own localStorage.
   useEffect(() => {
+    const s = store();
+    if (s) setChats(listChats(s, slug));
+  }, [slug]);
+
+  // Persist the active chat once each exchange settles (not per stream chunk).
+  // An emptied thread (New chat / Home) is not a chat — never save it.
+  useEffect(() => {
+    if (loading || messages.length === 0) return;
+    const s = store();
+    if (!s) return;
     try {
-      const KEY = "chat-session-id";
-      let id = sessionStorage.getItem(KEY);
-      if (!id) {
-        id =
-          typeof crypto !== "undefined" && crypto.randomUUID
-            ? crypto.randomUUID()
-            : `s-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-        sessionStorage.setItem(KEY, id);
-      }
-      sessionId.current = id;
+      saveChat(s, slug, chatId, messages);
+      setChats(listChats(s, slug));
     } catch {
-      /* sessionStorage unavailable (private mode) — server falls back to anon */
+      /* quota full — the live conversation still works, history just lags */
     }
-  }, []);
+  }, [messages, loading, slug, chatId]);
+
+  function openChat(id: string) {
+    const s = store();
+    if (!s) return;
+    setChatId(id);
+    setMessages(loadMessages(s, slug, id));
+    setInput("");
+    setSidebarOpen(false);
+  }
+
+  function startNewChat() {
+    setChatId(newChatId());
+    setMessages([]);
+    setInput("");
+    setSidebarOpen(false);
+  }
+
+  function removeChat(id: string) {
+    const s = store();
+    if (!s) return;
+    try {
+      deleteChat(s, slug, id);
+    } catch {
+      /* storage failed — fall through, list refresh below reflects reality */
+    }
+    setChats(listChats(s, slug));
+    if (id === chatId) startNewChat();
+  }
 
   useEffect(() => {
     // Scroll the thread to the newest message after the DOM has painted it, so
@@ -88,7 +140,7 @@ export default function Chat({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: next.map(({ role, content }) => ({ role, content })),
-          sessionId: sessionId.current,
+          sessionId: chatId,
           slug,
         }),
       });
@@ -143,12 +195,69 @@ export default function Chat({
   }
 
   function goHome() {
-    setMessages([]);
-    setInput("");
+    // The old thread is already saved; Home starts fresh so the next question
+    // opens a new conversation instead of silently extending the last one.
+    startNewChat();
   }
+
+  const showSidebarToggle = chats.length > 0 || started;
 
   return (
     <main style={styles.shell}>
+      {showSidebarToggle && (
+        <button
+          onClick={() => setSidebarOpen(true)}
+          style={styles.sidebarToggle}
+          title="Your chats"
+          aria-label="Open chat history"
+        >
+          ☰ Chats
+        </button>
+      )}
+      {sidebarOpen && (
+        <>
+          <div style={styles.sidebarBackdrop} onClick={() => setSidebarOpen(false)} />
+          <aside style={styles.sidebar} data-fill="surface" aria-label="Chat history">
+            <div style={styles.sidebarHeader}>
+              <span style={styles.sidebarTitle}>Your chats</span>
+              <button
+                onClick={() => setSidebarOpen(false)}
+                style={styles.sidebarClose}
+                aria-label="Close chat history"
+              >
+                ✕
+              </button>
+            </div>
+            <button onClick={startNewChat} style={styles.newChatBtn}>
+              + New chat
+            </button>
+            <div style={styles.chatList}>
+              {chats.length === 0 && <p style={styles.chatListEmpty}>Nothing yet — say hi!</p>}
+              {chats.map((c) => (
+                <div
+                  key={c.id}
+                  style={{
+                    ...styles.chatItem,
+                    ...(c.id === chatId ? styles.chatItemActive : {}),
+                  }}
+                >
+                  <button onClick={() => openChat(c.id)} style={styles.chatItemBtn} title={c.title}>
+                    {c.title}
+                  </button>
+                  <button
+                    onClick={() => removeChat(c.id)}
+                    style={styles.chatItemDelete}
+                    title="Delete chat"
+                    aria-label={`Delete chat: ${c.title}`}
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+          </aside>
+        </>
+      )}
       {!started ? (
         <section style={styles.hero}>
           <h1 style={styles.h1}>
@@ -305,6 +414,109 @@ function Bubble({
 
 const styles: Record<string, React.CSSProperties> = {
   shell: { minHeight: "100dvh", display: "flex", flexDirection: "column" },
+
+  // ── Chat-history sidebar (overlay, so the centered layout is untouched) ──
+  sidebarToggle: {
+    position: "fixed",
+    top: 14,
+    left: 14,
+    zIndex: 30,
+    background: "var(--bg-soft)",
+    border: "1px solid var(--border)",
+    color: "var(--on-bg-soft)",
+    borderRadius: "var(--radius-pill)",
+    padding: "8px 14px",
+    fontSize: 13,
+    fontWeight: 500,
+    cursor: "pointer",
+  },
+  sidebarBackdrop: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 40,
+    background: "rgba(0,0,0,0.35)",
+  },
+  sidebar: {
+    position: "fixed",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    width: "min(300px, 85vw)",
+    zIndex: 50,
+    background: "var(--surface)",
+    color: "var(--on-surface)",
+    borderRight: "1px solid var(--border)",
+    display: "flex",
+    flexDirection: "column",
+    padding: 14,
+    gap: 10,
+    overflowY: "auto",
+  },
+  sidebarHeader: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+  sidebarTitle: {
+    fontFamily: "var(--font-heading), serif",
+    fontWeight: 600,
+    fontSize: 16,
+  },
+  sidebarClose: {
+    background: "transparent",
+    border: "none",
+    color: "var(--on-surface)",
+    fontSize: 14,
+    cursor: "pointer",
+    opacity: 0.7,
+    padding: 4,
+  },
+  newChatBtn: {
+    background: "var(--primary)",
+    color: "var(--on-primary)",
+    border: "none",
+    borderRadius: "var(--radius-md)",
+    padding: "10px 12px",
+    fontWeight: 600,
+    fontSize: 14,
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  chatList: { display: "flex", flexDirection: "column", gap: 4, minHeight: 0 },
+  chatListEmpty: { fontSize: 13, opacity: 0.6, fontStyle: "italic", margin: "6px 2px" },
+  chatItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: "var(--radius-md)",
+    border: "1px solid transparent",
+  },
+  chatItemActive: {
+    background: "var(--bg-soft)",
+    border: "1px solid var(--border)",
+  },
+  chatItemBtn: {
+    flex: 1,
+    minWidth: 0,
+    background: "transparent",
+    border: "none",
+    color: "var(--on-surface)",
+    textAlign: "left",
+    fontSize: 13.5,
+    lineHeight: 1.35,
+    padding: "9px 10px",
+    cursor: "pointer",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  chatItemDelete: {
+    background: "transparent",
+    border: "none",
+    color: "var(--on-surface)",
+    opacity: 0.45,
+    fontSize: 12,
+    cursor: "pointer",
+    padding: "6px 8px",
+    flexShrink: 0,
+  },
+
   hero: {
     flex: 1,
     display: "flex",

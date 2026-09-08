@@ -35,9 +35,6 @@ existing deployments get the feature without new configuration.
   The delete is hard: every row the account owns goes with it (the schema
   cascades), other accounts are untouched, and operators cannot delete
   themselves.
-- An operator can **view an account's chat history**: the visitor
-  conversations (sessions and their messages) that account's agent page has
-  had, read-only.
 - An operator can **enter an account** ("log in as"): one click switches the
   operator's session to that account, landing on its control room. Logging
   out returns to the login page.
@@ -58,6 +55,8 @@ existing deployments get the feature without new configuration.
   the generated password over out of band.
 - No audit log, no soft-delete/undo, no "return to operator" shortcut after
   entering an account (log out and back in).
+- No chat-history viewer: it shipped briefly and was removed 2026-09-05 at
+  the user's request as unnecessary.
 
 ## Scenarios
 - Operator searches "blake", opens the account, fixes a typo in the slug, and
@@ -74,8 +73,8 @@ existing deployments get the feature without new configuration.
   password, and the client logs in straight to onboarding.
 - Operator deletes a spam account; its data is gone but every other account's
   rows are exactly as before. Trying to delete their own account is refused.
-- Operator opens a user's chat history and reads what visitors asked; opens
-  "log in as" to see that user's control room exactly as the user does.
+- Operator opens "log in as" to see a user's control room exactly as the
+  user does.
 
 ## Constraints
 - Disabling must not delete or alter any of the user's owned rows.

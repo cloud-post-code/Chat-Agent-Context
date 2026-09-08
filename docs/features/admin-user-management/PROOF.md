@@ -50,9 +50,7 @@ Expected evidence — all assertions PASS:
 9. **Delete account** — `deleteAccount` refuses self-delete; deleting another
    account removes the user row and its owned rows (sources, chat sessions)
    while other accounts' rows are untouched.
-10. **Chat history** — `listChatSessions` returns a seeded visitor session
-    with its messages in order, scoped to that user only.
-11. **Cleanup** — seeded users and their rows are removed; table counts
+10. **Cleanup** — seeded users and their rows are removed; table counts
     return to the pre-run baseline.
 
 Secondary guards (not proof):

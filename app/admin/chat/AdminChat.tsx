@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Markdown } from "@/app/Markdown";
 import type { IngestProposal } from "@/lib/adminBrain";
 import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources";
@@ -49,11 +48,18 @@ export function AdminChat({
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [showStarters, setShowStarters] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [messages]);
+
+  /** Put a panel straight into the conversation — no model call, zero clicks wasted. */
+  function reveal(key: string) {
+    setMenuOpen(false);
+    setMessages((m) => [...m, { role: "assistant", content: "", items: [{ kind: "panel", key }] }]);
+  }
 
   async function send(text: string) {
     const q = text.trim();
@@ -158,9 +164,6 @@ export function AdminChat({
             {name} · <a href={`/a/${slug}`}>/a/{slug}</a>
           </span>
         </div>
-        <Link href="/admin/dashboard" style={{ ...(btnGhost as React.CSSProperties), textDecoration: "none" }}>
-          Classic dashboard
-        </Link>
         <form action={logout}>
           <PendingButton pendingLabel="…" style={btnGhost as React.CSSProperties}>
             Log out
@@ -188,15 +191,24 @@ export function AdminChat({
             }}
           >
             {menu.map((m) => (
-              <Link
+              <button
                 key={m.key}
+                type="button"
                 role="menuitem"
-                href={`/admin/dashboard?tab=${encodeURIComponent(m.key)}`}
-                style={{ padding: "7px 10px", borderRadius: "var(--radius-sm)", fontSize: 14, textDecoration: "none", color: "inherit" }}
-                onClick={() => setMenuOpen(false)}
+                onClick={() => reveal(m.key)}
+                style={{
+                  padding: "7px 10px",
+                  borderRadius: "var(--radius-sm)",
+                  fontSize: 14,
+                  textAlign: "left",
+                  background: "none",
+                  border: "none",
+                  color: "inherit",
+                  cursor: "pointer",
+                }}
               >
                 {m.label}
-              </Link>
+              </button>
             ))}
           </nav>
         )}
@@ -252,11 +264,7 @@ export function AdminChat({
                 )}
                 {m.items.map((item, j) =>
                   item.kind === "panel" ? (
-                    <PanelBubble
-                      key={j}
-                      label={labels[item.key] ?? item.key}
-                      tab={item.key}
-                    >
+                    <PanelBubble key={j} label={labels[item.key] ?? item.key}>
                       {panels[item.key] ?? (
                         <p style={{ fontStyle: "italic", fontSize: 13 }}>
                           That panel isn&apos;t available.
@@ -284,14 +292,44 @@ export function AdminChat({
         <div ref={endRef} />
       </div>
 
-      {/* ── Composer ── */}
+      {/* ── Composer, with the starter questions one tap away again ── */}
+      <div style={{ position: "sticky", bottom: 0, paddingBottom: 8, background: "var(--bg, transparent)" }}>
+        {showStarters && messages.length > 0 && (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8, padding: "8px 0 10px" }}>
+            {STARTERS.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => {
+                  setShowStarters(false);
+                  send(s);
+                }}
+                style={{ ...(btnGhost as React.CSSProperties), fontSize: 13 }}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
           send(input);
         }}
-        style={{ display: "flex", gap: 8, position: "sticky", bottom: 0, paddingBottom: 8, background: "var(--bg, transparent)" }}
+        style={{ display: "flex", gap: 8 }}
       >
+        {messages.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setShowStarters((s) => !s)}
+            aria-expanded={showStarters}
+            aria-label="Show suggested questions"
+            title="Suggested questions"
+            style={{ ...(btnGhost as React.CSSProperties), fontSize: 15 }}
+          >
+            ✦
+          </button>
+        )}
         <input
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -316,20 +354,13 @@ export function AdminChat({
           Send
         </button>
       </form>
+      </div>
     </>
   );
 }
 
-/** A dashboard panel revealed inline: label bar, the real panel, full-page link. */
-function PanelBubble({
-  label,
-  tab,
-  children,
-}: {
-  label: string;
-  tab: string;
-  children: React.ReactNode;
-}) {
+/** A dashboard panel revealed inline: label bar over the real panel. */
+function PanelBubble({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", overflow: "hidden" }}>
       <div
@@ -347,9 +378,6 @@ function PanelBubble({
         }}
       >
         <strong>{label}</strong>
-        <Link href={`/admin/dashboard?tab=${encodeURIComponent(tab)}`} style={{ fontSize: 12 }}>
-          Open full page →
-        </Link>
       </div>
       <div style={{ padding: 4 }}>{children}</div>
     </div>

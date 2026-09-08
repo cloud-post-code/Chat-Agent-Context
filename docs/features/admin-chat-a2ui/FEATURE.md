@@ -23,8 +23,11 @@ dashboard page stays reachable from a menu button at the top of the chat.
   ingest write path. For document files the card exposes the file picker (the one field
   a model cannot fill) with everything else pre-filled.
 - A menu button at the top of the chat opens a menu of the dashboard's sections; picking
-  one opens the classic full page at `/admin/dashboard?tab=<key>`. The classic dashboard
-  keeps working unchanged and links back to the chat.
+  one reveals that section's panel inline in the conversation (no navigation). The chat
+  offers no switch to the classic dashboard; the `/admin/dashboard` route stays alive
+  only for internal redirects (e.g. the Gmail sync callback) and old deep links.
+- The starter questions stay reachable after the conversation begins: a ✦ toggle beside
+  the composer reopens them, and tapping one sends it.
 - Operator-only surfaces (Users) are only available to operators, in chat as on the
   dashboard.
 

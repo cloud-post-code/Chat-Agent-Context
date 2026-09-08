@@ -40,7 +40,6 @@ async function main() {
     isOperator,
     issuePassword,
     listAccounts,
-    listChatSessions,
     setAccountDisabled,
     updateAccount,
   } = await import("../../../lib/accountAdmin");
@@ -245,31 +244,6 @@ async function main() {
       (await prisma.user.count({ where: { id: carol.id } })) === carolRowsBefore,
     );
 
-    // ── 10. Chat history ──
-    await prisma.chatSession.create({
-      data: {
-        userId: carol.id,
-        visitorKey: "useradminproof-visitor2",
-        firstQuery: "do you deliver?",
-        messages: {
-          create: [
-            { role: "user", content: "Do you deliver?" },
-            { role: "assistant", content: "Only on weekdays." },
-          ],
-        },
-      },
-    });
-    const carolChats = await listChatSessions(carol.id);
-    const aliceChats = await listChatSessions(alice.id);
-    check(
-      "listChatSessions returns the user's sessions with ordered messages",
-      carolChats.length === 1 &&
-        carolChats[0].firstQuery === "do you deliver?" &&
-        carolChats[0].messages.length === 2 &&
-        carolChats[0].messages[0].role === "user" &&
-        carolChats[0].messages[1].content === "Only on weekdays.",
-    );
-    check("chat history is scoped to the requested user", aliceChats.length === 0);
   } finally {
     if (savedOperatorEmails === undefined) delete process.env.OPERATOR_EMAILS;
     else process.env.OPERATOR_EMAILS = savedOperatorEmails;

@@ -184,28 +184,3 @@ export async function deleteAccount(id: string, actorId: string): Promise<Ok | E
   }
   return { ok: true };
 }
-
-export type ChatHistorySession = {
-  id: string;
-  firstQuery: string;
-  updatedAt: Date;
-  messages: { id: string; role: string; content: string; createdAt: Date }[];
-};
-
-/** A user's visitor conversations, newest first, messages in order. */
-export async function listChatSessions(userId: string): Promise<ChatHistorySession[]> {
-  return prisma.chatSession.findMany({
-    where: { userId },
-    orderBy: { updatedAt: "desc" },
-    take: 50,
-    select: {
-      id: true,
-      firstQuery: true,
-      updatedAt: true,
-      messages: {
-        orderBy: { createdAt: "asc" },
-        select: { id: true, role: true, content: true, createdAt: true },
-      },
-    },
-  });
-}
