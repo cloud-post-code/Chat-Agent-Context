@@ -11,6 +11,8 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
+import { indexOnboardingGraph, type GraphIndexReport } from "./graphIndex";
+import { buildClusterOverviews } from "@/lib/retrieval/clusters";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
 
@@ -59,6 +61,8 @@ export type Job = {
   stepBrand?: BrandIdentity;
   chunkCount?: number;
   report?: Partial<KnowledgeReport>;
+  /** Entities/relations built from the saved chunks (lib/onboarding/graphIndex.ts). */
+  graph?: GraphIndexReport;
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -395,7 +399,30 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     }
     job.report = report;
     job.chunkCount = chunks;
-    log(job, `All done — saved ${chunks} knowledge chunk${chunks === 1 ? "" : "s"}`);
+    log(job, `Saved ${chunks} knowledge chunk${chunks === 1 ? "" : "s"}`);
+
+    // The graph half of indexing. Onboarding writes its own chunks (curated
+    // boundaries the generic indexer would re-chunk away), so entities and
+    // relations are attached to those chunks here rather than by indexSource.
+    // Best-effort: the chunks are already saved and searchable, so a failure
+    // costs relation-hop retrieval, never the knowledge itself.
+    if (chunks > 0) {
+      log(job, "Reading how everything connects — people, services and places");
+      try {
+        job.graph = await indexOnboardingGraph(job.userId, { onEvent: onEvent });
+        log(job, job.graph.entities
+          ? `Connected ${job.graph.entities} thing${job.graph.entities === 1 ? "" : "s"} across ${job.graph.relations} relationship${job.graph.relations === 1 ? "" : "s"}`
+          : "Nothing linkable found — your pages are still fully searchable");
+        // Overviews are computed FROM the graph that was just built.
+        if (job.graph.entities > 0) {
+          await buildClusterOverviews(job.userId).catch(() => 0);
+        }
+      } catch {
+        log(job, "Couldn't map the connections — your knowledge is saved and searchable");
+      }
+    }
+
+    log(job, "All done");
     job.phase = "done";
     job.progress = 100;
   } finally {

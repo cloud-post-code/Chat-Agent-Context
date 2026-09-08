@@ -260,7 +260,7 @@ export async function embedMissingChunks(
   return { attempted: pending.length, embedded, model };
 }
 
-async function persistGraph(
+export async function persistGraph(
   userId: string,
   graph: ExtractedGraph,
   chunks: { id: string; text: string }[],
