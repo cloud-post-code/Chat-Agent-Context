@@ -49,12 +49,55 @@ const COMPANY_FIELDS: FieldSpec[] = [
   { kind: "text", key: "company_email", label: "Company email" },
 ];
 
-const locationFields = (): FieldSpec[] => [
+// ── Hours dropdown ──
+// One select per day: Closed, 24 hours, and every whole-hour open–close range.
+// Everything is still stored as plain text (the save route flattens hours into
+// the Profile), so the dropdown just constrains what that text can be.
+const hourLabel = (h: number): string => {
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12} ${h < 12 || h === 24 ? "AM" : "PM"}`;
+};
+const HOUR_RANGE_OPTIONS: string[] = (() => {
+  const out: string[] = [];
+  for (let open = 6; open <= 12; open++)
+    for (let close = Math.max(open + 1, 12); close <= 24; close++)
+      out.push(`${hourLabel(open)} – ${hourLabel(close)}`);
+  return out;
+})();
+
+/** Snap extracted free text ("9 AM–7:00 pm") onto a dropdown option; unmappable text is kept as-is. */
+function normalizeHours(raw: string): string {
+  const t = raw.trim();
+  if (!t || /^closed?$/i.test(t)) return "";
+  if (/24\s*h|24[/ -]?7|always open/i.test(t)) return "Open 24 hours";
+  const m = t.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*(?:[-–—~]|to)\s*(\d{1,2})(?::(\d{2}))?\s*(am|pm)/i);
+  if (!m || (m[2] && m[2] !== "00") || (m[5] && m[5] !== "00")) return t;
+  let open = parseInt(m[1], 10) % 12;
+  if ((m[3] ?? "am").toLowerCase() === "pm") open += 12;
+  let close = parseInt(m[4], 10) % 12;
+  if (m[6].toLowerCase() === "pm") close += 12;
+  if (close === 0) close = 24; // "12 AM" close means midnight
+  const label = `${hourLabel(open)} – ${hourLabel(close)}`;
+  return HOUR_RANGE_OPTIONS.includes(label) ? label : t;
+}
+
+/** Per-day options; a value the presets don't cover is kept as its own option. */
+const hoursOptions = (current: string) => [
+  { value: "", label: "Closed" },
+  ...(current && current !== "Open 24 hours" && !HOUR_RANGE_OPTIONS.includes(current)
+    ? [{ value: current, label: `${current} (from your site)` }]
+    : []),
+  { value: "Open 24 hours", label: "Open 24 hours" },
+  ...HOUR_RANGE_OPTIONS.map((r) => ({ value: r, label: r })),
+];
+
+const locationFields = (loc: LocationForm): FieldSpec[] => [
   { kind: "text", key: "address", label: "Address" },
   { kind: "text", key: "phone", label: "Phone (this location)" },
   ...DAYS.map<FieldSpec>((d) => ({
-    kind: "text", key: `hours_${d}`,
-    label: `Hours — ${d[0].toUpperCase()}${d.slice(1)}`, placeholder: "closed",
+    kind: "select", key: `hours_${d}`,
+    label: `Hours — ${d[0].toUpperCase()}${d.slice(1)}`,
+    options: hoursOptions(loc[`hours_${d}`] ?? ""),
   })),
 ];
 
@@ -251,7 +294,7 @@ export function OnboardingFlow() {
             return {
               address: String(l.address ?? ""),
               phone: String(l.phone ?? ""),
-              ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, hours[d] ?? ""])),
+              ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, normalizeHours(hours[d] ?? "")])),
             } as LocationForm;
           }));
         }
@@ -629,7 +672,7 @@ export function OnboardingFlow() {
                     )}
                   </div>
                   <FormCard
-                    fields={locationFields()}
+                    fields={locationFields(loc)}
                     values={loc}
                     onChange={(k, v) =>
                       setLocations(locations.map((l, j) => (j === i ? { ...l, [k]: v } : l)))}
