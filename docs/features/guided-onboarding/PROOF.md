@@ -70,6 +70,12 @@ Secondary guards:
   (Playwright dependency must not break the Nixpacks/Railway build).
 - Existing feature proofs still green (at minimum
   `scripts/proof-multi-tenant.ts`).
+- Activity-feed retention regression
+  (`npx tsx docs/features/guided-onboarding/proof/activity-stream-retention.ts`):
+  the extraction feed keeps EVERY step of the run visible, in order, instead
+  of showing only a trailing window — the finished steps read as a transcript
+  of what the agent did. Guards the reported bug where earlier steps silently
+  fell out of the bubble as later ones arrived.
 - Rendered-extraction regression
   (`npx tsx docs/features/guided-onboarding/proof/rendered-extraction.ts`):
   extraction sees what the browser renders, not just raw HTML — external

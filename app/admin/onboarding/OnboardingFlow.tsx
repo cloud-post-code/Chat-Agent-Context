@@ -9,6 +9,7 @@ import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 import { GalleryCard, type GalleryItem } from "./GalleryCard";
+import { ActivityStream, Typewriter } from "./ActivityStream";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
@@ -135,9 +136,6 @@ const defaultTheme = (): ThemeInitial => ({
   themeFontSize: "16", themeHeadingWeight: "700", colors: {},
 });
 
-/** Lemonade-style letter-by-letter text for assistant messages. Progress is
- *  derived from elapsed time, not tick counts, so a backgrounded tab (whose
- *  timers the browser throttles) catches up instantly instead of stalling. */
 /**
  * What the run actually found. Only non-zero categories are listed: a site
  * with no blog is the normal case for a small business, and printing
@@ -179,51 +177,6 @@ function summarizeAbsent(status: Status): string[] {
   }
   if (r.team && !r.team.blocks) notes.push("No team members were introduced by name.");
   return notes;
-}
-
-function Typewriter({ text, speed = 14, onDone }: { text: string; speed?: number; onDone?: () => void }) {
-  const [shown, setShown] = useState(0);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
-  useEffect(() => {
-    setShown(0);
-    const startedAt = Date.now();
-    const t = setInterval(() => {
-      const n = Math.min(text.length, Math.floor((Date.now() - startedAt) / speed));
-      setShown(n);
-      if (n >= text.length) clearInterval(t);
-    }, speed);
-    return () => clearInterval(t);
-  }, [text, speed]);
-  // Completion is signaled from an effect, not from inside the interval's
-  // state updater — updating the parent mid-render is a React error.
-  useEffect(() => {
-    if (text.length > 0 && shown >= text.length) onDoneRef.current?.();
-  }, [shown, text]);
-  return <>{text.slice(0, shown)}</>;
-}
-
-/**
- * The live extraction feed: REAL activity lines from the job (pages being
- * read, values found, sections that don't exist), streamed in order. The
- * newest line types in; earlier ones stay dimmed above it.
- */
-function ActivityStream({ lines, progress }: { lines: string[]; progress: number }) {
-  const tail = lines.slice(-5);
-  return (
-    <div aria-live="polite">
-      <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10, minHeight: 22 }}>
-        {tail.map((l, i) => (
-          <div key={`${lines.length - tail.length + i}`} style={{ opacity: i === tail.length - 1 ? 1 : 0.55 }}>
-            {i === tail.length - 1 ? <Typewriter text={l} /> : l}
-          </div>
-        ))}
-      </div>
-      <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
-        <div style={{ width: `${Math.max(progress, 3)}%`, height: "100%", background: "var(--primary)", transition: "width .6s" }} />
-      </div>
-    </div>
-  );
 }
 
 /**
@@ -311,9 +264,12 @@ export function OnboardingFlow() {
     setTextDone(false);
   }, [step]);
 
+  // Log length is a dependency because the activity feed keeps every step
+  // instead of windowing: as the transcript grows the newest line would
+  // otherwise drift below the fold with nothing scrolling to follow it.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [step, status?.phase, textDone, greetingDone]);
+  }, [step, status?.phase, status?.log?.length, textDone, greetingDone]);
 
   // One poller drives every running stage; step transitions happen on the
   // phase the backend reports, and each form is pre-filled before it shows.
