@@ -12,6 +12,7 @@ import {
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
 import { indexOnboardingGraph, type GraphIndexReport } from "./graphIndex";
+import { deriveGoals, type GoalsReport } from "./goals";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
 
@@ -62,6 +63,8 @@ export type Job = {
   report?: Partial<KnowledgeReport>;
   /** Entities/relations built from the saved chunks (lib/onboarding/graphIndex.ts). */
   graph?: GraphIndexReport;
+  /** The agent goals derived from this run (lib/onboarding/goals.ts). */
+  goals?: GoalsReport;
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -323,6 +326,10 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   const home = job.home!;
   const covered = new Set<string>([home.url]);
   const report: Partial<KnowledgeReport> = {};
+  // The pages the goals stage reads at the end. Starts as what every run has
+  // loaded; the services stage widens it, since services/booking pages are the
+  // ones that say what this business actually wants out of a conversation.
+  let goalPages: Page[] = [home, ...(job.extras ?? [])];
   let chunks = 0;
   const stepShare = 100 / Math.max(picked.length, 1);
   let stepsDone = 0;
@@ -374,6 +381,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, "Reading your services and how you take bookings");
       const svcPages = await discoverServicePages(crawler, home, job.extras ?? []);
       svcPages.forEach((p) => covered.add(p.url));
+      goalPages = svcPages;
       const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent);
       report.services = svc.report;
       chunks += svc.chunks;
@@ -413,6 +421,35 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       } catch {
         log(job, "Couldn't map the connections — your knowledge is saved and searchable");
       }
+    }
+
+    // What the agent is FOR. The knowledge above tells it what to say; this
+    // reads the same run back and writes the outcomes the owner wants out of a
+    // visitor chat, live on the Agent Behavior tab. Best-effort like the graph
+    // pass: onboarding is already successful by this point, and a goal draft
+    // must never cost it. Seeds only into an empty catalog.
+    log(job, "Working out what your agent should be steering visitors toward");
+    try {
+      job.goals = await deriveGoals(
+        goalPages,
+        job.userId,
+        {
+          takesAppointments: report.services?.takesAppointments ?? false,
+          categories: picked,
+        },
+        onEvent,
+      );
+      const g = job.goals;
+      log(job,
+        g.keptExisting
+          ? "You already have goals set — left them exactly as they are"
+          : g.written
+            ? `Set ${g.written} goal${g.written === 1 ? "" : "s"} for your agent, editable under Agent Behavior: ${g.goals.join("; ")}`
+            : g.failed
+              ? "Couldn't draft your agent's goals — you can write them under Agent Behavior"
+              : "Nothing on your site pointed to a clear goal — you can add them under Agent Behavior");
+    } catch {
+      log(job, "Couldn't draft your agent's goals — you can write them under Agent Behavior");
     }
 
     log(job, "All done");
