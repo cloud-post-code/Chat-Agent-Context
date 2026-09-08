@@ -5,6 +5,7 @@ import {
   keyFromLabel,
   saveAppointmentField,
 } from "@/lib/appointments";
+import { onboardingIngestKind } from "@/lib/ingestionSources";
 import type { Crawler, Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
@@ -154,7 +155,7 @@ export async function extractServicesAndBooking(
     );
     const saved = await saveKnowledgeRecord(
       userId,
-      { url, title: "Services", kind: "services", rawText: pieces.join("\n\n") },
+      { url, title: "Services", kind: onboardingIngestKind("services"), rawText: pieces.join("\n\n") },
       pieces,
     );
     chunks = saved.chunks;

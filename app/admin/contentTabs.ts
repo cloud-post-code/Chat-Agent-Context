@@ -1,11 +1,15 @@
-/** Keys of the sub-tabs inside the combined Content section. */
+/**
+ * Keys of the sub-tabs inside the combined Content section — the starter
+ * ingestion sources (STARTER_INGESTION_SOURCES in lib/ingestionSources.ts),
+ * which mirror what onboarding extracts from a business's website. The live
+ * keys come from the IngestionSource table; this list is the fallback for
+ * callers that have no rows to hand.
+ */
 export const CONTENT_TAB_KEYS = [
-  "projects",
-  "links",
-  "pdfs",
-  "text",
-  "photos",
-  "persona",
+  "blog",
+  "testimonials",
+  "about-team",
+  "services",
 ] as const;
 export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
 

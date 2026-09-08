@@ -65,6 +65,8 @@ export function asClassification(v: string | null | undefined): Classification |
 
 export type IngestionSourceRow = {
   id: string;
+  /** Owning account. Every source belongs to exactly one. */
+  userId: string;
   key: string;
   label: string;
   description: string;
@@ -268,98 +270,126 @@ export async function setIngestionSourceHidden(
 }
 
 /**
- * The built-in tabs, in display order. Seeded once into an empty table
- * (seedStarterIngestionSources); after that the rows are Blake's to edit or
- * reorder — the starters never overwrite live rows.
+ * The starter ingestion sources, in display order. These mirror the four
+ * things onboarding extracts from a business's website (lib/onboarding/jobs.ts
+ * EXTRACTORS): blog posts, testimonials, the people behind the business, and
+ * services. Onboarding fills these tabs; the admin adds to them by hand
+ * afterwards through the same generic ingest panel.
+ *
+ * Seeded once into an empty table (seedStarterIngestionSources); after that
+ * the rows are the account's to edit or reorder — the starters never
+ * overwrite live rows.
  */
 // Starters omit classification and splitMode so the DB defaults ("public",
 // "split") stay the one source of truth for what an unnamed value means.
+//
+// `builtin: false` is deliberate: builtin rows dispatch to bespoke panels by
+// key in app/admin/panels.tsx, and a builtin row with no panel is DROPPED from
+// the tab strip. These four render the generic ingest panel over their own
+// `ingest:<key>` rows, exactly like an admin-created source.
 export const STARTER_INGESTION_SOURCES: Array<
   Omit<
     IngestionSourceRow,
-    "id" | "enabled" | "builtin" | "classification" | "splitMode" | "panelHtml" | "createdAt" | "updatedAt"
-  > & { builtin: true }
+    | "id"
+    | "userId"
+    | "enabled"
+    | "builtin"
+    | "classification"
+    | "splitMode"
+    | "panelHtml"
+    | "createdAt"
+    | "updatedAt"
+  > & { builtin: false }
 > = [
   {
-    key: "projects",
-    label: "Projects",
-    description: "Portfolio projects with blurbs, links, tags, and an optional image.",
+    key: "blog",
+    label: "Blog",
+    description: "Blog and news posts from the site, each one indexed as its own piece.",
     systemPrompt:
-      "Describe each project the way Blake would in conversation: what it is, what it's " +
-      "built with, and why it exists. Keep blurbs to one or two sentences; keep the detail " +
-      "field factual.",
-    uploadMethod: "github",
-    storageKinds: "text+image",
-    outputMethod: "Project rows (image file in the upload dir) + project chunks",
-    builtin: true,
-    order: 1,
-  },
-  {
-    key: "links",
-    label: "Links",
-    description: "Web pages scraped into knowledge: articles, profiles, writeups.",
-    systemPrompt:
-      "Summarize the scraped page in a few sentences focused on what it says about Blake " +
-      "or Blake's work. Tag the source with a handful of short topical tags.",
+      "Each item is one blog or news post. Keep the author's own wording; strip navigation, " +
+      "related-post teasers, footers, and signup prompts. Record only what the post states — " +
+      "never invent an author, a date, or content that isn't there.",
     uploadMethod: "url",
     storageKinds: "text",
     outputMethod: "Source rows + Chunk embeddings",
-    builtin: true,
+    builtin: false,
+    order: 1,
+  },
+  {
+    key: "testimonials",
+    label: "Testimonials",
+    description: "Customer testimonials — a quote plus who said it.",
+    systemPrompt:
+      "A testimonial is a customer's own quoted words WITH an attribution (a name, initials, " +
+      "or a name and title) that literally appears in the text. Marketing copy, press " +
+      "mentions, and unattributed praise do not count. Copy each quote as written; never " +
+      "merge or embellish quotes or attributions.",
+    uploadMethod: "generic",
+    storageKinds: "text",
+    outputMethod: "Source rows + Chunk embeddings",
+    builtin: false,
     order: 2,
   },
   {
-    key: "pdfs",
-    label: "PDFs",
-    description: "PDF and Word documents extracted into knowledge.",
+    key: "about-team",
+    label: "About and Team",
+    description: "Who the business is and the people behind it — one entry per person.",
     systemPrompt:
-      "Extract the document's text faithfully, then summarize what it establishes about " +
-      "Blake. Keep the raw text intact for retrieval; the summary is for the admin list.",
-    uploadMethod: "file",
+      "One entry per person the text actually introduces: a name plus whatever the text says " +
+      "about them (role, bio, experience), plus what the business says about itself. Copy " +
+      "from the text; never infer or pad a bio. Skip customers, quoted reviewers, and people " +
+      "mentioned only in passing.",
+    uploadMethod: "generic",
     storageKinds: "text",
     outputMethod: "Source rows + Chunk embeddings",
-    builtin: true,
+    builtin: false,
     order: 3,
   },
   {
-    key: "text",
-    label: "Text",
-    description: "Pasted notes and free text added straight into knowledge.",
+    key: "services",
+    label: "Services",
+    description: "What the business offers: services, pricing, hours, policies, and FAQs.",
     systemPrompt:
-      "Treat pasted text as ground truth written by Blake. Chunk and index it as-is; " +
-      "summarize it in one or two sentences for the admin list.",
-    uploadMethod: "textarea",
+      "Turn each page into discrete facts a customer could ask about: a service and what it " +
+      "includes, a price, opening hours, an address, a policy, a guarantee, an FAQ answer. " +
+      "Facts come ONLY from the text — never estimate or generalize beyond what is written. " +
+      "Skip navigation labels, button text, and slogans with no information in them.",
+    uploadMethod: "generic",
     storageKinds: "text",
     outputMethod: "Source rows + Chunk embeddings",
-    builtin: true,
+    builtin: false,
     order: 4,
   },
-  {
-    key: "photos",
-    label: "Photos",
-    description: "Gallery, project, and profile photos with captions.",
-    systemPrompt:
-      "Describe each uploaded photo in one factual paragraph — who or what is shown, the " +
-      "setting, anything identifying — so the agent can talk about it without seeing it.",
-    uploadMethod: "image",
-    storageKinds: "image",
-    outputMethod: "Photo rows (image file in the upload dir) + photo chunks",
-    builtin: true,
-    order: 5,
-  },
-  {
-    key: "persona",
-    label: "Persona",
-    description: "Voice, values, and self-description the agent speaks from.",
-    systemPrompt:
-      "Persona sections are first-person ground truth about how Blake talks and thinks. " +
-      "Split saved sections into one knowledge entry per distinct claim.",
-    uploadMethod: "form",
-    storageKinds: "text",
-    outputMethod: "Profile.personaSections (JSON) + per-claim persona chunks",
-    builtin: true,
-    order: 6,
-  },
 ];
+
+/**
+ * Which starter tab each onboarding extractor fills.
+ *
+ * Onboarding writes plain `Source` rows; a Content tab lists exactly the rows
+ * marked `ingest:<key>` (listIngestedItems in lib/ingestedItems.ts). Without
+ * this mapping the four starter tabs stay empty after a full onboarding run —
+ * ready for manual ingests, but never fed by the crawl that created them.
+ *
+ * The sweep maps to `services` on purpose: its catch-all prompt distills a
+ * page into discrete customer-answerable facts — services, pricing, hours,
+ * policies, FAQs — which is exactly what the `services` starter describes.
+ *
+ * Stated once here so the extractor-to-tab relationship is provable offline.
+ */
+export const ONBOARDING_SOURCE_KEYS = {
+  blog: "blog",
+  testimonials: "testimonials",
+  team: "about-team",
+  services: "services",
+  sweep: "services",
+} as const;
+
+/** The `Source.kind` mark an onboarding extractor writes. */
+export function onboardingIngestKind(
+  extractor: keyof typeof ONBOARDING_SOURCE_KEYS,
+): string {
+  return `ingest:${ONBOARDING_SOURCE_KEYS[extractor]}`;
+}
 
 /**
  * Seed the starters into an EMPTY table only. A non-empty table is Blake's

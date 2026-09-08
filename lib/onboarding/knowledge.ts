@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { chunkText } from "@/lib/retrieval/chunking";
 import { embedTexts, vecToBytes } from "@/lib/retrieval/embed";
 import type { Crawler, Page } from "./crawl";
+import { onboardingIngestKind } from "@/lib/ingestionSources";
 import {
   BLOG_SYSTEM_PROMPT, TESTIMONIALS_SYSTEM_PROMPT, TEAM_SYSTEM_PROMPT, GENERAL_SYSTEM_PROMPT,
   llmExtract, llmPageText, llmCorpus,
@@ -73,7 +74,13 @@ export async function saveKnowledgeRecord(
 
   const source = await prisma.source.upsert({
     where: { userId_url: { userId, url: src.url } },
-    update: { title: src.title, rawText: src.rawText, summary: src.summary ?? "", status: "scanned" },
+    // `kind` is in the update branch too: a site onboarded before the rows
+    // carried `ingest:` marks (or re-onboarded after) re-tags in place instead
+    // of keeping a stale mark that hides it from its Content tab.
+    update: {
+      title: src.title, kind: src.kind, rawText: src.rawText,
+      summary: src.summary ?? "", status: "scanned",
+    },
     create: {
       userId, type: "link", url: src.url, title: src.title, kind: src.kind,
       rawText: src.rawText, summary: src.summary ?? "", status: "scanned",
@@ -180,7 +187,7 @@ export async function extractBlog(
     const header = [title, author && `By ${author}`, date && `Published ${date}`]
       .filter(Boolean).join(". ");
     const saved = await saveKnowledgeRecord(userId,
-      { url: page.url, title, kind: "article", summary: header, rawText: body },
+      { url: page.url, title, kind: onboardingIngestKind("blog"), summary: header, rawText: body },
       chunkText(`${header}\n\n${body}`));
     chunks += saved.chunks;
     if (saved.chunks) postsSaved++;
@@ -283,7 +290,7 @@ export async function extractTestimonials(
     const pieces = items.map((t) =>
       `Customer testimonial from ${t.author}${t.title ? ` (${t.title})` : ""}: "${t.quote}"`);
     const saved = await saveKnowledgeRecord(userId, {
-      url, title: "Customer testimonials", kind: "other",
+      url, title: "Customer testimonials", kind: onboardingIngestKind("testimonials"),
       summary: `${items.length} customer testimonials extracted during onboarding.`,
       rawText: pieces.join("\n\n"),
     }, pieces);
@@ -328,7 +335,8 @@ export async function extractTeam(
     // page — team pages stay un-covered, so the sweep re-saves the bare url
     // and saveKnowledgeRecord's per-source chunk reset would silently drop the bios.
     const saved = await saveKnowledgeRecord(userId, {
-      url: `${pagesChecked[pagesChecked.length - 1]}#team`, title: "Team", kind: "other",
+      url: `${pagesChecked[pagesChecked.length - 1]}#team`, title: "Team",
+      kind: onboardingIngestKind("team"),
       summary: `Team bios for ${blocks.map((b) => b.name).join(", ")}.`,
       rawText: pieces.join("\n\n"),
     }, pieces);
@@ -368,7 +376,7 @@ export async function sweepSitemap(
     const distilled = sanitizeFacts(raw);
     if (!distilled?.facts.length) return; // model: nothing substantive
     const saved = await saveKnowledgeRecord(userId, {
-      url: page.url, title: distilled.title || page.url, kind: "other",
+      url: page.url, title: distilled.title || page.url, kind: onboardingIngestKind("sweep"),
       rawText: llmPageText(page).slice(0, 60_000),
     }, distilled.facts);
     if (saved.chunks) {
