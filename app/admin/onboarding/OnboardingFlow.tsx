@@ -31,7 +31,14 @@ type Status = {
   stepImages?: { images?: { src?: string; caption?: string }[] };
   stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
   chunkCount?: number;
-  report?: { blog?: { postsSaved: number }; testimonials?: { count: number }; team?: { blocks: number } };
+  report?: {
+    blog?: { postsSaved: number; existed: boolean };
+    testimonials?: { count: number; embeddedWidget?: boolean };
+    team?: { blocks: number };
+    services?: { services: number };
+    sweep?: { pages: string[] };
+  };
+  graph?: { entities: number; relations: number };
 };
 
 type Step =
@@ -131,6 +138,49 @@ const defaultTheme = (): ThemeInitial => ({
 /** Lemonade-style letter-by-letter text for assistant messages. Progress is
  *  derived from elapsed time, not tick counts, so a backgrounded tab (whose
  *  timers the browser throttles) catches up instantly instead of stalling. */
+/**
+ * What the run actually found. Only non-zero categories are listed: a site
+ * with no blog is the normal case for a small business, and printing
+ * "0 blog posts, 0 testimonials, 0 team bios" next to a healthy chunk count
+ * reads as a failure when nothing failed.
+ */
+function summarizeFound(status: Status): string[] {
+  const r = status.report;
+  if (!r) return [];
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  const parts: string[] = [];
+  if (r.blog?.postsSaved) parts.push(plural(r.blog.postsSaved, "blog post", "blog posts"));
+  if (r.services?.services) parts.push(plural(r.services.services, "service", "services"));
+  if (r.testimonials?.count) parts.push(plural(r.testimonials.count, "testimonial", "testimonials"));
+  if (r.team?.blocks) parts.push(plural(r.team.blocks, "team bio", "team bios"));
+  if (r.sweep?.pages.length) parts.push(plural(r.sweep.pages.length, "page", "pages"));
+  return parts;
+}
+
+/**
+ * Why a category came back empty, when the reason is knowable. The extractors
+ * already distinguish "no blog on this site" from "a blog with no posts" and
+ * flag third-party review widgets; without this that detail is captured and
+ * then thrown away at render time, leaving the user to guess.
+ */
+function summarizeAbsent(status: Status): string[] {
+  const r = status.report;
+  if (!r) return [];
+  const notes: string[] = [];
+  if (r.blog && !r.blog.postsSaved) {
+    notes.push(r.blog.existed
+      ? "Your blog page is set up but has no posts published yet."
+      : "I didn't find a blog on this site.");
+  }
+  if (r.testimonials && !r.testimonials.count) {
+    notes.push(r.testimonials.embeddedWidget
+      ? "Your reviews load through a third-party widget, so they aren't in the page itself."
+      : "No customer testimonials were written on the site.");
+  }
+  if (r.team && !r.team.blocks) notes.push("No team members were introduced by name.");
+  return notes;
+}
+
 function Typewriter({ text, speed = 14, onDone }: { text: string; speed?: number; onDone?: () => void }) {
   const [shown, setShown] = useState(0);
   const onDoneRef = useRef(onDone);
@@ -949,12 +999,22 @@ export function OnboardingFlow() {
         <>
           <Bubble who="assistant">
             {status?.phase === "done" ? (
-              <p style={{ margin: 0 }}>
-                All done — I saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
-                {status.report
-                  ? ` (${status.report.blog?.postsSaved ?? 0} blog posts, ${status.report.testimonials?.count ?? 0} testimonials, ${status.report.team?.blocks ?? 0} team bios).`
-                  : "."}
-              </p>
+              <div>
+                <p style={{ margin: 0 }}>
+                  All done — I saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
+                  {summarizeFound(status).length
+                    ? ` (${summarizeFound(status).join(", ")}).`
+                    : "."}
+                  {status.graph?.entities
+                    ? ` I also connected ${status.graph.entities} thing${status.graph.entities === 1 ? "" : "s"} across ${status.graph.relations} relationship${status.graph.relations === 1 ? "" : "s"}.`
+                    : ""}
+                </p>
+                {summarizeAbsent(status).length > 0 && (
+                  <p style={{ margin: "8px 0 0", opacity: 0.75, fontSize: 14 }}>
+                    {summarizeAbsent(status).join(" ")}
+                  </p>
+                )}
+              </div>
             ) : (
               <div>
                 <p style={{ margin: "0 0 10px" }}>
