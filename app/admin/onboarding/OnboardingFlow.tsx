@@ -555,7 +555,7 @@ export function OnboardingFlow() {
     }
     if (manual) {
       await post("/api/admin/onboarding/complete", { mode: "manual" });
-      router.push("/admin/dashboard");
+      router.push("/admin/chat");
       return;
     }
     setStep("select-knowledge");
@@ -581,7 +581,7 @@ export function OnboardingFlow() {
 
   async function skipToDashboard(mode: "site" | "manual") {
     await post("/api/admin/onboarding/complete", { mode });
-    router.push("/admin/dashboard");
+    router.push("/admin/chat");
   }
 
   return (
@@ -1029,8 +1029,8 @@ export function OnboardingFlow() {
           </Bubble>
           {(textDone || status?.phase === "done") && (
             <UserEntry maxWidth={360}>
-              <button style={btn} onClick={() => router.push("/admin/dashboard")}>
-                Continue to dashboard →
+              <button style={btn} onClick={() => router.push("/admin/chat")}>
+                Continue to chat →
               </button>
             </UserEntry>
           )}

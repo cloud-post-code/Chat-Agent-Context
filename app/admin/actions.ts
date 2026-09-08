@@ -243,7 +243,7 @@ export async function impersonateAction(formData: FormData) {
   const target = await prisma.user.findUnique({ where: { id } });
   if (!target || !accountActive(target)) throw new Error("No such active account.");
   await createSession(target.id);
-  redirect("/admin/dashboard");
+  redirect("/admin/chat");
 }
 
 // ── Profile (business identity) ──

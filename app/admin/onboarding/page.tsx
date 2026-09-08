@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function OnboardingPage() {
   const user = await currentUser();
   if (!user) redirect("/admin");
-  if (user.onboardedAt) redirect("/admin/dashboard");
+  if (user.onboardedAt) redirect("/admin/chat");
 
   return (
     <main

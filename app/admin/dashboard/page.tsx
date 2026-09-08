@@ -61,7 +61,7 @@ export default async function Dashboard({
         </div>
         <div style={{ display: "flex", gap: 10 }}>
           <Link href="/admin/chat" style={btnGhost as React.CSSProperties}>✦ Chat</Link>
-          <Link href="/" style={btnGhost as React.CSSProperties}>View site</Link>
+          <Link href={`/a/${user.slug}`} style={btnGhost as React.CSSProperties}>View site</Link>
           <form action={logout}>
             <PendingButton pendingLabel="Logging out…" style={btnGhost as React.CSSProperties}>
               Log out
