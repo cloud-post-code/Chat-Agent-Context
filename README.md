@@ -351,7 +351,7 @@ blocks:
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
 | `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
-| `show_booking` | Real open times from the live calendar — offered only when booking is on and Google is connected |
+| `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
 
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)

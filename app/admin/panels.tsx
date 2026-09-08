@@ -28,9 +28,12 @@ import {
   issuePasswordAction,
   createAccountAction,
   deleteAccountAction,
-  listUserChatsAction,
   impersonateAction,
+  cancelAppointmentAction,
 } from "./actions";
+import { BookingPanel } from "./BookingPanel";
+import { CalendarPanel } from "./CalendarPanel";
+import { getBookingConfig, listAppointments } from "@/lib/appointments";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
 import { KnowledgePanel, isDocSource } from "./KnowledgePanel";
@@ -80,6 +83,8 @@ export type AdminPanelSet = {
   contentKeys: string[];
   /** Disabled sources, for the dashboard's "hidden sources" strip. */
   hiddenSources: { id: string; label: string }[];
+  /** Whether the Calendar tab/panel exists (the Appointments toggle). */
+  bookingEnabled: boolean;
   operator: boolean;
   themeConfig: Awaited<ReturnType<typeof getThemeConfig>>;
   slug: string;
@@ -109,6 +114,8 @@ export async function buildAdminPanels(
     ruleRows,
     addressBook,
     gmail,
+    bookingConfig,
+    appointments,
   ] = await Promise.all([
       getProfile(user.id),
       getPersonaConfig(user.id),
@@ -150,6 +157,8 @@ export async function buildAdminPanels(
       listDirectives(user.id, "rule"),
       listAddressBook(user.id),
       gmailStatus(user.id),
+      getBookingConfig(user.id),
+      listAppointments(user.id),
     ]);
   const metrics = chatMetrics(chatSessions);
   // Operator-only: account rows are fetched (and the Users tab rendered) for
@@ -657,6 +666,8 @@ export async function buildAdminPanels(
     rules: "Rules",
     contacts: "Contacts",
     a2ui: "A2UI",
+    booking: "Appointments",
+    calendar: "Calendar",
     [NEW_SOURCE_TAB_KEY]: "+ New ingestion source",
     users: "Users",
   };
@@ -681,8 +692,23 @@ export async function buildAdminPanels(
     contacts: <ContactsPanel rows={addressBook} gmail={gmail} message={query.gmail} />,
     a2ui: <A2uiPanel rows={uiCards} slug={user.slug} />,
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
+    booking: <BookingPanel config={bookingConfig} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
+  // The Calendar exists only while booking does — matching adminPanelKeys.
+  if (bookingConfig.enabled) {
+    flat.calendar = (
+      <CalendarPanel
+        rows={appointments.map((a) => ({
+          id: a.id,
+          startsAt: a.startsAt.toISOString(),
+          answers: a.answers,
+        }))}
+        fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
+        cancelAction={cancelAppointmentAction}
+      />
+    );
+  }
   if (operator) {
     flat.users = (
       <UsersPanel
@@ -693,7 +719,6 @@ export async function buildAdminPanels(
         passwordAction={issuePasswordAction}
         createAction={createAccountAction}
         deleteAction={deleteAccountAction}
-        chatsAction={listUserChatsAction}
         impersonateAction={impersonateAction}
       />
     );
@@ -706,6 +731,7 @@ export async function buildAdminPanels(
     hiddenSources: ingestionSources
       .filter((s) => !s.enabled)
       .map((s) => ({ id: s.id, label: s.label })),
+    bookingEnabled: bookingConfig.enabled,
     operator,
     themeConfig,
     slug: user.slug,

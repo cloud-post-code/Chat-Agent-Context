@@ -148,10 +148,13 @@ export default async function Dashboard({
               <SubTabs
                 initial={initialSub}
                 ariaLabel="Agent Behavior sections"
-                tabs={sub(["answers", "goals", "rules", "contacts", "a2ui"])}
+                tabs={sub(["answers", "goals", "rules", "contacts", "a2ui", "booking"])}
               />
             ),
           },
+          ...(set.bookingEnabled
+            ? [{ key: "calendar", label: "Calendar", content: flat.calendar }]
+            : []),
           ...(set.operator ? [{ key: "users", label: "Users", content: flat.users }] : []),
         ]}
       />

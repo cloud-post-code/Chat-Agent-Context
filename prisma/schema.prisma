@@ -50,6 +50,8 @@ model User {
   addressBookEntries  AddressBookEntry[]
   gmailAuth           GmailAuth?
   contacts            Contact[]
+  appointmentFields   AppointmentField[]
+  appointments        Appointment[]
   profile             Profile?
   personaConfig       PersonaConfig?
   themeConfig         ThemeConfig?
@@ -547,6 +549,41 @@ model Contact {
   @@index([userId])
 }
 
+/// One question the booking wizard asks, per tenant. The catalog is seeded
+/// with defaults on first enable and edited on the Appointments admin panel;
+/// the wizard asks these in `order`. Same per-tenant catalog idiom as
+/// IngestionSource: key + label + order under @@unique([userId, key]).
+model AppointmentField {
+  id       String  @id @default(cuid())
+  user     User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId   String
+  /// Form-safe answer key, derived from the label.
+  key      String
+  label    String
+  /// short_text | long_text | email | phone — the input the wizard renders.
+  type     String  @default("short_text")
+  required Boolean @default(false)
+  order    Int     @default(0)
+
+  @@unique([userId, key])
+}
+
+/// A booked appointment. `answers` is JSON {fieldKey: answer} of what the
+/// visitor typed — untrusted input, framed as quoted visitor data wherever it
+/// is indexed or prompted. The unique (userId, startsAt) is the race guard:
+/// the row is the claim on the slot, so the second booker of the same instant
+/// hits the constraint instead of double-booking.
+model Appointment {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  startsAt  DateTime
+  answers   String   @default("{}") @db.Text
+  createdAt DateTime @default(now())
+
+  @@unique([userId, startsAt])
+}
+
 /// One user's editable business identity. What the chatbot states as fact
 /// about the business lives here; brand voice is PersonaConfig and the site's
 /// look is ThemeConfig.
@@ -561,6 +598,10 @@ model Profile {
   company_email        String   @default("")
   /// Free text, e.g. "Mon-Fri 9am-5pm ET".
   company_hours        String   @default("")
+  /// Gates the whole booking capability: the show_booking tool, the submit
+  /// path, and the admin Calendar panel. Defaults off so a fresh tenant
+  /// never shows visitors a booker nobody configured.
+  bookingEnabled       Boolean  @default(false)
   updatedAt            DateTime @updatedAt
 }
 

@@ -6,8 +6,10 @@ import {
   singleProjectBlock,
   galleryBlock,
   contactBlock,
+  bookingBlock,
   type UiBlock,
 } from "@/lib/cards";
+import { getBookingConfig } from "@/lib/appointments";
 import { recordTurn } from "@/lib/activity";
 import { findServableCanned, recordCannedHit } from "@/lib/canned";
 import { cardCatalog, customCardBlock } from "@/lib/uiCards";
@@ -102,6 +104,18 @@ const TOOLS: Anthropic.Tool[] = [
 ];
 
 /**
+ * The booking wizard's tool. Unlike TOOLS above it is not gated by the card
+ * catalog: the Appointments toggle is its whole existence, so it is offered
+ * exactly when booking is enabled and withheld otherwise.
+ */
+const BOOKING_TOOL: Anthropic.Tool = {
+  name: "show_booking",
+  description:
+    "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to book, schedule, or set up an appointment, call, or meeting.",
+  input_schema: { type: "object", properties: {} },
+};
+
+/**
  * The tool for cards designed in the admin card builder. One tool for all of
  * them, keyed: the key enum makes the model's choice a closed set, and the
  * per-card "when to show it" guidance lives in the system prompt beside it.
@@ -135,6 +149,10 @@ async function hydrate(
       return galleryBlock(userId, input.layout === "carousel" ? "carousel" : "filmstrip");
     case "show_contact_form":
       return contactBlock();
+    case "show_booking":
+      // Null when booking was disabled after the tool was seen (or a stale
+      // canned answer names it) — nothing is drawn rather than a dead booker.
+      return bookingBlock(userId);
     case "show_card":
       // Null when the key doesn't name a custom card any more — a canned
       // answer can outlive the card it pointed at.
@@ -163,9 +181,10 @@ async function* runModel(
 ): AsyncGenerator<BrainEvent> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [system, catalog] = await Promise.all([
+  const [system, catalog, booking] = await Promise.all([
     buildSystemPrompt(userId, message),
     cardCatalog(userId),
+    getBookingConfig(userId),
   ]);
   // A tool is offered only when a catalog card names it — the catalog (the
   // admin's A2UI tab) decides what exists.
@@ -174,6 +193,8 @@ async function* runModel(
   // Custom-designed cards share one keyed tool, built from the catalog.
   const customKeys = catalog.filter((c) => c.tool === "show_card").map((c) => c.key);
   if (customKeys.length) tools.push(customCardTool(customKeys));
+  // Booking is gated by its own toggle, not the catalog.
+  if (booking.enabled && booking.fields.length > 0) tools.push(BOOKING_TOOL);
   const convo: Anthropic.MessageParam[] = history.map((m) => ({
     role: m.role,
     content: m.content,

@@ -23,11 +23,17 @@ import {
   deleteAccount,
   isOperator,
   issuePassword,
-  listChatSessions,
   setAccountDisabled,
   updateAccount,
 } from "@/lib/accountAdmin";
 import { createUser } from "@/lib/users";
+import {
+  cancelAppointment,
+  deleteAppointmentField,
+  moveAppointmentField,
+  saveAppointmentField,
+  setBookingEnabled,
+} from "@/lib/appointments";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
@@ -224,12 +230,6 @@ export async function deleteAccountAction(formData: FormData) {
   const result = await deleteAccount(String(formData.get("id") ?? ""), operator.id);
   revalidatePath("/admin/dashboard");
   return result;
-}
-
-/** Read-only: one account's visitor conversations for the Users tab. */
-export async function listUserChatsAction(id: string) {
-  await requireOperator();
-  return listChatSessions(id);
 }
 
 /**
@@ -1314,6 +1314,44 @@ export async function updateIngestionSourceAction(formData: FormData) {
   revalidateAll();
   // Land back on the ingestion that was just edited, not the first tab.
   redirect(`/admin/dashboard?tab=${key}`);
+}
+
+// ── Appointments ──
+
+export async function setBookingEnabledAction(formData: FormData) {
+  const user = await requireUser();
+  await setBookingEnabled(user.id, formData.get("enabled") === "on");
+  revalidateAll();
+}
+
+export async function saveAppointmentFieldAction(formData: FormData) {
+  const user = await requireUser();
+  await saveAppointmentField(user.id, {
+    key: String(formData.get("key") ?? "") || undefined,
+    label: String(formData.get("label") ?? ""),
+    type: String(formData.get("type") ?? "short_text"),
+    required: formData.get("required") === "on",
+  });
+  revalidateAll();
+}
+
+export async function deleteAppointmentFieldAction(formData: FormData) {
+  const user = await requireUser();
+  await deleteAppointmentField(user.id, String(formData.get("key") ?? ""));
+  revalidateAll();
+}
+
+export async function moveAppointmentFieldAction(formData: FormData) {
+  const user = await requireUser();
+  const dir = formData.get("dir") === "up" ? "up" : "down";
+  await moveAppointmentField(user.id, String(formData.get("key") ?? ""), dir);
+  revalidateAll();
+}
+
+export async function cancelAppointmentAction(formData: FormData) {
+  const user = await requireUser();
+  await cancelAppointment(user.id, String(formData.get("id") ?? ""));
+  revalidateAll();
 }
 
 function err(e: unknown): string {

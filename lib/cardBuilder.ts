@@ -40,6 +40,7 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_project: ["project"],
   show_gallery: ["gallery"],
   show_contact_form: ["contact"],
+  show_booking: ["booking"],
   show_card: ["custom", "html"],
 };
 

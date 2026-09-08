@@ -21,6 +21,9 @@ export const CARD_TOOLS = [
   "show_project",
   "show_gallery",
   "show_contact_form",
+  // The booking wizard; hydration guards it, so a canned answer naming it
+  // after booking is disabled draws nothing.
+  "show_booking",
   // Custom-designed cards from the admin card builder, drawn by key.
   "show_card",
 ] as const;

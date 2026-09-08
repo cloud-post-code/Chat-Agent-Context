@@ -29,13 +29,20 @@ export type CustomElement =
   | { kind: "image"; src: string; alt?: string }
   | { kind: "quote"; text: string; by?: string }
   | { kind: "divider" };
+export type BookingField = {
+  key: string;
+  label: string;
+  type: "short_text" | "long_text" | "email" | "phone";
+  required: boolean;
+};
 export type UiBlock =
   | { type: "projects"; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
   | { type: "gallery"; layout: "carousel" | "filmstrip"; items: PhotoCard[] }
   | { type: "contact" }
   | { type: "custom"; title?: string; elements: CustomElement[] }
-  | { type: "html"; html: string; height?: number };
+  | { type: "html"; html: string; height?: number }
+  | { type: "booking"; fields: BookingField[] };
 
 export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "projects") {
@@ -66,6 +73,9 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   }
   if (block.type === "contact") {
     return <ContactForm slug={slug} />;
+  }
+  if (block.type === "booking") {
+    return <BookingCard slug={slug} fields={block.fields} />;
   }
   if (block.type === "custom") {
     return <CustomCard title={block.title} elements={block.elements} />;
@@ -253,6 +263,203 @@ function CustomEl({ el }: { el: CustomElement }) {
     default:
       return null;
   }
+}
+
+/**
+ * The booking wizard: one question per configured field, then a date-and-time
+ * step, then review + confirm. All state is local until the single POST at
+ * the end; a rejected submit shows the server's reason on the review step
+ * with every answer intact. The server re-validates everything — this
+ * component is convenience, not enforcement.
+ */
+function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] }) {
+  // 0..fields.length-1 = questions, fields.length = time, +1 = review.
+  const [step, setStep] = useState(0);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [when, setWhen] = useState("");
+  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
+  const [error, setError] = useState("");
+
+  const timeStep = fields.length;
+  const reviewStep = fields.length + 1;
+  const startsAt = when ? new Date(when) : null;
+  const timeOk = !!startsAt && !Number.isNaN(startsAt.getTime()) && startsAt.getTime() > Date.now();
+
+  async function submit() {
+    if (state === "sending" || !startsAt) return;
+    setState("sending");
+    setError("");
+    try {
+      const res = await fetch("/api/booking", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug, startsAt: startsAt.toISOString(), answers }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.ok) {
+        setError(data.error || "Something went wrong.");
+        setState("error");
+        return;
+      }
+      setState("done");
+    } catch {
+      setError("Network error. Try again.");
+      setState("error");
+    }
+  }
+
+  if (state === "done" && startsAt) {
+    return (
+      <div data-fill="bg-soft" style={{ ...card, borderColor: "var(--success-on-bg-soft)" }}>
+        <strong style={{ fontSize: 15 }}>You&apos;re booked.</strong>
+        <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 14, marginTop: 6 }}>
+          {startsAt.toLocaleString(undefined, {
+            weekday: "long",
+            month: "long",
+            day: "numeric",
+            hour: "numeric",
+            minute: "2-digit",
+          })}{" "}
+          — your local time.
+        </p>
+      </div>
+    );
+  }
+
+  const back = step > 0 && (
+    <button onClick={() => setStep(step - 1)} style={{ ...linkBtn, cursor: "pointer" }}>
+      Back
+    </button>
+  );
+  const progress = (
+    <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 12, margin: "0 0 10px" }}>
+      Step {Math.min(step, reviewStep) + 1} of {reviewStep + 1}
+    </p>
+  );
+
+  if (step < timeStep) {
+    const f = fields[step];
+    const v = answers[f.key] ?? "";
+    const canNext = !f.required || v.trim().length > 0;
+    const next = () => canNext && setStep(step + 1);
+    const inputProps = {
+      value: v,
+      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
+        setAnswers({ ...answers, [f.key]: e.target.value }),
+      placeholder: f.required ? "Required" : "Optional",
+      style: cf,
+      autoFocus: true,
+    };
+    return (
+      <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
+        {progress}
+        <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>{f.label}</strong>
+        <div style={{ marginTop: 10 }}>
+          {f.type === "long_text" ? (
+            <textarea {...inputProps} rows={3} style={{ ...cf, resize: "vertical" }} />
+          ) : (
+            <input
+              {...inputProps}
+              type={f.type === "email" ? "email" : f.type === "phone" ? "tel" : "text"}
+              onKeyDown={(e) => e.key === "Enter" && next()}
+            />
+          )}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          {back}
+          <button
+            onClick={next}
+            disabled={!canNext}
+            style={{ ...linkBtn, ...liveBtn, cursor: "pointer", opacity: canNext ? 1 : 0.55 }}
+          >
+            {v.trim() || f.required ? "Next" : "Skip"}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (step === timeStep) {
+    return (
+      <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
+        {progress}
+        <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
+          When works for you?
+        </strong>
+        <div style={{ marginTop: 10 }}>
+          <input
+            type="datetime-local"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            style={cf}
+          />
+        </div>
+        {when && !timeOk && (
+          <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>
+            Pick a time in the future.
+          </p>
+        )}
+        <div style={{ display: "flex", gap: 8 }}>
+          {back}
+          <button
+            onClick={() => timeOk && setStep(reviewStep)}
+            disabled={!timeOk}
+            style={{ ...linkBtn, ...liveBtn, cursor: "pointer", opacity: timeOk ? 1 : 0.55 }}
+          >
+            Next
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
+      {progress}
+      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Confirm your booking</strong>
+      <dl style={{ margin: "10px 0", fontSize: 13 }}>
+        {fields
+          .filter((f) => (answers[f.key] ?? "").trim())
+          .map((f) => (
+            <div key={f.key} style={{ marginBottom: 6 }}>
+              <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>{f.label}</dt>
+              <dd style={{ margin: 0 }}>{answers[f.key]}</dd>
+            </div>
+          ))}
+        <div>
+          <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>Time</dt>
+          <dd style={{ margin: 0 }}>
+            {startsAt?.toLocaleString(undefined, {
+              weekday: "long",
+              month: "long",
+              day: "numeric",
+              hour: "numeric",
+              minute: "2-digit",
+            })}
+          </dd>
+        </div>
+      </dl>
+      {state === "error" && (
+        <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>{error}</p>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        {back}
+        <button
+          onClick={submit}
+          disabled={state === "sending"}
+          style={{
+            ...linkBtn,
+            ...liveBtn,
+            padding: "10px 18px",
+            cursor: "pointer",
+            opacity: state === "sending" ? 0.55 : 1,
+          }}
+        >
+          {state === "sending" ? "Booking…" : "Confirm booking"}
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function ContactForm({ slug }: { slug: string }) {

@@ -20,6 +20,7 @@ import {
 } from "@/lib/customIngest";
 import { extractDocument, extractLink, extractText } from "@/lib/scrape";
 import { indexSource } from "@/lib/retrieval/indexer";
+import { getBookingConfig } from "@/lib/appointments";
 import { NEW_SOURCE_TAB_KEY } from "@/app/admin/contentTabs";
 
 /**
@@ -74,6 +75,7 @@ const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "rules", label: "Rules" },
   { key: "contacts", label: "Contacts" },
   { key: "a2ui", label: "A2UI cards" },
+  { key: "booking", label: "Appointments" },
   { key: NEW_SOURCE_TAB_KEY, label: "New ingestion source" },
 ];
 
@@ -86,10 +88,16 @@ export async function adminPanelKeys(
   userId: string,
   operator = false,
 ): Promise<Array<{ key: string; label: string }>> {
-  const sources = await listIngestionSources(userId);
+  const [sources, booking] = await Promise.all([
+    listIngestionSources(userId),
+    getBookingConfig(userId),
+  ]);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
     ...FIXED_PANELS,
+    // The Calendar exists only while booking does; the Appointments settings
+    // panel (key "booking") is fixed so there is always a place to enable it.
+    ...(booking.enabled ? [{ key: "calendar", label: "Calendar" }] : []),
     ...(operator ? [{ key: "users", label: "Users" }] : []),
   ];
 }

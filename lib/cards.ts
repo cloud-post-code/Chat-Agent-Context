@@ -52,7 +52,11 @@ export type UiBlock =
   // sealed sandbox (no scripts, no external requests). `height` is the
   // iframe's px height, since a sandboxed document can't report its own.
   | { type: "html"; html: string; height?: number }
-  | { type: "contact" };
+  | { type: "contact" }
+  // The booking wizard: one question per configured field, then a time, then
+  // a confirm. The fields ride in the block so the card asks exactly what the
+  // tenant configured at the moment it was drawn.
+  | { type: "booking"; fields: BookingField[] };
 
 function toProjectCard(p: {
   id: string;
@@ -92,6 +96,33 @@ export async function singleProjectBlock(userId: string, id: string): Promise<Ui
 /** The contact form. */
 export async function contactBlock(): Promise<UiBlock> {
   return { type: "contact" };
+}
+
+export type BookingField = {
+  key: string;
+  label: string;
+  type: "short_text" | "long_text" | "email" | "phone";
+  required: boolean;
+};
+
+/**
+ * The booking wizard, hydrated from the live config. Null when booking is
+ * disabled or has no questions — the guard that keeps a stale canned answer
+ * (or a model that saw the tool a moment ago) from drawing a broken booker.
+ */
+export async function bookingBlock(userId: string): Promise<UiBlock | null> {
+  const { getBookingConfig } = await import("./appointments");
+  const { enabled, fields } = await getBookingConfig(userId);
+  if (!enabled || fields.length === 0) return null;
+  return {
+    type: "booking",
+    fields: fields.map((f) => ({
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      required: f.required,
+    })),
+  };
 }
 
 export async function galleryBlock(

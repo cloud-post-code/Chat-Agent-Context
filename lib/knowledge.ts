@@ -123,7 +123,7 @@ KNOWLEDGE FOR THIS QUESTION (retrieved from everything ${speaker} curates —
 profile and experience, persona, project write-ups, photo descriptions, saved
 sources, and approved answers. Each block is labelled with where it came
 from):
-${sourceBlock}${cardRulesSection(cards)}${goalsPromptSection(directives)}
+${sourceBlock}${cardRulesSection(cards)}${await bookingPromptSection(userId)}${goalsPromptSection(directives)}
 
 RULES:
 - Only state facts present above. If you don't know, say so warmly and point them to how they can connect with ${speaker} directly.
@@ -195,6 +195,22 @@ USING RICH CARDS (A2UI):
 You have tools that render visual cards in the chat. Prefer them over plain text lists. When to use each:
 ${lines.join("\n")}
 Always add a short spoken sentence alongside a card — the card supplements your words, it doesn't replace them.`;
+}
+
+/**
+ * One instruction line when booking is live, none otherwise — telling the
+ * model about a tool it doesn't have is how you get an apology instead of a
+ * card. Dynamic import: knowledge is imported by half of lib/, appointments
+ * imports back into the retrieval stack.
+ */
+async function bookingPromptSection(userId: string): Promise<string> {
+  const { getBookingConfig } = await import("./appointments");
+  const { enabled, fields } = await getBookingConfig(userId);
+  if (!enabled || fields.length === 0) return "";
+  return `
+
+BOOKING:
+Visitors can book an appointment right here in the chat. When someone wants to book, schedule, or meet, draw the booking flow with show_booking — don't collect their details in conversation.`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */
