@@ -100,13 +100,21 @@ function parseQuestions(text: string): string[] {
 }
 
 /**
- * True when this user's preset rows are exactly the untouched generic seeds:
- * same questions, nothing written, drafted, or reordered. Any sign the owner
- * (or the drafting pass) has touched the tab means their rows are theirs.
+ * True when there is nothing of the owner's to protect: either no rows at all,
+ * or rows that are exactly the untouched generic seeds — same questions,
+ * nothing written, drafted, or reordered. Any sign the owner (or the drafting
+ * pass) has touched the tab means their rows are theirs.
+ *
+ * The empty case is the re-onboarding path: `restartOnboarding` wipes the
+ * account's content, canned answers included, so the second run through the
+ * flow arrives with an empty table. Reading that as "customized" would leave
+ * the user with no preset rows at all — strictly worse than the generic seeds
+ * the guard exists to defend.
  */
 function isUntouchedSeeds(
   rows: { matchKey: string; answer: string; aiDraft: boolean; draftedAt: Date | null }[],
 ): boolean {
+  if (rows.length === 0) return true;
   if (rows.length !== starterQuestions.length) return false;
   const seedKeys = new Set(starterQuestions.map((s) => normalizeQuestion(s.q)));
   return rows.every(

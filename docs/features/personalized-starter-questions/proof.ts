@@ -292,6 +292,29 @@ async function main() {
       JSON.stringify(fallback),
     );
 
+    // ── 9b. A re-onboarded user still gets generated questions ───────────
+    // `restartOnboarding` wipes the account's content, canned answers
+    // included, so the user re-enters the flow with zero preset rows. The
+    // untouched-seeds guard has to read that empty table as "nothing of the
+    // owner's to protect" and personalize anyway — otherwise the second
+    // completion silently leaves them with no preset rows at all, and their
+    // public page falls back to the hardcoded chips.
+    const restarted = await makeUser("restarted");
+    await prisma.cannedAnswer.deleteMany({ where: { userId: restarted } });
+    const rerun = fakeClient(GENERATED);
+    await personalizeStarterQuestions(restarted, { client: rerun.client });
+    const rerunRows = await prisma.cannedAnswer.findMany({
+      where: { userId: restarted },
+      orderBy: [{ order: "asc" }, { createdAt: "asc" }],
+    });
+    check(
+      "a re-onboarded user with no rows still gets generated questions",
+      rerun.spy.calls === 1 &&
+        rerunRows.length === GENERATED.length &&
+        rerunRows.every((r, i) => r.question === GENERATED[i]),
+      `calls=${rerun.spy.calls} rows=${JSON.stringify(rerunRows.map((r) => r.question))}`,
+    );
+
     // ── 10. Tenant isolation ──────────────────────────────────────────────
     const other = await prisma.cannedAnswer.findMany({
       where: { userId: bystander },
