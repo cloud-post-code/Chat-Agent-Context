@@ -77,7 +77,10 @@ export async function setBookingEnabled(userId: string, enabled: boolean): Promi
   }
 }
 
-const keyFromLabel = (label: string) =>
+/** The key a label becomes. Exported because onboarding seeds several
+ *  questions in a row and must detect a collision before the upsert below
+ *  silently overwrites one it just wrote. */
+export const keyFromLabel = (label: string) =>
   label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
 
 /** Create or update one field. Returns an error string, or null on success. */

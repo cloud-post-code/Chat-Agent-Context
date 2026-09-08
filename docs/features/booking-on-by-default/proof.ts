@@ -71,6 +71,21 @@ const WITH_REQS = {
   },
 };
 
+/** Requirement labels that derive to keys already claimed: "Name" -> name
+ *  (the default) and "Service" -> service (the generated picker). Seeding
+ *  upserts on key, so without a guard these silently overwrite both. */
+const COLLIDING = {
+  services: [{ name: SVC_1, description: "Full retrofit of aging kilns." }],
+  booking: {
+    takesAppointments: true,
+    requirements: [
+      { label: "Name", type: "short_text", required: true },
+      { label: "Service", type: "short_text", required: true },
+      { label: "Contact phone number", type: "phone", required: true },
+    ],
+  },
+};
+
 /** The site never says it takes bookings, and names no services. */
 const NOTHING = {
   services: [],
@@ -298,6 +313,36 @@ async function main() {
       "B13 an existing catalog is left exactly as it was",
       cfgOwned.fields.length === 1 && cfgOwned.fields[0].key === "company",
       JSON.stringify(cfgOwned.fields),
+    );
+
+    // B13b: a colliding requirement label must not overwrite a seeded
+    // question. Regression: an extracted "Service" replaced the generated
+    // picker with the bare word, losing the service names entirely.
+    const userClash = await newUser("clash");
+    await extractServicesAndBooking(PAGES, userClash.id, quiet, {
+      llm: scriptedLlm(COLLIDING),
+    });
+    const cfgClash = await getBookingConfig(userClash.id);
+    const clashPicker = cfgClash.fields.find((f) => f.key === "service");
+    check(
+      "B13b a colliding requirement does not overwrite the service picker",
+      !!clashPicker && clashPicker.label.includes(SVC_1),
+      clashPicker?.label,
+    );
+    check(
+      "B13b a colliding requirement does not overwrite a default",
+      cfgClash.fields.find((f) => f.key === "name")?.label === "Your name",
+      JSON.stringify(cfgClash.fields.find((f) => f.key === "name")),
+    );
+    check(
+      "B13b non-colliding requirements are still seeded",
+      cfgClash.fields.some((f) => f.label === "Contact phone number" && f.type === "phone"),
+      cfgClash.fields.map((f) => f.label).join(" | "),
+    );
+    check(
+      "B13b every seeded key is unique",
+      new Set(cfgClash.fields.map((f) => f.key)).size === cfgClash.fields.length,
+      cfgClash.fields.map((f) => f.key).join(","),
     );
 
     // B14: idempotent.

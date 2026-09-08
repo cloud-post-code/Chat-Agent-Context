@@ -100,3 +100,20 @@ off.
 - `npx prisma migrate diff` shows the default change and no data mutation.
 - A real onboarding run ends with the Calendar tab present, booking on, and a
   service-named question in the catalog.
+
+## Addendum — collision regression (B13b)
+
+Found during live verification, not by the original contract. `saveAppointmentField`
+upserts on a key derived from the label, so seeding several questions in one
+pass could silently overwrite its own earlier writes: a model requirement
+labeled "Service" derives `service` and replaced the generated picker with the
+bare word, losing every service name; "Name" likewise overwrote the "Your name"
+default. Nine writes produced seven rows.
+
+Seeding is now additive — the first question to claim a key keeps it — and
+`keyFromLabel` is exported from `lib/appointments.ts` so the collision check
+uses the same derivation as the write, instead of a copy that could drift.
+
+Assertions B13b cover it: the picker survives a colliding requirement, the
+default survives, non-colliding requirements are still seeded, and every seeded
+key is unique.

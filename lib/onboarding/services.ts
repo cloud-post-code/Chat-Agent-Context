@@ -1,5 +1,10 @@
 import { prisma } from "@/lib/db";
-import { DEFAULT_APPOINTMENT_FIELDS, FIELD_TYPES, saveAppointmentField } from "@/lib/appointments";
+import {
+  DEFAULT_APPOINTMENT_FIELDS,
+  FIELD_TYPES,
+  keyFromLabel,
+  saveAppointmentField,
+} from "@/lib/appointments";
 import type { Crawler, Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
@@ -206,9 +211,18 @@ async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<
   const replaced = Boolean(picker) || clean.requirements.length > 0;
   const defaults = DEFAULT_APPOINTMENT_FIELDS.filter((d) => !(replaced && d.key === "reason"));
 
+  // saveAppointmentField upserts on key, and keys derive from labels — so an
+  // extracted "Name" would silently overwrite the "Your name" default, and an
+  // extracted "Service" would replace the generated picker with a bare word.
+  // Seeding is additive: the first question to claim a key keeps it.
+  const taken = new Set<string>();
   let seeded = 0;
   const write = async (f: { key?: string; label: string; type: string; required: boolean }) => {
-    if ((await saveAppointmentField(userId, f)) === null) seeded++;
+    // Mirror saveAppointmentField's own truncation before deriving the key.
+    const key = f.key ?? keyFromLabel(f.label.trim().slice(0, 120));
+    if (taken.has(key)) return;
+    taken.add(key);
+    if ((await saveAppointmentField(userId, { ...f, key })) === null) seeded++;
   };
 
   for (const f of defaults) await write(f);
@@ -216,3 +230,4 @@ async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<
   for (const r of clean.requirements) await write(r);
   return seeded;
 }
+
