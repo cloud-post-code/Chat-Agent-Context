@@ -33,6 +33,7 @@ const TAG = "obgproof";
 // The testimonial source never contains the word "Larkmoor" — reaching it from
 // a "Larkmoor" query is only possible through a graph edge.
 const SALON = "Larkmoor Nail Studio";
+const HOURS = "Mon-Sat 9:30am-7:00pm";
 const OWNER = "Perrin Vale";
 
 const SERVICE_FACTS = [
@@ -48,7 +49,8 @@ const TESTIMONIAL_PIECES = [
 async function main() {
   const { prisma } = await import("../../../lib/db");
   const { saveKnowledgeRecord } = await import("../../../lib/onboarding/knowledge");
-  const { indexOnboardingGraph } = await import("../../../lib/onboarding/graphIndex");
+  const { indexOnboardingGraph, finishOnboardingIndex } =
+    await import("../../../lib/onboarding/graphIndex");
   const { retrieve } = await import("../../../lib/retrieval/search");
 
   // Stub extraction: both sources name the salon, so the entity must converge.
@@ -227,6 +229,63 @@ async function main() {
     const reached = res.chunks.some((c) => c.text === testimonialText);
     check("10 retrieval reaches a graph-only chunk", reached,
       `got: ${res.chunks.map((c) => c.text.slice(0, 40)).join(" | ")}`);
+
+    // 12. Pacing default matches the shared per-minute-limit spacing. The
+    // production call site (lib/onboarding/jobs.ts) passes no paceMs, so a
+    // default of 0 would fire unpaced model calls in real onboarding while
+    // every stubbed assertion above still passed.
+    const { DEFAULT_PACE_MS } = await import("../../../lib/onboarding/graphIndex");
+    check("12 pacing default matches indexEverything/reindex", DEFAULT_PACE_MS === 21_000,
+      `got ${DEFAULT_PACE_MS}, expected 21000 (see lib/retrieval/origins.ts)`);
+
+    // 13. Only scanned sources are indexed. A pending/failed source asserts
+    // nothing yet; indexing it would attach entities to provisional text.
+    const pendingSrc = await prisma.source.create({
+      data: {
+        userId: userA.id, type: "link", url: `https://${TAG}.test/pending`,
+        title: "Pending", rawText: `${SALON} pending page`, status: "pending",
+      },
+      select: { id: true },
+    });
+    await prisma.chunk.create({
+      data: {
+        userId: userA.id, originKind: "source", originId: pendingSrc.id,
+        originLabel: "Pending", sourceId: pendingSrc.id, seq: 0,
+        text: `${SALON} pending page`,
+      },
+    });
+    await indexOnboardingGraph(userA.id, { extract: stub.extract, paceMs: 0 });
+    const pendingMentions = await prisma.entityMention.count({
+      where: { chunk: { sourceId: pendingSrc.id } },
+    });
+    check("13 pending sources are not indexed", pendingMentions === 0,
+      `mentions on pending source=${pendingMentions}`);
+
+    // 14. Onboarding's OTHER surfaces are indexed, not just Sources. The
+    // review steps write Profile/hours/brand rows via the save route, which
+    // calls no indexer — so without this a visitor asking "what are your
+    // opening hours?" retrieves nothing, even though the data is saved.
+    await prisma.profile.upsert({
+      where: { userId: userA.id },
+      update: { company_name: SALON, company_hours: HOURS },
+      create: { userId: userA.id, company_name: SALON, company_hours: HOURS },
+    });
+    const beforeProfile = await prisma.chunk.count({
+      where: { userId: userA.id, originKind: "profile" },
+    });
+    check("14a precondition — profile saved but unindexed", beforeProfile === 0);
+
+    await finishOnboardingIndex(userA.id, { extract: stub.extract, paceMs: 0 });
+
+    const profileChunks = await prisma.chunk.count({
+      where: { userId: userA.id, originKind: "profile" },
+    });
+    check("14b profile indexed on completion", profileChunks > 0,
+      `profile chunks=${profileChunks}`);
+    const hoursHit = await retrieve(userA.id, "What are your opening hours?");
+    check("14c opening hours are retrievable",
+      hoursHit.chunks.some((c) => c.text.includes("9:30")),
+      `got: ${hoursHit.chunks.map((c) => c.text.slice(0, 40)).join(" | ")}`);
 
     // 11. Cleanup.
     await cleanup();

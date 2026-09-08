@@ -30,6 +30,14 @@ Onboarding completes with a populated graph — no dashboard reindex required.
 5. Progress is visible in the onboarding activity log, and the completion
    summary reports what was actually indexed.
 
+6. The other onboarding surfaces are indexed too. Onboarding does not only
+   write Sources: the review steps save the Profile (company name, owner,
+   phone, email, addresses and opening hours), the persona/brand voice, and
+   gallery photos. Those rows are written by
+   `app/api/admin/onboarding/save/route.ts`, which calls no indexer at all, so
+   a visitor asking "what are your opening hours?" cannot retrieve them.
+   Completing onboarding must index every origin, not just Sources.
+
 ## Out of scope
 - Changing chunking, embedding, or any extraction prompt.
 - The `local-hash-256-v1` embedding fallback (separate concern).

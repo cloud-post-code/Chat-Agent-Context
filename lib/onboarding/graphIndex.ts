@@ -1,5 +1,7 @@
 import { prisma } from "@/lib/db";
 import { persistGraph } from "@/lib/retrieval/indexer";
+import { indexEverything } from "@/lib/retrieval/origins";
+import { buildClusterOverviews } from "@/lib/retrieval/clusters";
 import {
   extractEntities,
   MAX_KNOWN_IN_PROMPT,
@@ -45,9 +47,13 @@ export type GraphIndexOpts = {
   onEvent?: (message: string) => void;
 };
 
-/** Pace between extraction calls; onboarding runs unattended, so it defaults
- *  to the same per-minute-limit spacing the backfill script uses. */
-const DEFAULT_PACE_MS = Number(process.env.EMBED_PACE_MS ?? 0);
+/**
+ * Pace between extraction calls. One model call per source fired back to back
+ * trips entry-tier per-minute limits (see lib/retrieval/origins.ts), so this
+ * matches the spacing indexEverything and scripts/reindex.ts already use.
+ * Override with EMBED_PACE_MS (0 disables) on a higher-limit plan.
+ */
+export const DEFAULT_PACE_MS = Number(process.env.EMBED_PACE_MS ?? 21_000);
 
 export async function indexOnboardingGraph(
   userId: string,
@@ -57,10 +63,12 @@ export async function indexOnboardingGraph(
   const paceMs = opts.paceMs ?? DEFAULT_PACE_MS;
   const log = opts.onEvent ?? (() => {});
 
-  // Only sources that actually carry chunks — a source whose extraction saved
-  // nothing has no chunks for mentions to attach to.
+  // Scanned sources that actually carry chunks: a source whose extraction
+  // saved nothing has no chunks for mentions to attach to, and a pending or
+  // failed one asserts nothing yet. Same scoping as scripts/reindex.ts, so
+  // this stays correct if it is ever run outside the onboarding flow.
   const sources = await prisma.source.findMany({
-    where: { userId, chunks: { some: {} } },
+    where: { userId, status: "scanned", chunks: { some: {} } },
     select: { id: true, title: true, url: true, filename: true, rawText: true, summary: true },
     orderBy: { createdAt: "asc" },
   });
@@ -119,4 +127,46 @@ export async function indexOnboardingGraph(
   ]);
 
   return { indexed, failed, entities, relations };
+}
+
+/**
+ * The whole indexing pass for a finished onboarding run.
+ *
+ * Onboarding fills more than Sources: the review steps write the Profile
+ * (company name, owner, phone, email, addresses, opening hours), the
+ * persona/brand voice, and gallery photos — through
+ * `app/api/admin/onboarding/save/route.ts`, which calls no indexer. Those rows
+ * are therefore saved but unretrievable, so a visitor asking "what are your
+ * opening hours?" gets nothing from data the user just confirmed.
+ *
+ * This runs at completion, when every stage has saved: `indexEverything` for
+ * the non-Source origins, the graph pass for onboarding's own chunks, then the
+ * cluster overviews computed from the resulting graph.
+ *
+ * Best-effort throughout, like `personalizeStarterQuestions`: completion must
+ * never fail because indexing did. A partial index is reported, not hidden.
+ */
+export async function finishOnboardingIndex(
+  userId: string,
+  opts: GraphIndexOpts = {},
+): Promise<GraphIndexReport & { origins: number }> {
+  const log = opts.onEvent ?? (() => {});
+  const paceMs = opts.paceMs ?? DEFAULT_PACE_MS;
+
+  let origins = 0;
+  try {
+    origins = await indexEverything(userId, { paceMs, ...(opts.extract ? { extract: opts.extract } : {}) });
+  } catch {
+    log("Couldn't index your profile details — they're saved and still shown on your page");
+  }
+
+  const report = await indexOnboardingGraph(userId, opts);
+
+  // Overviews are computed FROM the graph that was just built, so they run
+  // last and only when there is a graph to summarize.
+  if (report.entities > 0) {
+    await buildClusterOverviews(userId).catch(() => 0);
+  }
+
+  return { ...report, origins };
 }

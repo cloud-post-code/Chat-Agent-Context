@@ -1,6 +1,7 @@
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
+import { finishOnboardingIndex } from "@/lib/onboarding/graphIndex";
 
 export const runtime = "nodejs";
 
@@ -26,6 +27,17 @@ export async function POST(req: Request) {
     where: { id: user.id },
     data: { onboardedAt: new Date() },
   });
+
+  // Index everything onboarding just saved. The save route writes Profile,
+  // hours, brand voice and photos straight to their tables without touching
+  // the retrieval index, so without this the chatbot cannot answer from the
+  // details the user just confirmed. Best-effort: completion must not fail
+  // because indexing did, and the data is on the page either way.
+  try {
+    await finishOnboardingIndex(user.id);
+  } catch (e) {
+    console.error(`finishOnboardingIndex(${user.id}) failed:`, e);
+  }
 
   // Rewrite the generic seeded starter questions into business-specific ones,
   // now that the profile/goals/knowledge exist to generate from. Bounded and

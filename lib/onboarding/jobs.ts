@@ -12,7 +12,6 @@ import {
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
 import { indexOnboardingGraph, type GraphIndexReport } from "./graphIndex";
-import { buildClusterOverviews } from "@/lib/retrieval/clusters";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
 
@@ -381,11 +380,9 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, svc.report.services
         ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
         : "No services described on this site");
-      log(job, svc.report.takesAppointments
-        ? svc.report.seededFields
-          ? `You take bookings — pre-filled ${svc.report.seededFields} booking question${svc.report.seededFields === 1 ? "" : "s"} (turn Appointments on when ready)`
-          : "You take bookings — your booking questions were left as they are"
-        : "No booking process described on this site");
+      log(job, svc.report.seededFields
+        ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}, editable on the Calendar`
+        : "Booking is on — your existing booking questions were left as they are");
     }
     if (picked.includes("sweep")) {
       job.phase = "sweep";
@@ -409,14 +406,10 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     if (chunks > 0) {
       log(job, "Reading how everything connects — people, services and places");
       try {
-        job.graph = await indexOnboardingGraph(job.userId, { onEvent: onEvent });
+        job.graph = await indexOnboardingGraph(job.userId, { onEvent });
         log(job, job.graph.entities
           ? `Connected ${job.graph.entities} thing${job.graph.entities === 1 ? "" : "s"} across ${job.graph.relations} relationship${job.graph.relations === 1 ? "" : "s"}`
           : "Nothing linkable found — your pages are still fully searchable");
-        // Overviews are computed FROM the graph that was just built.
-        if (job.graph.entities > 0) {
-          await buildClusterOverviews(job.userId).catch(() => 0);
-        }
       } catch {
         log(job, "Couldn't map the connections — your knowledge is saved and searchable");
       }
