@@ -4,6 +4,7 @@ import { goalsPromptSection, rulesPromptLines } from "./directives";
 import { retrieve, formatContext } from "./retrieval/search";
 import { broadOverviews } from "./retrieval/clusters";
 import { cardCatalog, type CardGuidance } from "./uiCards";
+import { parseSocialLinks } from "./socialLinks";
 
 /**
  * Assembles the chatbot's system prompt: a persona core (profile, projects,
@@ -239,12 +240,16 @@ function connectBlock(p: {
   company_phone_number: string;
   company_address: string;
   company_hours: string;
+  social_links: string;
 }): string {
   const lines: string[] = [];
   if (p.company_email) lines.push(`Email: ${p.company_email}`);
   if (p.company_phone_number) lines.push(`Phone: ${p.company_phone_number}`);
   if (p.company_address) lines.push(`Address: ${p.company_address}`);
   if (p.company_hours) lines.push(`Hours: ${p.company_hours}`);
+  for (const s of parseSocialLinks(p.social_links)) {
+    lines.push(s.platform ? `${s.platform[0].toUpperCase()}${s.platform.slice(1)}: ${s.url}` : s.url);
+  }
   return lines.length ? lines.join("\n") : "(No contact info added yet.)";
 }
 

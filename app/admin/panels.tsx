@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { User } from "@prisma/client";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
+import { parseSocialLinks } from "@/lib/socialLinks";
 import { safeJson } from "@/lib/util";
 import { PERSONA_BLURB, PERSONA_SECTIONS, safePersonaSections } from "@/lib/persona";
 import { FONT_OPTIONS, BODY_FONT_OPTIONS } from "@/lib/fonts";
@@ -201,6 +202,18 @@ export async function buildAdminPanels(
         <div style={{ marginBottom: 14 }}>
           <Label>Company hours</Label>
           <input name="company_hours" defaultValue={profile.company_hours} placeholder="Mon-Fri 9am-5pm" style={field} />
+        </div>
+        <div style={{ marginBottom: 14 }}>
+          <Label>Social media (one per line, &quot;platform: link&quot;)</Label>
+          <textarea
+            name="social_links"
+            rows={3}
+            defaultValue={parseSocialLinks(profile.social_links)
+              .map((s) => (s.platform ? `${s.platform}: ${s.url}` : s.url))
+              .join("\n")}
+            placeholder={"instagram: https://instagram.com/yourbusiness"}
+            style={{ ...field, resize: "vertical" }}
+          />
         </div>
 
         <SaveButton>Save profile</SaveButton>

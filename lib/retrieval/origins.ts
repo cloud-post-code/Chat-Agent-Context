@@ -2,6 +2,7 @@ import { prisma, getProfile, getPersonaConfig } from "../db";
 import { personaPromptBlock } from "../persona";
 import { splitPersonaFacts, type PersonaFact } from "../personaFacts";
 import { safeTags } from "../knowledge";
+import { parseSocialLinks } from "../socialLinks";
 import { indexOrigin, dropOrigin, type IndexOpts } from "./indexer";
 
 /**
@@ -47,6 +48,12 @@ export async function indexProfile(userId: string, opts: IndexOpts = {}): Promis
   if (p.company_phone_number) lines.push(`Phone: ${p.company_phone_number}.`);
   if (p.company_email) lines.push(`Email: ${p.company_email}.`);
   if (p.company_hours) lines.push(`Hours: ${p.company_hours}.`);
+  const social = parseSocialLinks(p.social_links);
+  if (social.length) {
+    lines.push(`Social media: ${social
+      .map((s) => (s.platform ? `${s.platform} (${s.url})` : s.url))
+      .join(", ")}.`);
+  }
 
   await indexOrigin(
     userId,

@@ -11,6 +11,8 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
+import { extractSocialLinks } from "./social";
+import type { SocialLink } from "@/lib/socialLinks";
 
 /**
  * Staged onboarding extraction, driven by the chat flow: each stage runs only
@@ -19,6 +21,7 @@ import { discoverServicePages, extractServicesAndBooking } from "./services";
  * at ~5s/page × dozens of pages made the all-at-once run feel frozen).
  *
  *   start(url)                 -> core stage   -> phase "core-done", step1 set
+ *   advance("social")          -> social stage -> phase "social-done", stepSocial set
  *   advance("theme")           -> theme stage  -> phase "theme-done", step2 set
  *   advance("knowledge", [..]) -> selected extractions -> phase "done"
  *
@@ -37,6 +40,7 @@ export type Job = {
   phase:
     | "core" | "core-done"
     | "locations" | "locations-done"
+    | "social" | "social-done"
     | "images" | "images-done"
     | "theme" | "theme-done"
     | "blog" | "testimonials" | "team" | "services" | "sweep"
@@ -45,6 +49,8 @@ export type Job = {
   step1?: CoreInfo;
   /** The dedicated locations-and-hours stage's result. */
   stepLoc?: { locations: Location[] };
+  /** The social-media stage's result: the site's own profile links. */
+  stepSocial?: { links: SocialLink[] };
   /** The gallery-images stage's result: stored photos with site captions. */
   stepImages?: { images: GalleryImage[] };
   step2?: ThemeExtract;
@@ -101,7 +107,7 @@ export function startJob(userId: string, url: string): Job {
 /** Run the next stage. Returns false when the job isn't ready for it. */
 export function advanceJob(
   job: Job,
-  stage: "locations" | "images" | "theme" | "knowledge",
+  stage: "locations" | "social" | "images" | "theme" | "knowledge",
   extractors?: Extractor[],
 ): boolean {
   if (job.busy || job.phase === "failed") return false;
@@ -113,7 +119,18 @@ export function advanceJob(
       .finally(() => (job.busy = false));
     return true;
   }
-  if (stage === "images" && (job.phase === "locations-done" || job.phase === "core-done")) {
+  if (stage === "social" && (job.phase === "locations-done" || job.phase === "core-done")) {
+    job.phase = "social";
+    job.busy = true;
+    void runSocial(job)
+      .catch((err) => fail(job, err))
+      .finally(() => (job.busy = false));
+    return true;
+  }
+  if (
+    stage === "images" &&
+    (job.phase === "social-done" || job.phase === "locations-done" || job.phase === "core-done")
+  ) {
     job.phase = "images";
     job.busy = true;
     void runImages(job)
@@ -123,7 +140,8 @@ export function advanceJob(
   }
   if (
     stage === "theme" &&
-    (job.phase === "images-done" || job.phase === "locations-done" || job.phase === "core-done")
+    (job.phase === "images-done" || job.phase === "social-done" ||
+      job.phase === "locations-done" || job.phase === "core-done")
   ) {
     job.phase = "theme";
     job.busy = true;
@@ -135,7 +153,8 @@ export function advanceJob(
   if (
     stage === "knowledge" &&
     (job.phase === "theme-done" || job.phase === "images-done" ||
-      job.phase === "locations-done" || job.phase === "core-done")
+      job.phase === "social-done" || job.phase === "locations-done" ||
+      job.phase === "core-done")
   ) {
     const picked = (extractors ?? EXTRACTORS).filter((e) => EXTRACTORS.includes(e));
     job.busy = true;
@@ -225,6 +244,25 @@ async function runLocations(job: Job): Promise<void> {
   }
   job.stepLoc = { locations };
   job.phase = "locations-done";
+  job.progress = 100;
+}
+
+/**
+ * The social-media stage: the site's own profile links, read from the
+ * already-loaded pages' offsite anchors (lib/onboarding/social.ts) — social
+ * icons live in the header/footer of every page, so home + extras suffice.
+ */
+async function runSocial(job: Job): Promise<void> {
+  job.progress = 20;
+  log(job, "Looking for your social media profiles");
+  const links = await extractSocialLinks([job.home!, ...(job.extras ?? [])], (m) => log(job, m));
+  if (links.length === 0) {
+    log(job, "No social media profiles linked on your site");
+  } else {
+    for (const l of links) log(job, `Found ${l.platform || "a profile"}: ${l.url}`);
+  }
+  job.stepSocial = { links };
+  job.phase = "social-done";
   job.progress = 100;
 }
 

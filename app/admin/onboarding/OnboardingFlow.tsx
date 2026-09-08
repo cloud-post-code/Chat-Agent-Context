@@ -27,6 +27,7 @@ type Status = {
   phase: string; progress: number; log?: string[]; error?: string;
   step1?: Record<string, unknown>; step2?: Record<string, unknown>;
   stepLoc?: { locations?: Record<string, unknown>[] };
+  stepSocial?: { links?: { platform?: string; url?: string }[] };
   stepImages?: { images?: { src?: string; caption?: string }[] };
   stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
   chunkCount?: number;
@@ -36,6 +37,7 @@ type Status = {
 type Step =
   | "ask-url" | "core-running" | "review-contact"
   | "locations-running" | "review-locations"
+  | "social-running" | "review-social"
   | "images-running" | "review-images"
   | "theme-running" | "review-theme"
   | "select-knowledge" | "knowledge-running";
@@ -58,6 +60,13 @@ const locationFields = (): FieldSpec[] => [
 
 const emptyLocation = (): LocationForm =>
   ({ address: "", phone: "", ...Object.fromEntries(DAYS.map((d) => [`hours_${d}`, ""])) }) as LocationForm;
+
+type SocialForm = { platform: string; url: string };
+
+const SOCIAL_FIELDS: FieldSpec[] = [
+  { kind: "text", key: "platform", label: "Platform", placeholder: "instagram" },
+  { kind: "text", key: "url", label: "Profile link", placeholder: "https://instagram.com/yourbusiness" },
+];
 
 const EXTRACTOR_OPTIONS = [
   { key: "blog", label: "Blog / news posts" },
@@ -175,6 +184,9 @@ export function OnboardingFlow() {
   // Whether extraction actually found locations: decides the question's
   // wording and whether the online-only checkbox is offered at all.
   const [foundLocations, setFoundLocations] = useState(false);
+  const [socials, setSocials] = useState<SocialForm[]>([]);
+  // Whether extraction actually found profiles: decides the question's wording.
+  const [foundSocials, setFoundSocials] = useState(false);
   const [gallery, setGallery] = useState<GalleryItem[]>([]);
   const [themeInitial, setThemeInitial] = useState<ThemeInitial>(defaultTheme());
   const [logo, setLogo] = useState("");
@@ -199,8 +211,8 @@ export function OnboardingFlow() {
 
   const running =
     step === "core-running" || step === "locations-running" ||
-    step === "images-running" || step === "theme-running" ||
-    step === "knowledge-running";
+    step === "social-running" || step === "images-running" ||
+    step === "theme-running" || step === "knowledge-running";
 
   useEffect(() => {
     setTextDone(false);
@@ -244,6 +256,14 @@ export function OnboardingFlow() {
           }));
         }
         setStep("review-locations");
+      }
+      if (step === "social-running" && s.phase === "social-done") {
+        const links = (s.stepSocial?.links ?? [])
+          .map((l) => ({ platform: String(l.platform ?? ""), url: String(l.url ?? "") }))
+          .filter((l) => l.url);
+        setFoundSocials(links.length > 0);
+        if (links.length) setSocials(links);
+        setStep("review-social");
       }
       if (step === "images-running" && s.phase === "images-done") {
         const imgs = (s.stepImages?.images ?? []).map((i) => ({
@@ -344,6 +364,26 @@ export function OnboardingFlow() {
           hours: Object.fromEntries(DAYS.map((d) => [d, l[`hours_${d}`] ?? ""])),
         })),
       },
+    });
+    if (!res.ok) {
+      setError(await res.text());
+      setBusy(false);
+      return;
+    }
+    if (manual) {
+      setStep("review-social");
+    } else {
+      await post("/api/admin/onboarding/advance", { jobId, stage: "social" });
+      setStep("social-running");
+    }
+    setBusy(false);
+  }
+
+  async function saveSocials() {
+    setBusy(true);
+    setError("");
+    const res = await post("/api/admin/onboarding/save", {
+      social: { links: socials.filter((l) => l.url.trim()) },
     });
     if (!res.ok) {
       setError(await res.text());
@@ -608,6 +648,77 @@ export function OnboardingFlow() {
               <div>
                 <button style={btn} onClick={saveLocations} disabled={busy}>
                   {busy ? "Saving…" : "Done — locations are right"}
+                </button>
+              </div>
+            </UserEntry>
+          )}
+        </>
+      )}
+
+      {step === "social-running" && (
+        <Bubble who="assistant">
+          <p style={{ margin: "0 0 10px" }}>
+            <Typewriter text="Saved. Now I'm checking your site for your social media profiles." />
+          </p>
+          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+        </Bubble>
+      )}
+
+      {step === "review-social" && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={manual
+                  ? "Where can customers follow you? Add your social media profiles — or skip if you don't use them."
+                  : foundSocials
+                    ? "Here are the social media profiles I found on your site. Fix anything, add what I missed, then hit Done."
+                    : "I found no social media links on your site. Add your profiles — or skip if you don't use them."}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {textDone && (
+            <UserEntry>
+              {socials.map((s, i) => (
+                <div
+                  key={i}
+                  className="onboard-phase-in"
+                  style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                    <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
+                      Profile {i + 1}
+                    </strong>
+                    <button
+                      style={btnGhost}
+                      onClick={() => setSocials(socials.filter((_, j) => j !== i))}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <FormCard
+                    fields={SOCIAL_FIELDS}
+                    values={s as unknown as Record<string, string>}
+                    onChange={(k, v) =>
+                      setSocials(socials.map((l, j) => (j === i ? { ...l, [k]: v } : l)))}
+                    busy={busy}
+                  />
+                </div>
+              ))}
+              <button
+                style={{ ...btnGhost, marginBottom: 14 }}
+                onClick={() => setSocials([...socials, { platform: "", url: "" }])}
+              >
+                + Add a profile
+              </button>
+              <div>
+                <button style={btn} onClick={saveSocials} disabled={busy}>
+                  {busy
+                    ? "Saving…"
+                    : socials.some((l) => l.url.trim())
+                      ? "Done — profiles are right"
+                      : "No social media — continue"}
                 </button>
               </div>
             </UserEntry>

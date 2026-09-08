@@ -5,10 +5,10 @@ export const runtime = "nodejs";
 
 /**
  * Move a staged onboarding job to its next stage: "locations" after the
- * contact review, "images" after the locations review, "theme" after the
- * gallery review, or "knowledge" (with the extractors the user selected)
- * after the theme review. The stage runs in the background; poll /status
- * as before.
+ * contact review, "social" after the locations review, "images" after the
+ * social review, "theme" after the gallery review, or "knowledge" (with the
+ * extractors the user selected) after the theme review. The stage runs in
+ * the background; poll /status as before.
  */
 export async function POST(req: Request) {
   const user = await currentUser();
@@ -24,7 +24,7 @@ export async function POST(req: Request) {
   if (!job) return new Response("Unknown job", { status: 404 });
 
   const stage =
-    body.stage === "locations" || body.stage === "images" ||
+    body.stage === "locations" || body.stage === "social" || body.stage === "images" ||
     body.stage === "theme" || body.stage === "knowledge"
       ? body.stage
       : null;

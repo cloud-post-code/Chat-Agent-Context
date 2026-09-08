@@ -1,6 +1,7 @@
 import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { savePersonaBrand } from "@/lib/brand";
+import { saveSocialLinks, sanitizeSocialLinks } from "@/lib/socialLinks";
 import { DAYS, serializeHours, type Hours } from "@/lib/onboarding/extract";
 
 export const runtime = "nodejs";
@@ -22,6 +23,7 @@ export async function POST(req: Request) {
   let body: {
     profile?: Record<string, unknown>;
     locations?: Record<string, unknown>;
+    social?: Record<string, unknown>;
     gallery?: Record<string, unknown>;
     theme?: Record<string, unknown>;
     brand?: Record<string, unknown>;
@@ -93,6 +95,12 @@ export async function POST(req: Request) {
       update: { company_address, company_hours },
       create: { userId: user.id, company_address, company_hours },
     });
+  }
+
+  // The social review: the reviewed platform + link rows replace whatever the
+  // profile held (the sanitizer clamps and drops non-http urls).
+  if (body.social) {
+    await saveSocialLinks(user.id, sanitizeSocialLinks(body.social.links));
   }
 
   // The gallery review: the extraction stage already stored each photo in

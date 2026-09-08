@@ -598,6 +598,8 @@ model Profile {
   company_email        String   @default("")
   /// Free text, e.g. "Mon-Fri 9am-5pm ET".
   company_hours        String   @default("")
+  /// JSON [{platform, url}] — the business's own social media profiles.
+  social_links         String   @default("[]")
   /// Gates the whole booking capability: the show_booking tool, the submit
   /// path, and the admin Calendar panel. Defaults off so a fresh tenant
   /// never shows visitors a booker nobody configured.

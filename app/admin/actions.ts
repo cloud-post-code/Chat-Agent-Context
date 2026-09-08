@@ -11,6 +11,7 @@ if (typeof (globalThis as { File?: unknown }).File === "undefined") {
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { prisma, getProfile } from "@/lib/db";
+import { sanitizeSocialLinks } from "@/lib/socialLinks";
 import {
   accountActive,
   createSession,
@@ -259,6 +260,15 @@ export async function saveProfile(formData: FormData) {
       company_phone_number: String(formData.get("company_phone_number") ?? ""),
       company_email: String(formData.get("company_email") ?? ""),
       company_hours: String(formData.get("company_hours") ?? ""),
+      social_links: JSON.stringify(sanitizeSocialLinks(
+        String(formData.get("social_links") ?? "")
+          .split("\n")
+          .map((line) => {
+            const m = line.trim().match(/^(?:([^:\s][^:]*?):\s*)?(https?:\/\/\S+)$/i);
+            return m ? { platform: (m[1] ?? "").toLowerCase(), url: m[2] } : null;
+          })
+          .filter(Boolean),
+      )),
     },
   });
   await reindex("profile", () => indexProfile(user.id));
@@ -305,6 +315,7 @@ export async function restartOnboarding() {
       update: {
         company_name: "", owner_name: "", company_address: "",
         company_phone_number: "", company_email: "", company_hours: "",
+        social_links: "[]",
       },
       create: { userId: user.id },
     }),
