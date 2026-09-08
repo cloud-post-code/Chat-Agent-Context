@@ -63,7 +63,8 @@ const EXTRACTOR_OPTIONS = [
   { key: "blog", label: "Blog / news posts" },
   { key: "testimonials", label: "Testimonials / reviews" },
   { key: "team", label: "Team / about page" },
-  { key: "sweep", label: "Everything else (services, pricing, policies…)" },
+  { key: "services", label: "Services & how you take bookings" },
+  { key: "sweep", label: "Everything else (pricing, policies…)" },
 ];
 
 type ThemeInitial = {

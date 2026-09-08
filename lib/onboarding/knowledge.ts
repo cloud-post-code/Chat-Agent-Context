@@ -47,6 +47,8 @@ export type KnowledgeReport = {
   };
   team: { existed: boolean; blocks: number; embeddingDim: number; pagesChecked: string[] };
   sweep: { pages: string[] };
+  /** The services-and-booking extractor (lib/onboarding/services.ts). */
+  services: import("./services").ServicesReport;
 };
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -58,8 +60,9 @@ const MAX_POSTS = 100;
 const MAX_LISTING_PAGES = 50;
 const MAX_SWEEP_PAGES = 40;
 
-/** One Source row + one Chunk per piece, through the existing pipeline. */
-async function saveRecord(
+/** One Source row + one Chunk per piece, through the existing pipeline.
+ *  Exported for the services extractor (lib/onboarding/services.ts). */
+export async function saveKnowledgeRecord(
   userId: string,
   src: { url: string; title: string; kind: string; summary?: string; rawText: string },
   pieces: string[],
@@ -176,7 +179,7 @@ export async function extractBlog(
     const { title, author, date, body } = cleaned;
     const header = [title, author && `By ${author}`, date && `Published ${date}`]
       .filter(Boolean).join(". ");
-    const saved = await saveRecord(userId,
+    const saved = await saveKnowledgeRecord(userId,
       { url: page.url, title, kind: "article", summary: header, rawText: body },
       chunkText(`${header}\n\n${body}`));
     chunks += saved.chunks;
@@ -279,7 +282,7 @@ export async function extractTestimonials(
     const url = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) || pagesChecked[0];
     const pieces = items.map((t) =>
       `Customer testimonial from ${t.author}${t.title ? ` (${t.title})` : ""}: "${t.quote}"`);
-    const saved = await saveRecord(userId, {
+    const saved = await saveKnowledgeRecord(userId, {
       url, title: "Customer testimonials", kind: "other",
       summary: `${items.length} customer testimonials extracted during onboarding.`,
       rawText: pieces.join("\n\n"),
@@ -323,8 +326,8 @@ export async function extractTeam(
     const pieces = blocks.map((b) => `${b.name} — ${b.bio}`);
     // "#team" keeps this record distinct from the sweep's record for the same
     // page — team pages stay un-covered, so the sweep re-saves the bare url
-    // and saveRecord's per-source chunk reset would silently drop the bios.
-    const saved = await saveRecord(userId, {
+    // and saveKnowledgeRecord's per-source chunk reset would silently drop the bios.
+    const saved = await saveKnowledgeRecord(userId, {
       url: `${pagesChecked[pagesChecked.length - 1]}#team`, title: "Team", kind: "other",
       summary: `Team bios for ${blocks.map((b) => b.name).join(", ")}.`,
       rawText: pieces.join("\n\n"),
@@ -364,7 +367,7 @@ export async function sweepSitemap(
     const raw = await llmExtract(GENERAL_SYSTEM_PROMPT, llmPageText(page).slice(0, 15_000), 3000, log);
     const distilled = sanitizeFacts(raw);
     if (!distilled?.facts.length) return; // model: nothing substantive
-    const saved = await saveRecord(userId, {
+    const saved = await saveKnowledgeRecord(userId, {
       url: page.url, title: distilled.title || page.url, kind: "other",
       rawText: llmPageText(page).slice(0, 60_000),
     }, distilled.facts);

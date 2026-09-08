@@ -10,6 +10,7 @@ import { extractBrandIdentity, type BrandIdentity } from "./brand";
 import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
+import { discoverServicePages, extractServicesAndBooking } from "./services";
 
 /**
  * Staged onboarding extraction, driven by the chat flow: each stage runs only
@@ -26,8 +27,8 @@ import {
  * so pages loaded for the contact form aren't re-fetched for the theme.
  */
 
-export type Extractor = "blog" | "testimonials" | "team" | "sweep";
-export const EXTRACTORS: Extractor[] = ["blog", "testimonials", "team", "sweep"];
+export type Extractor = "blog" | "testimonials" | "team" | "services" | "sweep";
+export const EXTRACTORS: Extractor[] = ["blog", "testimonials", "team", "services", "sweep"];
 
 export type Job = {
   id: string;
@@ -38,7 +39,7 @@ export type Job = {
     | "locations" | "locations-done"
     | "images" | "images-done"
     | "theme" | "theme-done"
-    | "blog" | "testimonials" | "team" | "sweep"
+    | "blog" | "testimonials" | "team" | "services" | "sweep"
     | "done" | "failed";
   progress: number; // 0–100 within the currently running stage
   step1?: CoreInfo;
@@ -325,6 +326,24 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, team.report.blocks
         ? `Team: saved ${team.report.blocks} bio${team.report.blocks === 1 ? "" : "s"}`
         : "No team bios found");
+    }
+    if (picked.includes("services")) {
+      job.phase = "services";
+      job.progress = Math.round(stepShare * stepsDone++);
+      log(job, "Reading your services and how you take bookings");
+      const svcPages = await discoverServicePages(crawler, home, job.extras ?? []);
+      svcPages.forEach((p) => covered.add(p.url));
+      const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent);
+      report.services = svc.report;
+      chunks += svc.chunks;
+      log(job, svc.report.services
+        ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
+        : "No services described on this site");
+      log(job, svc.report.takesAppointments
+        ? svc.report.seededFields
+          ? `You take bookings — pre-filled ${svc.report.seededFields} booking question${svc.report.seededFields === 1 ? "" : "s"} (turn Appointments on when ready)`
+          : "You take bookings — your booking questions were left as they are"
+        : "No booking process described on this site");
     }
     if (picked.includes("sweep")) {
       job.phase = "sweep";
