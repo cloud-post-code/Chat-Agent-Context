@@ -76,6 +76,16 @@ Secondary guards:
   of showing only a trailing window — the finished steps read as a transcript
   of what the agent did. Guards the reported bug where earlier steps silently
   fell out of the bubble as later ones arrived.
+- Chat-transcript regression
+  (`npx tsx docs/features/guided-onboarding/proof/chat-transcript.ts`):
+  the conversation ACCUMULATES — every assistant message, every running
+  stage's bubble and every answer the user gave stay on the page as the flow
+  advances; the next step appends below, it never replaces the last. Each
+  review form collapses into a one-line user message once saved, each
+  running bubble shows only its own stage's activity lines, and the finished
+  knowledge run keeps its feed under the "All done" summary. Mounts the real
+  component in jsdom against a scripted onboarding API and clicks through
+  every step. Guards the reported bug where each step wiped the previous one.
 - Rendered-extraction regression
   (`npx tsx docs/features/guided-onboarding/proof/rendered-extraction.ts`):
   extraction sees what the browser renders, not just raw HTML — external
