@@ -360,9 +360,9 @@ model AgentDirective {
 
 /// One A2UI card the admin curates: what it's called, which tool draws it,
 /// when the agent should reach for it, and a stored sample payload the admin
-/// tab renders as a preview. The starter set is seeded per user at signup;
-/// after that the rows are the owner's to edit, add to, or delete —
-/// re-seeding would resurrect deliberate deletions.
+/// tab renders as a preview. Nothing is seeded at signup: onboarding designs
+/// the set for the business (lib/onboarding/cards.ts) into an empty catalog,
+/// and after that the rows are the owner's to edit, add to, or delete.
 model UiCard {
   id          String   @id @default(cuid())
   user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)

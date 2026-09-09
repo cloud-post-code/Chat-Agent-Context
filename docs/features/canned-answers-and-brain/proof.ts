@@ -88,7 +88,7 @@ function fakeClient(script: FakeTurn[] = [{ text: MODEL_TEXT }]) {
 async function main() {
   const { prisma } = await import("../../../lib/db");
   const { answer } = await import("../../../lib/brain");
-  const { normalizeQuestion, saveCannedAnswer, seedStarterAnswers } = await import(
+  const { normalizeQuestion, saveCannedAnswer } = await import(
     "../../../lib/canned"
   );
 
@@ -267,12 +267,6 @@ async function main() {
       (await prisma.cannedAnswer.count()) === beforeMerge - 1);
     check("the edited row is gone",
       (await prisma.cannedAnswer.findUnique({ where: { id: `${PREFIX}-blank` } })) === null);
-
-    // 13 ── Seeding never resurrects a row Blake deleted.
-    const beforeSeed = await prisma.cannedAnswer.count();
-    await seedStarterAnswers();
-    check("seeding a non-empty table is a no-op",
-      (await prisma.cannedAnswer.count()) === beforeSeed, `${beforeSeed}`);
 
     // Secondary guard (not proof): the route kept nothing it shouldn't own.
     const route = readFileSync(path.join(root, "app/api/chat/route.ts"), "utf8");

@@ -13,6 +13,7 @@ import {
 import { discoverServicePages, extractServicesAndBooking } from "./services";
 import { indexOnboardingGraph, finishOnboardingIndex, type GraphIndexReport } from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
+import { generateOnboardingCards, type CardsReport } from "./cards";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
@@ -66,8 +67,10 @@ export type Job = {
   graph?: GraphIndexReport;
   /** The agent goals derived from this run (lib/onboarding/goals.ts). */
   goals?: GoalsReport;
-  /** How many business-specific starter questions replaced the generic seeds. */
+  /** How many business-specific starter questions were written for the page. */
   starterQuestions?: number;
+  /** The A2UI cards designed for this business (lib/onboarding/cards.ts). */
+  cards?: CardsReport;
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -102,6 +105,20 @@ function fail(job: Job, err: unknown) {
 function log(job: Job, msg: string) {
   job.log.push(msg);
   if (job.log.length > 400) job.log.splice(0, job.log.length - 400);
+}
+
+/** One honest line for what the cards stage did. */
+function cardsOutcome(c: CardsReport): string {
+  if (c.keptExisting) return "You already have cards — left them exactly as they are";
+  if (c.written) {
+    const names = c.cards.map((x) => x.label).join(", ");
+    const attached = c.attached
+      ? `, attached to ${c.attached} starter question${c.attached === 1 ? "" : "s"}`
+      : "";
+    return `Designed ${c.written} card${c.written === 1 ? "" : "s"} for your agent (${names})${attached} — editable under A2UI`;
+  }
+  if (c.failed) return "Couldn't plan your cards — you can build them under A2UI";
+  return "Nothing on your site called for a card yet — you can build them under A2UI";
 }
 
 export function startJob(userId: string, url: string): Job {
@@ -475,9 +492,24 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.starterQuestions = written;
       log(job, written
         ? `Wrote ${written} starter question${written === 1 ? "" : "s"} for your page, editable under Presets`
-        : "Kept the standard starter questions — you can edit them under Presets");
+        : "Couldn't write starter questions — add your own or hit Regenerate under Presets");
     } catch {
-      log(job, "Kept the standard starter questions — you can edit them under Presets");
+      log(job, "Couldn't write starter questions — add your own or hit Regenerate under Presets");
+    }
+
+    // The cards the agent can draw. Planned last because it reads everything
+    // above — the pages, the goals, and the starter questions it attaches
+    // cards to. Nothing is seeded at signup any more, so this is where a
+    // business's cards come from; best-effort like the goals pass, and only
+    // into an empty catalog, since a catalog the owner has touched is theirs.
+    log(job, "Designing the cards your agent can show visitors");
+    try {
+      job.cards = await generateOnboardingCards(
+        goalPages, job.userId, { categories: picked }, onEvent,
+      );
+      log(job, cardsOutcome(job.cards));
+    } catch {
+      log(job, "Couldn't design your cards — you can build them under A2UI");
     }
 
     log(job, "All done");

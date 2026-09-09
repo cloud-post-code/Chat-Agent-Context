@@ -40,6 +40,7 @@ type Status = {
     sweep?: { pages: string[] };
   };
   graph?: { entities: number; relations: number };
+  cards?: { written: number; attached: number; cards: { label: string }[] };
 };
 
 type Step =
@@ -966,6 +967,9 @@ export function OnboardingFlow() {
                     : "."}
                   {status.graph?.entities
                     ? ` I also connected ${status.graph.entities} thing${status.graph.entities === 1 ? "" : "s"} across ${status.graph.relations} relationship${status.graph.relations === 1 ? "" : "s"}.`
+                    : ""}
+                  {status.cards?.written
+                    ? ` And I designed ${status.cards.written} card${status.cards.written === 1 ? "" : "s"} your agent can show (${status.cards.cards.map((c) => c.label).join(", ")})${status.cards.attached ? `, attached to ${status.cards.attached} of your starter question${status.cards.attached === 1 ? "" : "s"}` : ""}.`
                     : ""}
                 </p>
                 {summarizeAbsent(status).length > 0 && (

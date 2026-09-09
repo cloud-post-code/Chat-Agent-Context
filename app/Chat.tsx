@@ -30,28 +30,6 @@ function store(): Storage | null {
   }
 }
 
-/**
- * The label for a chip in the compact row under the composer.
- *
- * The generic seed questions have hand-written short forms; everything else is
- * shown whole. This used to fall back to the question's FIRST TWO WORDS, which
- * was fine while the only questions were the five seeds below — but starter
- * questions are now written per business (lib/starterQuestions.ts), so real
- * questions came out as "What nail", "How much", "Can I". A chip that stops
- * mid-question tells the visitor nothing, so the full text is kept and the row
- * wraps instead.
- */
-function shortLabel(q: string): string {
-  const map: Record<string, string> = {
-    "What's your background and past experience?": "Background",
-    "Tell me about yourself and how you see the world.": "About me",
-    "How can I connect with you?": "Connect",
-    "What are your recent projects?": "Projects",
-    "Show me a bit about your life?": "My life",
-  };
-  return map[q] ?? q;
-}
-
 export default function Chat({
   name,
   tagline,
@@ -331,7 +309,7 @@ export default function Chat({
             <div style={styles.startersRow}>
               {starters.slice(0, 5).map((s) => (
                 <button key={s.q} style={styles.chipSmall} onClick={() => send(s.q)} title={s.q}>
-                  {shortLabel(s.q)}
+                  {s.q}
                 </button>
               ))}
             </div>

@@ -1,10 +1,9 @@
 import { prisma } from "@/lib/db";
-import { starterQuestions } from "@/lib/theme";
 
 /**
- * Hand-written answers to the questions visitors ask over and over. The five
- * starter chips are the same five questions forever, so paying the model to
- * re-derive those answers on every page view is pure waste — and it's the
+ * Hand-written answers to the questions visitors ask over and over. A
+ * business's starter chips change rarely once generated, so paying the model
+ * to re-derive those answers on every page view is pure waste — and it's the
  * slowest part of a visitor's first impression.
  *
  * Matching is deliberately dumb: normalized string equality, nothing fuzzy. A
@@ -69,25 +68,6 @@ export async function listCannedAnswers(userId: string) {
   return prisma.cannedAnswer.findMany({
     where: { userId },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-  });
-}
-
-/**
- * Bootstrap the tab with the starter questions as blank rows, so it opens on an
- * obvious to-do list rather than an empty state. Only ever fills an empty
- * table: re-seeding on every load would resurrect rows Blake deliberately
- * deleted, which is worse than an incomplete list.
- */
-export async function seedStarterAnswers(userId: string) {
-  if ((await prisma.cannedAnswer.count({ where: { userId } })) > 0) return;
-  await prisma.cannedAnswer.createMany({
-    data: starterQuestions.map((s, i) => ({
-      userId,
-      question: s.q,
-      matchKey: normalizeQuestion(s.q),
-      order: i,
-    })),
-    skipDuplicates: true,
   });
 }
 

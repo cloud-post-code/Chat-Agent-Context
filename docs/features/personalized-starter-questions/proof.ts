@@ -109,9 +109,7 @@ function brokenClient() {
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
-  const { seedStarterAnswers, normalizeQuestion, saveCannedAnswer } = await import(
-    "../../../lib/canned"
-  );
+  const { normalizeQuestion, saveCannedAnswer } = await import("../../../lib/canned");
   const { starterQuestions } = await import("../../../lib/theme");
   const { personalizeStarterQuestions, starterChipsFor } = await import(
     "../../../lib/starterQuestions"
@@ -120,7 +118,24 @@ async function main() {
   const baseUsers = await prisma.user.count();
   const baseCanned = await prisma.cannedAnswer.count();
 
-  async function makeUser(tag: string) {
+  /**
+   * The untouched placeholder rows this pass used to find on a fresh account.
+   * Signup no longer creates them (docs/features/remove-default-starter-
+   * questions), so the fixture writes them here to keep exercising the case
+   * where generation meets pre-existing rows.
+   */
+  async function seedRows(userId: string) {
+    await prisma.cannedAnswer.createMany({
+      data: starterQuestions.map((s, i) => ({
+        userId,
+        question: s.q,
+        matchKey: normalizeQuestion(s.q),
+        order: i,
+      })),
+    });
+  }
+
+  async function makeUser(tag: string, seed = false) {
     const id = `${PREFIX}-${tag}`;
     await prisma.user.create({
       data: {
@@ -137,7 +152,7 @@ async function main() {
     await prisma.agentDirective.create({
       data: { userId: id, kind: "goal", text: GOAL, enabled: true },
     });
-    await seedStarterAnswers(id);
+    if (seed) await seedRows(id);
     return id;
   }
 
@@ -150,7 +165,7 @@ async function main() {
   try {
     // ── 1–3. Untouched seeds are replaced in one grounded call ────────────
     const fresh = await makeUser("fresh");
-    const bystander = await makeUser("bystander"); // never personalized
+    const bystander = await makeUser("bystander", true); // never personalized
     const first = fakeClient(GENERATED);
     await personalizeStarterQuestions(fresh, { client: first.client });
 
@@ -189,7 +204,7 @@ async function main() {
     // asserted above; the pass itself is proven by ai-drafted-answers.)
 
     // ── 5. A customized user is left alone ────────────────────────────────
-    const custom = await makeUser("custom");
+    const custom = await makeUser("custom", true);
     const seeded = await prisma.cannedAnswer.findFirst({ where: { userId: custom } });
     await saveCannedAnswer(custom, {
       id: seeded!.id,
@@ -213,7 +228,7 @@ async function main() {
       `calls=${guard.spy.calls}`,
     );
 
-    // ── 6. Failure degrades to the generic seeds, all-or-nothing ──────────
+    // ── 6. Failure leaves the account untouched, all-or-nothing ──────────
     const failing = await makeUser("failing");
     const broken = brokenClient();
     let threw = false;
@@ -225,11 +240,8 @@ async function main() {
       orderBy: { order: "asc" },
     });
     check(
-      "a model failure never propagates and leaves the seeds fully intact",
-      !threw &&
-        broken.spy.calls === 1 &&
-        kept.length === starterQuestions.length &&
-        kept.every((r, i) => r.question === starterQuestions[i].q),
+      "a model failure never propagates and writes nothing",
+      !threw && broken.spy.calls === 1 && kept.length === 0,
       `threw=${threw} calls=${broken.spy.calls} rows=${kept.length}`,
     );
 
@@ -245,11 +257,8 @@ async function main() {
       orderBy: { order: "asc" },
     });
     check(
-      "a deadline overrun hands completion back on time with the seeds intact",
-      waited < 1000 &&
-        written === 0 &&
-        slowRows.length === starterQuestions.length &&
-        slowRows.every((r, i) => r.question === starterQuestions[i].q),
+      "a deadline overrun hands completion back on time and writes nothing",
+      waited < 1000 && written === 0 && slowRows.length === 0,
       `waited=${waited}ms written=${written} rows=${slowRows.length}`,
     );
     delete process.env.STARTER_QUESTIONS_DEADLINE_MS;
@@ -286,19 +295,18 @@ async function main() {
     });
     const fallback = await starterChipsFor(fresh);
     check(
-      "with no usable rows the chips fall back to the hardcoded list",
-      JSON.stringify(fallback.map((c) => c.q)) ===
-        JSON.stringify(starterQuestions.map((s) => s.q)),
+      "with no usable rows the page gets no chips at all",
+      fallback.length === 0,
       JSON.stringify(fallback),
     );
 
     // ── 9b. A re-onboarded user still gets generated questions ───────────
     // `restartOnboarding` wipes the account's content, canned answers
     // included, so the user re-enters the flow with zero preset rows. The
-    // untouched-seeds guard has to read that empty table as "nothing of the
-    // owner's to protect" and personalize anyway — otherwise the second
-    // completion silently leaves them with no preset rows at all, and their
-    // public page falls back to the hardcoded chips.
+    // guard has to read that empty table as "nothing of the owner's to
+    // protect" and personalize anyway — otherwise the second completion
+    // silently leaves them with no preset rows, and their public page shows
+    // no chips at all.
     const restarted = await makeUser("restarted");
     await prisma.cannedAnswer.deleteMany({ where: { userId: restarted } });
     const rerun = fakeClient(GENERATED);
@@ -326,6 +334,9 @@ async function main() {
         other.every((r, i) => r.question === starterQuestions[i].q),
       JSON.stringify(other.map((r) => r.question)),
     );
+
+    // ── 11. No usable rows means no chips — never a hardcoded fallback ────
+    // (docs/features/remove-default-starter-questions inverted this case.)
   } finally {
     await cleanup();
   }

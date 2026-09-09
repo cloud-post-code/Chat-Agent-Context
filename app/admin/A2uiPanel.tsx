@@ -13,8 +13,8 @@ import { panel, field, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
  * draw. Each row stores the card's name, tool, when the agent should show it,
  * and a sample payload — rendered as a preview by the same Cards component the
  * chat uses, so the preview shows what the card looks like, not what the
- * site's data says. The starter set is seeded once; rows are editable,
- * addable and deletable from here.
+ * site's data says. There is no default set: onboarding designs the cards for
+ * the business, and rows are editable, addable and deletable from here.
  *
  * Collapsed by default, and only one card open at a time: clicking a heading
  * draws that card and puts away whichever was open, so the tab stays the
@@ -68,8 +68,8 @@ export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
         The cards the chatbot can show in a conversation. These entries are
         live wiring: &ldquo;when the agent should show it&rdquo; goes into the
         chatbot&apos;s instructions, and deleting a card takes it away from the
-        chatbot entirely. Deleting every card restores the starter set. Pick a
-        card to draw its preview — built-in cards preview a stored sample and
+        chatbot entirely. There is no default set: onboarding designs cards for
+        your business, and the builder adds more. Pick a card to draw its preview — built-in cards preview a stored sample and
         use your live data in chat; custom-built cards show exactly what you
         saved.
       </p>
@@ -103,7 +103,7 @@ export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
       {visible.length === 0 && (
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
           {rows.length === 0
-            ? "No cards yet. Add one above — the starter set only seeds an empty table once."
+            ? "No cards yet. Onboarding designs a set for your business; build one above any time."
             : "No card matches that search."}
         </p>
       )}
