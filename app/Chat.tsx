@@ -306,13 +306,17 @@ export default function Chat({
             ))}
           </div>
           <div style={styles.composerDock}>
-            <div style={styles.startersRow}>
-              {starters.slice(0, 5).map((s) => (
-                <button key={s.q} style={styles.chipSmall} onClick={() => send(s.q)} title={s.q}>
-                  {s.q}
-                </button>
-              ))}
-            </div>
+            {/* Only when there are chips: the row carries bottom padding, and an
+                account with no starter questions must not show a stray gap. */}
+            {starters.length > 0 && (
+              <div style={styles.startersRow}>
+                {starters.slice(0, 5).map((s) => (
+                  <button key={s.q} style={styles.chipSmall} onClick={() => send(s.q)} title={s.q}>
+                    {s.q}
+                  </button>
+                ))}
+              </div>
+            )}
             <Composer input={input} setInput={setInput} onSend={() => send(input)} loading={loading} />
           </div>
         </section>
