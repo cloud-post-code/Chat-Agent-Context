@@ -520,8 +520,11 @@
       "id": "remove-default-starter-questions",
       "title": "Remove default starter questions: no generic seeds at signup, no hardcoded fallback",
       "status": "passing",
-      "notes": "Only generated starter questions exist. Signup provisions none (lib/users.ts), seedStarterAnswers removed from lib/canned.ts, starterChipsFor returns [] with no hardcoded fallback, isUntouchedSeeds collapsed to hasNothingToProtect (empty-rows only), unreachable shortLabel map removed from app/Chat.tsx, and the onboarding feed's failure message now points at Regenerate under Presets instead of claiming standard questions were kept. Product decision: no chips at all before onboarding completes or if generation fails - no fallback, no auto-retry. lib/theme.ts starterQuestions stays for app/opengraph-image.tsx. Three sibling proof scripts reseed fixtures directly. Proof: red 10 failing -> green 23 passing. Gate PASS. Evaluator PASS.",
-      "proof": "docs/features/remove-default-starter-questions/PROOF.md"
+      "notes": "Only generated starter questions exist. Signup provisions none (lib/users.ts), seedStarterAnswers removed from lib/canned.ts, starterChipsFor returns [] with no hardcoded fallback, isUntouchedSeeds collapsed to hasNothingToProtect (empty-rows only), unreachable shortLabel map removed from app/Chat.tsx, and the onboarding feed's failure message now points at Regenerate under Presets instead of claiming standard questions were kept. Product decision: no chips at all before onboarding completes or if generation fails - no fallback, no auto-retry. lib/theme.ts starterQuestions stays for app/opengraph-image.tsx. Three sibling proof scripts reseed fixtures directly. Proof: red 10 failing -> green 23 passing. Gate PASS. Evaluator PASS. Follow-up (same day): a second evaluator pass caught that the composer-dock chip row still rendered with bottom padding on an account with no questions, leaving a stray gap - fixed by rendering the row only when there are chips (d1129b9); and the proof's 'other catalogs still provisioned' assertion now expects zero UI cards, since onboarding-a2ui-cards stopped seeding those too. Proof, gate, tsc and lint re-verified green after both.",
+      "proof": "docs/features/remove-default-starter-questions/PROOF.md",
+      "feature_dir": "docs/features/remove-default-starter-questions",
+      "priority": 1,
+      "next": "Visual spot-check of the empty hero and chip row on a live account with no questions. canned-answers-and-brain/proof.ts is pre-broken independently (its fixture creates a Project without userId) and needs re-keying by tenant."
     },
     {
       "id": "onboarding-a2ui-cards",
