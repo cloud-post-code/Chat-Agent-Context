@@ -304,3 +304,8 @@ select {
 .onboard-phase-in-late {
   animation: onboard-phase-in 0.45s ease 0.9s both;
 }
+
+/* A2UI photo carousel: hide the WebKit scrollbar on the snap track. */
+.carousel-track::-webkit-scrollbar {
+  display: none;
+}
