@@ -265,11 +265,7 @@ export function AdminChat({
               </div>
             ) : (
               <>
-                {m.content && (
-                  <div style={{ alignSelf: "flex-start", maxWidth: "85%", fontSize: 14 }}>
-                    <Markdown text={m.content} />
-                  </div>
-                )}
+                {/* Panels and approval cards always lead; the copilot's words follow. */}
                 {m.items.map((item, j) =>
                   item.kind === "panel" ? (
                     <PanelBubble key={j} label={labels[item.key] ?? item.key}>
@@ -287,6 +283,11 @@ export function AdminChat({
                       onDone={() => router.refresh()}
                     />
                   ),
+                )}
+                {m.content && (
+                  <div style={{ alignSelf: "flex-start", maxWidth: "85%", fontSize: 14 }}>
+                    <Markdown text={m.content} />
+                  </div>
                 )}
                 {i === messages.length - 1 && loading && !m.content && m.items.length === 0 && (
                   <span style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13 }}>
