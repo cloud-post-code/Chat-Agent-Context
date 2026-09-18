@@ -11,8 +11,12 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
-import { indexOnboardingGraph, finishOnboardingIndex, type GraphIndexReport } from "./graphIndex";
+import {
+  indexOnboardingGraph, finishOnboardingIndex, estimateFilingWork, filingSeconds,
+  type GraphIndexReport,
+} from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
+import { generateOnboardingCards, type CardsReport } from "./cards";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
@@ -66,8 +70,13 @@ export type Job = {
   graph?: GraphIndexReport;
   /** The agent goals derived from this run (lib/onboarding/goals.ts). */
   goals?: GoalsReport;
-  /** How many business-specific starter questions replaced the generic seeds. */
+  /** How many business-specific starter questions were written for the page. */
   starterQuestions?: number;
+  /** The A2UI cards designed for this business (lib/onboarding/cards.ts). */
+  cards?: CardsReport;
+  /** When the filing pass started and how long the rest of the run was
+   *  estimated to take, so the chat can count down to done. */
+  filing?: { startedAt: number; seconds: number };
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -90,8 +99,18 @@ export function getJob(id: string, userId: string): Job | null {
 
 /** The polling wire shape — everything except the internal crawl state. */
 export function jobPayload(job: Job) {
-  const { userId: _u, crawler: _c, home: _h, extras: _e, busy: _b, ...rest } = job;
-  return rest;
+  const { userId: _u, crawler: _c, home: _h, extras: _e, busy: _b, filing, ...rest } = job;
+  return { ...rest, eta: etaFor(filing, job.phase) };
+}
+
+/** The wire form of the estimate: seconds left as of THIS poll, so the client
+ *  counts down from its own clock and server/browser clock skew never shows. */
+export function etaFor(
+  filing: Job["filing"], phase: Job["phase"], now = Date.now(),
+): { totalSeconds: number; remainingSeconds: number } | undefined {
+  if (!filing || phase === "done" || phase === "failed") return undefined;
+  const elapsed = Math.floor((now - filing.startedAt) / 1000);
+  return { totalSeconds: filing.seconds, remainingSeconds: Math.max(0, filing.seconds - elapsed) };
 }
 
 function fail(job: Job, err: unknown) {
@@ -102,6 +121,29 @@ function fail(job: Job, err: unknown) {
 function log(job: Job, msg: string) {
   job.log.push(msg);
   if (job.log.length > 400) job.log.splice(0, job.log.length - 400);
+}
+
+/** "2 minutes" / "1 minute 30 seconds" / "40 seconds" — for the estimate line. */
+export function describeDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (m === 0) return part(s, "second");
+  return s ? `${part(m, "minute")} ${part(s, "second")}` : part(m, "minute");
+}
+
+/** One honest line for what the cards stage did. */
+function cardsOutcome(c: CardsReport): string {
+  if (c.keptExisting) return "You already have cards — left them exactly as they are";
+  if (c.written) {
+    const names = c.cards.map((x) => x.label).join(", ");
+    const attached = c.attached
+      ? `, attached to ${c.attached} starter question${c.attached === 1 ? "" : "s"}`
+      : "";
+    return `Designed ${c.written} card${c.written === 1 ? "" : "s"} for your agent (${names})${attached} — editable under A2UI`;
+  }
+  if (c.failed) return "Couldn't plan your cards — you can build them under A2UI";
+  return "Nothing on your site called for a card yet — you can build them under A2UI";
 }
 
 export function startJob(userId: string, url: string): Job {
@@ -462,7 +504,14 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     // with no sources, no graph and no goals yet, and the questions fell back
     // to the generic seeds. They belong here, at the real end of extraction.
     // Best-effort, in order: the knowledge is already saved either way.
-    log(job, "Filing everything into your agent's memory");
+    // Estimated up front so the chat can say how long the quiet stretch will
+    // be and count it down; the pass itself emits few lines. Best-effort: a
+    // failed count just means no countdown.
+    const seconds = await estimateFilingWork(job.userId).then(filingSeconds).catch(() => 0);
+    if (seconds > 0) job.filing = { startedAt: Date.now(), seconds };
+    log(job, seconds > 0
+      ? `Filing everything into your agent's memory — about ${describeDuration(seconds)} to go`
+      : "Filing everything into your agent's memory");
     try {
       await finishOnboardingIndex(job.userId, { onEvent });
     } catch {
@@ -475,9 +524,24 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       job.starterQuestions = written;
       log(job, written
         ? `Wrote ${written} starter question${written === 1 ? "" : "s"} for your page, editable under Presets`
-        : "Kept the standard starter questions — you can edit them under Presets");
+        : "Couldn't write starter questions — add your own or hit Regenerate under Presets");
     } catch {
-      log(job, "Kept the standard starter questions — you can edit them under Presets");
+      log(job, "Couldn't write starter questions — add your own or hit Regenerate under Presets");
+    }
+
+    // The cards the agent can draw. Planned last because it reads everything
+    // above — the pages, the goals, and the starter questions it attaches
+    // cards to. Nothing is seeded at signup any more, so this is where a
+    // business's cards come from; best-effort like the goals pass, and only
+    // into an empty catalog, since a catalog the owner has touched is theirs.
+    log(job, "Designing the cards your agent can show visitors");
+    try {
+      job.cards = await generateOnboardingCards(
+        goalPages, job.userId, { categories: picked }, onEvent,
+      );
+      log(job, cardsOutcome(job.cards));
+    } catch {
+      log(job, "Couldn't design your cards — you can build them under A2UI");
     }
 
     log(job, "All done");

@@ -1,8 +1,6 @@
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { seedStarterIngestionSources } from "@/lib/ingestionSources";
-import { seedStarterUiCards } from "@/lib/uiCards";
-import { seedStarterAnswers } from "@/lib/canned";
 import type { User } from "@prisma/client";
 
 /**
@@ -42,10 +40,15 @@ export async function uniqueSlug(base: string): Promise<string> {
 }
 
 /**
- * Per-user starter rows: the three config singletons plus the seeded catalogs
- * (Content tabs, A2UI cards, canned answers). Idempotent — each seed fills
- * only when that user has zero rows of the kind, so it never resurrects
- * deliberate deletions.
+ * Per-user starter rows: the three config singletons plus the seeded Content
+ * tabs. Idempotent — the seed fills only when that user has zero rows of the
+ * kind, so it never resurrects deliberate deletions.
+ *
+ * Starter questions and A2UI cards are deliberately NOT seeded: both are
+ * written for the business when onboarding completes (lib/starterQuestions.ts,
+ * lib/onboarding/cards.ts), and generic placeholders standing in until then —
+ * five interview questions, a portfolio's project cards — were worse than
+ * nothing at all.
  */
 export async function provisionUserDefaults(userId: string): Promise<void> {
   const steps: Array<[string, () => Promise<unknown>]> = [
@@ -63,8 +66,6 @@ export async function provisionUserDefaults(userId: string): Promise<void> {
     ],
     ["theme", () => prisma.themeConfig.upsert({ where: { userId }, update: {}, create: { userId } })],
     ["ingestion sources", () => seedStarterIngestionSources(userId)],
-    ["ui cards", () => seedStarterUiCards(userId)],
-    ["canned answers", () => seedStarterAnswers(userId)],
   ];
   for (const [label, run] of steps) {
     try {

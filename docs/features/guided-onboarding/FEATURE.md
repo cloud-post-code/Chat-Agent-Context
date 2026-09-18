@@ -42,6 +42,17 @@ website URL with Playwright, or manually via the same forms left empty.
 ### Step 1c — Gallery photos (added 2026-09-03; curation revised 2026-09-05)
 - After the locations review, extract up to 25 content images from the site
   (gallery/portfolio/about pages plus the pages already crawled).
+- Revision (2026-09-09, user-requested): the conversation is a TRANSCRIPT.
+  Each step used to replace the one before it, so by the theme stage only
+  the greeting, the URL and the current bubble were left. Now every
+  assistant message and every user answer stays on the page and the next
+  step appends below it. A saved review form collapses into a one-line
+  user message (the contact details, the locations, the profiles, the
+  photos kept, the theme and tagline, the categories picked); each running
+  stage's bubble shows only the activity lines that arrived during that
+  stage; and when the knowledge run finishes, its feed stays with the
+  "All done" summary added beneath it. A retry after a failed extraction
+  starts the transcript over.
 - Revision (2026-09-05, user-requested): candidates are CURATED by the model
   looking at the downloaded pixels. Keep only photos a potential customer
   would find useful or interesting (premises, work, products, spaces, team

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { panel, btn, btnGhost } from "../ui";
 import { card as a2uiCard, cf as a2uiField } from "@/app/cards/Cards";
@@ -9,6 +9,7 @@ import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 import { GalleryCard, type GalleryItem } from "./GalleryCard";
+import { ActivityStream, Typewriter, type Eta } from "./ActivityStream";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
@@ -39,6 +40,9 @@ type Status = {
     sweep?: { pages: string[] };
   };
   graph?: { entities: number; relations: number };
+  cards?: { written: number; attached: number; cards: { label: string }[] };
+  /** Seconds left in the run as of this poll, once the filing pass has begun. */
+  eta?: { totalSeconds: number; remainingSeconds: number };
 };
 
 type Step =
@@ -135,9 +139,6 @@ const defaultTheme = (): ThemeInitial => ({
   themeFontSize: "16", themeHeadingWeight: "700", colors: {},
 });
 
-/** Lemonade-style letter-by-letter text for assistant messages. Progress is
- *  derived from elapsed time, not tick counts, so a backgrounded tab (whose
- *  timers the browser throttles) catches up instantly instead of stalling. */
 /**
  * What the run actually found. Only non-zero categories are listed: a site
  * with no blog is the normal case for a small business, and printing
@@ -181,51 +182,6 @@ function summarizeAbsent(status: Status): string[] {
   return notes;
 }
 
-function Typewriter({ text, speed = 14, onDone }: { text: string; speed?: number; onDone?: () => void }) {
-  const [shown, setShown] = useState(0);
-  const onDoneRef = useRef(onDone);
-  onDoneRef.current = onDone;
-  useEffect(() => {
-    setShown(0);
-    const startedAt = Date.now();
-    const t = setInterval(() => {
-      const n = Math.min(text.length, Math.floor((Date.now() - startedAt) / speed));
-      setShown(n);
-      if (n >= text.length) clearInterval(t);
-    }, speed);
-    return () => clearInterval(t);
-  }, [text, speed]);
-  // Completion is signaled from an effect, not from inside the interval's
-  // state updater — updating the parent mid-render is a React error.
-  useEffect(() => {
-    if (text.length > 0 && shown >= text.length) onDoneRef.current?.();
-  }, [shown, text]);
-  return <>{text.slice(0, shown)}</>;
-}
-
-/**
- * The live extraction feed: REAL activity lines from the job (pages being
- * read, values found, sections that don't exist), streamed in order. The
- * newest line types in; earlier ones stay dimmed above it.
- */
-function ActivityStream({ lines, progress }: { lines: string[]; progress: number }) {
-  const tail = lines.slice(-5);
-  return (
-    <div aria-live="polite">
-      <div style={{ fontSize: 13, lineHeight: 1.7, marginBottom: 10, minHeight: 22 }}>
-        {tail.map((l, i) => (
-          <div key={`${lines.length - tail.length + i}`} style={{ opacity: i === tail.length - 1 ? 1 : 0.55 }}>
-            {i === tail.length - 1 ? <Typewriter text={l} /> : l}
-          </div>
-        ))}
-      </div>
-      <div style={{ background: "var(--bg-soft)", borderRadius: 6, height: 10, overflow: "hidden" }}>
-        <div style={{ width: `${Math.max(progress, 3)}%`, height: "100%", background: "var(--primary)", transition: "width .6s" }} />
-      </div>
-    </div>
-  );
-}
-
 /**
  * The user's side of the conversation: entry forms and cards render as a
  * right-aligned panel — the place the user answers from — instead of living
@@ -245,11 +201,52 @@ function UserEntry({ children, maxWidth = 560 }: { children: React.ReactNode; ma
   );
 }
 
+const RUNNING_STEPS: readonly Step[] = [
+  "core-running", "locations-running", "social-running",
+  "images-running", "theme-running", "knowledge-running",
+];
+const isRunning = (s: Step) => RUNNING_STEPS.includes(s);
+
+// ── What the user answered at each review, as the one-line message their
+// form collapses into once it is saved. Plain facts, no editorializing. ──
+function contactSummary(c: Record<string, string>): string {
+  const parts = [c.company_name, c.owner_name, c.company_phone_number, c.company_email]
+    .map((v) => (v ?? "").trim())
+    .filter(Boolean);
+  return parts.length ? `Contact: ${parts.join(" · ")}` : "No contact details to add.";
+}
+
+function locationsSummary(noInPerson: boolean, locs: LocationForm[]): string {
+  if (noInPerson) return "Online only — no in-person location.";
+  const addrs = locs.map((l) => l.address.trim()).filter(Boolean);
+  const n = locs.length;
+  return `${n} location${n === 1 ? "" : "s"}${addrs.length ? `: ${addrs.join("; ")}` : " saved"}`;
+}
+
+function socialsSummary(links: SocialForm[]): string {
+  const kept = links.filter((l) => l.url.trim());
+  if (!kept.length) return "No social media profiles.";
+  return `Social: ${kept.map((l) => l.platform.trim() || l.url.trim()).join(", ")}`;
+}
+
+function themeSummary(bodyFont: string, radius: string, tagline: string): string {
+  const font = BODY_FONT_OPTIONS.find((o) => o.key === bodyFont)?.label ?? bodyFont;
+  const corners = RADIUS_OPTIONS.find((o) => o.key === radius)?.label ?? radius;
+  const line = `Theme: ${font} body font, ${corners.toLowerCase()} corners.`;
+  return tagline.trim() ? `${line} Tagline: “${tagline.trim()}”` : line;
+}
+
+function knowledgeSummary(picked: string[]): string {
+  const labels = EXTRACTOR_OPTIONS.filter((o) => picked.includes(o.key)).map((o) => o.label);
+  return labels.length ? `Extract: ${labels.join(", ")}` : "Extract nothing.";
+}
+
 function Bubble({ who, children }: { who: "assistant" | "user"; children: React.ReactNode }) {
   const mine = who === "user";
   return (
     <div style={{ display: "flex", justifyContent: mine ? "flex-end" : "flex-start" }}>
       <div
+        data-who={who}
         className="onboard-phase-in"
         style={{
           ...panel,
@@ -299,21 +296,60 @@ export function OnboardingFlow() {
   // The greeting types exactly once, so its flag is never reset — the URL
   // card must come back if the user retries after a failed extraction.
   const [greetingDone, setGreetingDone] = useState(false);
+  // The countdown anchors to the client clock at the moment the poll landed.
+  const [eta, setEta] = useState<Eta | null>(null);
   const themeFormRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
-  const running =
-    step === "core-running" || step === "locations-running" ||
-    step === "social-running" || step === "images-running" ||
-    step === "theme-running" || step === "knowledge-running";
+  // The transcript. Every step the conversation has passed through stays on
+  // the page and the next one appends below it, like any chat: `visited` is
+  // which blocks render besides the current one, `summaries` is what the user
+  // answered at each review (the form collapses into that one line once it is
+  // saved), and `bounds` is the slice of the job's log that belongs to each
+  // running stage, so a stage's bubble shows its own activity rather than the
+  // whole run's so far.
+  const [visited, setVisited] = useState<Step[]>([]);
+  const [summaries, setSummaries] = useState<Partial<Record<Step, string>>>({});
+  const bounds = useRef<Partial<Record<Step, { start: number; end?: number }>>>({});
+  const statusRef = useRef<Status | null>(null);
+
+  const running = isRunning(step);
+  const shown = (s: Step) => step === s || visited.includes(s);
+  const linesFor = (s: Step): string[] => {
+    const b = bounds.current[s];
+    return b ? (status?.log ?? []).slice(b.start, b.end) : [];
+  };
+  const progressFor = (s: Step) => (step === s ? status?.progress ?? 0 : 100);
+
+  /**
+   * Advance the conversation. The current step joins the transcript — with
+   * the user's answer when it was a review — and the next step appends. A
+   * running stage's log slice closes here and the next one's opens, at the
+   * log length of the last status seen.
+   */
+  const go = useCallback((next: Step, summary?: string) => {
+    const len = statusRef.current?.log?.length ?? 0;
+    if (isRunning(step)) bounds.current[step] = { start: bounds.current[step]?.start ?? 0, end: len };
+    if (isRunning(next)) bounds.current[next] = { start: len };
+    if (summary !== undefined) setSummaries((m) => ({ ...m, [step]: summary }));
+    setVisited((v) => (v.includes(step) ? v : [...v, step]));
+    setStep(next);
+  }, [step]);
+
+  /** A review's user side: the live form while it is the current step, the saved answer after. */
+  const answer = (s: Step, form: React.ReactNode): React.ReactNode =>
+    step === s ? textDone && form : <Bubble who="user">{summaries[s] ?? "Done."}</Bubble>;
 
   useEffect(() => {
     setTextDone(false);
   }, [step]);
 
+  // Log length is a dependency because the activity feed keeps every step
+  // instead of windowing: as the transcript grows the newest line would
+  // otherwise drift below the fold with nothing scrolling to follow it.
   useEffect(() => {
     endRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [step, status?.phase, textDone, greetingDone]);
+  }, [step, status?.phase, status?.log?.length, textDone, greetingDone]);
 
   // One poller drives every running stage; step transitions happen on the
   // phase the backend reports, and each form is pre-filled before it shows.
@@ -323,7 +359,9 @@ export function OnboardingFlow() {
       const res = await fetch(`/api/admin/onboarding/status?jobId=${jobId}`);
       if (!res.ok) return;
       const s: Status = await res.json();
+      statusRef.current = s;
       setStatus(s);
+      setEta(s.eta ? { remainingSeconds: s.eta.remainingSeconds, receivedAt: Date.now() } : null);
       if (s.phase === "failed") return;
       if (step === "core-running" && s.phase === "core-done" && s.step1) {
         const p = s.step1 as Record<string, unknown>;
@@ -333,7 +371,7 @@ export function OnboardingFlow() {
           company_phone_number: String(p.company_phone_number ?? ""),
           company_email: String(p.company_email ?? ""),
         });
-        setStep("review-contact");
+        go("review-contact");
       }
       if (step === "locations-running" && s.phase === "locations-done") {
         const found = s.stepLoc?.locations ?? [];
@@ -348,7 +386,7 @@ export function OnboardingFlow() {
             } as LocationForm;
           }));
         }
-        setStep("review-locations");
+        go("review-locations");
       }
       if (step === "social-running" && s.phase === "social-done") {
         const links = (s.stepSocial?.links ?? [])
@@ -356,7 +394,7 @@ export function OnboardingFlow() {
           .filter((l) => l.url);
         setFoundSocials(links.length > 0);
         if (links.length) setSocials(links);
-        setStep("review-social");
+        go("review-social");
       }
       if (step === "images-running" && s.phase === "images-done") {
         const imgs = (s.stepImages?.images ?? []).map((i) => ({
@@ -365,10 +403,10 @@ export function OnboardingFlow() {
         if (imgs.length === 0) {
           // Nothing to review — move straight on to the theme.
           await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
-          setStep("theme-running");
+          go("theme-running");
         } else {
           setGallery(imgs);
-          setStep("review-images");
+          go("review-images");
         }
       }
       if (step === "theme-running" && s.phase === "theme-done" && s.step2) {
@@ -395,11 +433,11 @@ export function OnboardingFlow() {
         setTaglineSource(String(b.taglineSource ?? ""));
         setBrandValues((Array.isArray(b.values) ? b.values : []).join("\n"));
         setTone(String(b.tone ?? ""));
-        setStep("review-theme");
+        go("review-theme");
       }
     }, 1500);
     return () => clearInterval(t);
-  }, [jobId, running, step]);
+  }, [jobId, running, step, go]);
 
   async function post(path: string, body: unknown): Promise<Response> {
     return fetch(path, {
@@ -418,7 +456,7 @@ export function OnboardingFlow() {
     }
     const started = (await res.json()) as { jobId: string };
     setJobId(started.jobId);
-    setStep("core-running");
+    go("core-running");
   }
 
   async function saveContact() {
@@ -436,11 +474,12 @@ export function OnboardingFlow() {
       setBusy(false);
       return;
     }
+    const summary = contactSummary(profile);
     if (manual) {
-      setStep("review-locations");
+      go("review-locations", summary);
     } else {
       await post("/api/admin/onboarding/advance", { jobId, stage: "locations" });
-      setStep("locations-running");
+      go("locations-running", summary);
     }
     setBusy(false);
   }
@@ -463,11 +502,12 @@ export function OnboardingFlow() {
       setBusy(false);
       return;
     }
+    const summary = locationsSummary(noInPerson, locations);
     if (manual) {
-      setStep("review-social");
+      go("review-social", summary);
     } else {
       await post("/api/admin/onboarding/advance", { jobId, stage: "social" });
-      setStep("social-running");
+      go("social-running", summary);
     }
     setBusy(false);
   }
@@ -483,11 +523,12 @@ export function OnboardingFlow() {
       setBusy(false);
       return;
     }
+    const summary = socialsSummary(socials);
     if (manual) {
-      setStep("review-theme");
+      go("review-theme", summary);
     } else {
       await post("/api/admin/onboarding/advance", { jobId, stage: "images" });
-      setStep("images-running");
+      go("images-running", summary);
     }
     setBusy(false);
   }
@@ -502,7 +543,7 @@ export function OnboardingFlow() {
       return;
     }
     await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
-    setStep("theme-running");
+    go("theme-running", `Kept ${gallery.length} photo${gallery.length === 1 ? "" : "s"} for the gallery.`);
     setBusy(false);
   }
 
@@ -510,7 +551,7 @@ export function OnboardingFlow() {
     setBusy(true);
     setError("");
     await post("/api/admin/onboarding/advance", { jobId, stage: "theme" });
-    setStep("theme-running");
+    go("theme-running", "Skipped the photos.");
     setBusy(false);
   }
 
@@ -558,7 +599,7 @@ export function OnboardingFlow() {
       router.push("/admin/chat");
       return;
     }
-    setStep("select-knowledge");
+    go("select-knowledge", themeSummary(v("themeBodyFont"), v("themeRadius"), tagline));
     setBusy(false);
   }
 
@@ -575,7 +616,7 @@ export function OnboardingFlow() {
     }
     // The user is set up from here — knowledge keeps extracting on its own.
     await post("/api/admin/onboarding/complete", { mode: "site" });
-    setStep("knowledge-running");
+    go("knowledge-running", knowledgeSummary(picked));
     setBusy(false);
   }
 
@@ -617,7 +658,7 @@ export function OnboardingFlow() {
           </button>
           <button
             style={{ ...btnGhost, marginLeft: 10 }}
-            onClick={() => { setManual(true); setStep("review-contact"); }}
+            onClick={() => { setManual(true); go("review-contact"); }}
           >
             I don&apos;t have a site — set up manually
           </button>
@@ -628,16 +669,16 @@ export function OnboardingFlow() {
         <Bubble who="user">{manual ? "I'll set it up manually." : url}</Bubble>
       )}
 
-      {step === "core-running" && (
+      {shown("core-running") && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
             <Typewriter text="On it — extracting your contact info now." />
           </p>
-          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+          <ActivityStream lines={linesFor("core-running")} progress={progressFor("core-running")} />
         </Bubble>
       )}
 
-      {step === "review-contact" && (
+      {shown("review-contact") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -649,7 +690,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("review-contact", (
             <UserEntry>
               <FormCard
                 fields={COMPANY_FIELDS}
@@ -660,20 +701,20 @@ export function OnboardingFlow() {
                 busy={busy}
               />
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "locations-running" && (
+      {shown("locations-running") && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
             <Typewriter text="Now — where can customers find you? I'm reading your location and hours pages." />
           </p>
-          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+          <ActivityStream lines={linesFor("locations-running")} progress={progressFor("locations-running")} />
         </Bubble>
       )}
 
-      {step === "review-locations" && (
+      {shown("review-locations") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -687,7 +728,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("review-locations", (
             <UserEntry>
               {/* The online-only escape hatch is only offered when extraction
                   found nothing (or in manual setup) — a site with locations
@@ -744,20 +785,20 @@ export function OnboardingFlow() {
                 </button>
               </div>
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "social-running" && (
+      {shown("social-running") && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
             <Typewriter text="Saved. Now I'm checking your site for your social media profiles." />
           </p>
-          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+          <ActivityStream lines={linesFor("social-running")} progress={progressFor("social-running")} />
         </Bubble>
       )}
 
-      {step === "review-social" && (
+      {shown("review-social") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -771,7 +812,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("review-social", (
             <UserEntry>
               {socials.map((s, i) => (
                 <div
@@ -815,20 +856,20 @@ export function OnboardingFlow() {
                 </button>
               </div>
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "images-running" && (
+      {shown("images-running") && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
             <Typewriter text="Saved. Now let me gather photos from your site for your gallery." />
           </p>
-          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+          <ActivityStream lines={linesFor("images-running")} progress={progressFor("images-running")} />
         </Bubble>
       )}
 
-      {step === "review-images" && (
+      {shown("review-images") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -838,7 +879,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("review-images", (
             <UserEntry maxWidth={620}>
               <GalleryCard
                 images={gallery}
@@ -856,20 +897,20 @@ export function OnboardingFlow() {
                 </button>
               </div>
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "theme-running" && (
+      {shown("theme-running") && (
         <Bubble who="assistant">
           <p style={{ margin: "0 0 10px" }}>
             <Typewriter text="Saved. I'll now extract your theme — colors, fonts, corners, and logo." />
           </p>
-          <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
+          <ActivityStream lines={linesFor("theme-running")} progress={progressFor("theme-running")} />
         </Bubble>
       )}
 
-      {step === "review-theme" && (
+      {shown("review-theme") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -881,7 +922,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("review-theme", (
             <UserEntry maxWidth={680}>
               {logo && (
                 <p style={{ fontSize: 13, opacity: 0.75, marginTop: 0 }}>
@@ -955,11 +996,11 @@ export function OnboardingFlow() {
                 </button>
               </form>
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "select-knowledge" && (
+      {shown("select-knowledge") && (
         <>
           <Bubble who="assistant">
             <p style={{ margin: 0 }}>
@@ -969,7 +1010,7 @@ export function OnboardingFlow() {
               />
             </p>
           </Bubble>
-          {textDone && (
+          {answer("select-knowledge", (
             <UserEntry maxWidth={460}>
               {EXTRACTOR_OPTIONS.map((o) => (
                 <label key={o.key} style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 8, fontSize: 14 }}>
@@ -994,15 +1035,28 @@ export function OnboardingFlow() {
                 </button>
               </div>
             </UserEntry>
-          )}
+          ))}
         </>
       )}
 
-      {step === "knowledge-running" && (
+      {shown("knowledge-running") && (
         <>
           <Bubble who="assistant">
-            {status?.phase === "done" ? (
-              <div>
+            <p style={{ margin: "0 0 10px" }}>
+              <Typewriter
+                text="Extracting now. This can take a few minutes on a big site — you don't need to wait, I'll keep going in the background."
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+            {/* The run's activity stays once it finishes — the summary joins
+                it below rather than replacing what the agent just did. */}
+            <ActivityStream
+              lines={linesFor("knowledge-running")}
+              progress={status?.phase === "done" ? 100 : status?.progress ?? 0}
+              eta={status?.phase === "done" ? null : eta}
+            />
+            {status?.phase === "done" && (
+              <div style={{ marginTop: 12 }}>
                 <p style={{ margin: 0 }}>
                   All done — I saved <strong>{status.chunkCount ?? 0}</strong> knowledge chunks
                   {summarizeFound(status).length
@@ -1011,22 +1065,15 @@ export function OnboardingFlow() {
                   {status.graph?.entities
                     ? ` I also connected ${status.graph.entities} thing${status.graph.entities === 1 ? "" : "s"} across ${status.graph.relations} relationship${status.graph.relations === 1 ? "" : "s"}.`
                     : ""}
+                  {status.cards?.written
+                    ? ` And I designed ${status.cards.written} card${status.cards.written === 1 ? "" : "s"} your agent can show (${status.cards.cards.map((c) => c.label).join(", ")})${status.cards.attached ? `, attached to ${status.cards.attached} of your starter question${status.cards.attached === 1 ? "" : "s"}` : ""}.`
+                    : ""}
                 </p>
                 {summarizeAbsent(status).length > 0 && (
                   <p style={{ margin: "8px 0 0", opacity: 0.75, fontSize: 14 }}>
                     {summarizeAbsent(status).join(" ")}
                   </p>
                 )}
-              </div>
-            ) : (
-              <div>
-                <p style={{ margin: "0 0 10px" }}>
-                  <Typewriter
-                    text="Extracting now. This can take a few minutes on a big site — you don't need to wait, I'll keep going in the background."
-                    onDone={() => setTextDone(true)}
-                  />
-                </p>
-                <ActivityStream lines={status?.log ?? []} progress={status?.progress ?? 0} />
               </div>
             )}
           </Bubble>
@@ -1048,7 +1095,12 @@ export function OnboardingFlow() {
           <UserEntry maxWidth={360}>
             <button
               style={btnGhost}
-              onClick={() => { setStep("ask-url"); setStatus(null); setJobId(null); }}
+              onClick={() => {
+                // A retry starts the conversation over: nothing from the
+                // failed attempt belongs in the new transcript.
+                setStep("ask-url"); setStatus(null); setJobId(null);
+                setVisited([]); setSummaries({}); bounds.current = {}; statusRef.current = null;
+              }}
             >
               Try another URL or set up manually
             </button>

@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/db";
 import { persistGraph } from "@/lib/retrieval/indexer";
 import { indexEverything } from "@/lib/retrieval/origins";
-import { buildClusterOverviews } from "@/lib/retrieval/clusters";
+import { buildClusterOverviews, computeClusters } from "@/lib/retrieval/clusters";
 import {
   extractEntities,
   MAX_KNOWN_IN_PROMPT,
@@ -169,4 +169,57 @@ export async function finishOnboardingIndex(
   }
 
   return { ...report, origins };
+}
+
+/** What the filing pass will have to do, counted before it starts. */
+export type FilingWork = {
+  /// Non-Source origins indexEverything steps through (profile, persona, ...).
+  origins: number;
+  /// Scanned sources with chunks that the graph pass re-reads.
+  sources: number;
+  /// Cluster overviews that will be summarized from the resulting graph.
+  clusters: number;
+};
+
+/** Model calls that follow filing before the run is done: starter questions
+ *  plus the card planner. Counted so the estimate is "until done", not "until
+ *  the next quiet stage". */
+export const TAIL_CALLS = 3;
+/** A typical model call plus its database writes. */
+export const CALL_MS = 6_000;
+
+/**
+ * Seconds the rest of the run should take. Pure and deterministic: every
+ * origin and source costs one paced model call (indexEverything and the graph
+ * pass each sleep `paceMs` between their own steps, never before the first),
+ * each cluster costs one unpaced summary call, and the tail stages cost their
+ * calls. Rounded up to a whole ten seconds so the number reads as an estimate.
+ */
+export function filingSeconds(work: FilingWork, paceMs = DEFAULT_PACE_MS): number {
+  const pauses = Math.max(work.origins - 1, 0) + Math.max(work.sources - 1, 0);
+  const calls = work.origins + work.sources + work.clusters + TAIL_CALLS;
+  const ms = pauses * paceMs + calls * CALL_MS;
+  return Math.max(10, Math.ceil(ms / 10_000) * 10);
+}
+
+/** Count the filing work with the same queries the pass itself runs. */
+export async function estimateFilingWork(userId: string): Promise<FilingWork> {
+  const [projects, photos, approved, appointments, sources, entities, edges] = await Promise.all([
+    prisma.project.count({ where: { userId } }),
+    prisma.photo.count({ where: { userId } }),
+    prisma.chatMessage.count({ where: { role: "assistant", rating: "up", session: { userId } } }),
+    prisma.appointment.count({ where: { userId } }),
+    prisma.source.count({ where: { userId, status: "scanned", chunks: { some: {} } } }),
+    prisma.entity.findMany({
+      where: { userId },
+      select: { id: true, name: true, _count: { select: { mentions: true } } },
+    }),
+    prisma.entityEdge.findMany({ where: { from: { userId } }, select: { fromId: true, toId: true } }),
+  ]);
+  const clusters = computeClusters(
+    entities.map((e) => ({ id: e.id, name: e.name, mentions: e._count.mentions })),
+    edges,
+  ).length;
+  // Profile and persona are always stepped through, whether or not they are filled.
+  return { origins: 2 + projects + photos + approved + appointments, sources, clusters };
 }

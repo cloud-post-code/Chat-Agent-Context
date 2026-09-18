@@ -357,7 +357,7 @@ function PreviewCard() {
   return (
     <div style={{ background: "var(--bg)", color: "var(--text)", padding: 18, fontFamily: "var(--font-body)" }}>
       <div style={{ fontFamily: "var(--font-heading)", fontWeight: "var(--heading-weight)" as unknown as number, fontSize: 26, letterSpacing: "-0.02em" }}>
-        Welcome in. <span style={{ color: "var(--accent-on-bg)" }}>Talk to me.</span>
+        Welcome in. <span style={{ color: "var(--accent-on-bg)" }}>Ask me anything.</span>
       </div>
       <p style={{ color: "var(--text)", fontStyle: "italic", fontSize: "var(--font-size-base)", margin: "6px 0 14px" }}>
         Curious builder. I make things and talk about them.

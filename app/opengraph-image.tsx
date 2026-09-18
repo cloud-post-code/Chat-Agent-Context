@@ -117,9 +117,9 @@ export default async function OgImage() {
   // themeVarLines only emits 400–900 in hundreds, matching next/og's Weight union.
   const headingWeight = (Number(v["--heading-weight"] ?? "700") || 700) as 400 | 500 | 600 | 700 | 800 | 900;
 
-  const heroLine1 = `Hey, I’m ${name}.`;
-  const heroLine2 = "Talk to me.";
-  const placeholder = "Ask me anything…";
+  const heroLine1 = name;
+  const heroLine2 = "Ask me anything.";
+  const placeholder = "Type your question…";
   const sendLabel = "Send ↵";
   const chips = starterQuestions.map((s) => s.q);
   const allText = [heroLine1, heroLine2, tagline, placeholder, sendLabel, ...chips].join("");

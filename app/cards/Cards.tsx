@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 /** Shared A2UI block types (mirrors lib/cards.ts). */
 export type ProjectCard = {
@@ -599,14 +599,42 @@ function ProjectCardView({ p, big }: { p: ProjectCard; big?: boolean }) {
 }
 
 function Carousel({ items }: { items: PhotoCard[] }) {
+  // Every photo stays mounted in a horizontal scroll-snap track. Navigation
+  // smooth-scrolls the track instead of swapping one <img>'s src, so there is
+  // no blank frame while the next photo loads and no height jump between
+  // photos with different aspect ratios.
   const [i, setI] = useState(0);
+  const track = useRef<HTMLDivElement>(null);
+  const scrollTo = (idx: number) => {
+    const el = track.current;
+    if (!el) return;
+    const reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollTo({ left: idx * el.clientWidth, behavior: reduce ? "auto" : "smooth" });
+  };
+  const go = (d: number) => scrollTo((i + d + items.length) % items.length);
+  const onScroll = () => {
+    const el = track.current;
+    if (!el || el.clientWidth === 0) return;
+    const idx = Math.round(el.scrollLeft / el.clientWidth);
+    if (idx !== i) setI(Math.max(0, Math.min(items.length - 1, idx)));
+  };
   const ph = items[i];
-  const go = (d: number) => setI((v) => (v + d + items.length) % items.length);
   return (
     <div data-fill="bg-soft" style={card}>
       <div style={{ position: "relative" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src={ph.src} alt={ph.description} style={{ width: "100%", borderRadius: "var(--radius-sm)", display: "block" }} />
+        <div ref={track} onScroll={onScroll} className="carousel-track" style={carouselTrack}>
+          {items.map((it, idx) => (
+            <div key={it.id ?? idx} style={carouselSlide} aria-hidden={idx !== i}>
+              {/* Blurred copy fills the letterbox behind photos whose aspect
+                  ratio differs from the slide, so nothing is cropped and no
+                  slide shows a blank slab. */}
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={it.src} alt="" aria-hidden draggable={false} style={carouselBackdrop} />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={it.src} alt={it.description} draggable={false} style={carouselImg} />
+            </div>
+          ))}
+        </div>
         {items.length > 1 && (
           <>
             <button style={{ ...navArrow, left: 8 }} onClick={() => go(-1)} aria-label="Previous">
@@ -621,22 +649,28 @@ function Carousel({ items }: { items: PhotoCard[] }) {
       {ph.description && (
         <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 14, marginTop: 10 }}>{ph.description}</p>
       )}
-      <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 10 }}>
-        {items.map((_, idx) => (
-          <button
-            key={idx}
-            onClick={() => setI(idx)}
-            aria-label={`Go to photo ${idx + 1}`}
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: 999,
-              border: "none",
-              background: idx === i ? "var(--primary)" : "var(--border)",
-            }}
-          />
-        ))}
-      </div>
+      {items.length > 1 && (
+        <div style={{ display: "flex", gap: 6, justifyContent: "center", marginTop: 10 }}>
+          {items.map((_, idx) => (
+            <button
+              key={idx}
+              onClick={() => scrollTo(idx)}
+              aria-label={`Go to photo ${idx + 1}`}
+              aria-current={idx === i}
+              style={{
+                width: 8,
+                height: 8,
+                padding: 0,
+                borderRadius: 999,
+                border: "none",
+                cursor: "pointer",
+                background: idx === i ? "var(--primary)" : "var(--border)",
+                transition: "background 200ms ease",
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -730,6 +764,45 @@ const liveBtn: React.CSSProperties = {
   background: "var(--primary)",
   color: "var(--on-primary)",
   border: "none",
+};
+const carouselTrack: React.CSSProperties = {
+  display: "flex",
+  overflowX: "auto",
+  overflowY: "hidden",
+  scrollSnapType: "x mandatory",
+  scrollbarWidth: "none",
+  borderRadius: "var(--radius-sm)",
+  // WebkitOverflowScrolling is not in React's CSSProperties typings; the
+  // touch momentum default is already fine on modern iOS.
+};
+const carouselSlide: React.CSSProperties = {
+  position: "relative",
+  flex: "0 0 100%",
+  width: "100%",
+  aspectRatio: "16 / 10",
+  overflow: "hidden",
+  scrollSnapAlign: "start",
+  scrollSnapStop: "always",
+  background: "var(--bg)",
+};
+const carouselBackdrop: React.CSSProperties = {
+  position: "absolute",
+  inset: 0,
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+  filter: "blur(28px) saturate(1.2)",
+  transform: "scale(1.15)",
+  opacity: 0.55,
+  pointerEvents: "none",
+};
+const carouselImg: React.CSSProperties = {
+  position: "relative",
+  width: "100%",
+  height: "100%",
+  objectFit: "contain",
+  display: "block",
+  userSelect: "none",
 };
 const navArrow: React.CSSProperties = {
   position: "absolute",

@@ -365,8 +365,11 @@ while costing nothing.
 A2UI** tab, is the card catalog: a tool is offered to the model only when a
 card row names it, and each row's "when the agent should show it" text becomes
 a line of the prompt's card instructions. Deleting a card takes it away from
-the chatbot; an empty catalog falls back to the starter set (which also
-re-seeds on the next dashboard load). The one thing a row cannot do is force a
+the chatbot; an empty catalog offers the model no cards at all — there is no
+default set. A business's cards are designed for it when onboarding finishes
+([`lib/onboarding/cards.ts`](lib/onboarding/cards.ts)), from its site, its
+goals and its starter questions, and the card builder adds more after that.
+The one thing a row cannot do is force a
 tool past its live gate — `show_booking` stays withheld unless booking is on
 and Google is connected, `show_booking_link` unless a link is set. Canned
 answers bypass the catalog on purpose: a card named on a preset is Blake's

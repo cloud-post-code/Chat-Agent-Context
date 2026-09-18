@@ -62,11 +62,9 @@ brain, asserts, then deletes everything it made.
     Prisma constraint error in the admin form. Saving a new row onto an existing
     key writes into the owning row; editing one row's question onto another's
     key collapses the two, the way a Graph-tab entity rename does.
-13. **Seeding never resurrects** — `seedStarterAnswers()` against a non-empty
-    table is a no-op, so a starter Blake deletes stays deleted.
-14. **Cleanup** — `CannedAnswer`, `Project`, `ChatSession`, and `ChatMessage`
+13. **Cleanup** — `CannedAnswer`, `Project`, `ChatSession`, and `ChatMessage`
     counts return to their pre-run baseline.
-15. **A saved card stays on screen** — the real `CardFields` is mounted in a
+14. **A saved card stays on screen** — the real `CardFields` is mounted in a
     real DOM and driven the way React drives a row around a form action: Blake
     picks a card, the form resets (React resets a form once its action
     resolves), and the row re-renders as it is now stored. The card and its

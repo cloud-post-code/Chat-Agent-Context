@@ -1,22 +1,22 @@
 import { prisma } from "@/lib/db";
 import { claude, claudeModel } from "@/lib/claude";
-import { starterQuestions } from "@/lib/theme";
 import { normalizeQuestion } from "@/lib/canned";
 
 /**
  * Business-specific starter questions, generated once when onboarding
- * completes. Signup seeds every account with the same five generic questions
- * (lib/canned.ts seedStarterAnswers); by the time onboarding finishes, the
- * business profile, brand identity, goals, and ingested knowledge exist — so
- * one model call rewrites those seeds into the questions a likely prospective
- * customer of THIS business would ask. From there the existing Answers
- * machinery takes over unchanged: the next dashboard load drafts answers for
- * the new questions, and exact matches are served without a model call.
+ * completes. Signup provisions no questions at all; by the time onboarding
+ * finishes, the business profile, brand identity, goals, and ingested
+ * knowledge exist — so one model call writes the questions a likely
+ * prospective customer of THIS business would ask. From there the existing
+ * Answers machinery takes over unchanged: the next dashboard load drafts
+ * answers for the new questions, and exact matches are served without a model
+ * call.
  *
- * The swap is deliberately conservative: it only ever fires on rows that are
- * still the untouched generic seeds, it is all-or-nothing, and any failure
- * leaves the seeds in place — onboarding completion must never break or wait
- * on it past a short deadline.
+ * Generation is deliberately conservative: it only ever fires on an account
+ * with no preset rows, it is all-or-nothing, and any failure leaves the
+ * account exactly as it was — onboarding completion must never break or wait
+ * on it past a short deadline. An account whose generation failed shows no
+ * chips until it is regenerated or the owner writes their own.
  */
 
 /** The Anthropic client narrowed to the one call this module makes. */
@@ -38,8 +38,8 @@ const QUESTION_COUNT = 5;
 
 /**
  * How long onboarding completion will wait. Past this the response goes out
- * and the seeds stay; the moment already has a multi-second extraction save
- * ahead of it, so this bounds the marginal wait, not the whole request.
+ * and nothing is written; the moment already has a multi-second extraction
+ * save ahead of it, so this bounds the marginal wait, not the whole request.
  */
 function starterDeadlineMs(): number {
   return Number(process.env.STARTER_QUESTIONS_DEADLINE_MS) || 12_000;
@@ -100,27 +100,17 @@ function parseQuestions(text: string): string[] {
 }
 
 /**
- * True when there is nothing of the owner's to protect: either no rows at all,
- * or rows that are exactly the untouched generic seeds — same questions,
- * nothing written, drafted, or reordered. Any sign the owner (or the drafting
- * pass) has touched the tab means their rows are theirs.
+ * True when there is nothing of the owner's to protect: the account has no
+ * preset rows at all.
  *
- * The empty case is the re-onboarding path: `restartOnboarding` wipes the
- * account's content, canned answers included, so the second run through the
- * flow arrives with an empty table. Reading that as "customized" would leave
- * the user with no preset rows at all — strictly worse than the generic seeds
- * the guard exists to defend.
+ * Signup no longer seeds generic placeholder questions, so an empty table is
+ * now the ordinary path into generation — both for a first onboarding and for
+ * the re-onboarding one (`restartOnboarding` wipes the account's content,
+ * canned answers included). Any row that exists at all came from generation,
+ * the drafting pass, or the owner, and none of those are ours to overwrite.
  */
-function isUntouchedSeeds(
-  rows: { matchKey: string; answer: string; aiDraft: boolean; draftedAt: Date | null }[],
-): boolean {
-  if (rows.length === 0) return true;
-  if (rows.length !== starterQuestions.length) return false;
-  const seedKeys = new Set(starterQuestions.map((s) => normalizeQuestion(s.q)));
-  return rows.every(
-    (r) =>
-      seedKeys.has(r.matchKey) && r.answer === "" && !r.aiDraft && r.draftedAt === null,
-  );
+function hasNothingToProtect(rows: unknown[]): boolean {
+  return rows.length === 0;
 }
 
 /** Everything the system knows about the business at onboarding completion. */
@@ -179,10 +169,10 @@ async function generateQuestions(userId: string, deps: StarterDeps): Promise<str
 }
 
 /**
- * Replace the untouched generic seeds with generated, business-specific
- * questions. Returns how many questions were written — 0 when the guard
- * declined, generation failed, or the deadline passed, all of which leave the
- * existing rows exactly as they were.
+ * Write generated, business-specific questions for an account that has none.
+ * Returns how many questions were written — 0 when the guard declined,
+ * generation failed, or the deadline passed, all of which leave the account's
+ * rows exactly as they were.
  */
 export async function personalizeStarterQuestions(
   userId: string,
@@ -192,13 +182,12 @@ export async function personalizeStarterQuestions(
 
   try {
     const rows = await prisma.cannedAnswer.findMany({ where: { userId } });
-    if (!isUntouchedSeeds(rows)) return 0;
+    if (!hasNothingToProtect(rows)) return 0;
 
     const questions = await generateQuestions(userId, deps);
     if (!questions.length) return 0;
 
-    // All-or-nothing: the seeds only disappear in the same transaction that
-    // writes their replacements.
+    // All-or-nothing: one transaction writes the whole set or none of it.
     await prisma.$transaction([
       prisma.cannedAnswer.deleteMany({ where: { userId } }),
       prisma.cannedAnswer.createMany({
@@ -267,9 +256,12 @@ export async function regenerateStarterQuestions(
 
 /**
  * The starter chips for one user's public page: their own preset questions
- * (enabled, in order), so chips and preset answers can never disagree. The
- * hardcoded list remains only as the fallback for accounts with no usable
- * rows.
+ * (enabled, in order), so chips and preset answers can never disagree.
+ *
+ * An account with no usable rows gets no chips. There is deliberately no
+ * fallback list: generic questions written for no particular business told a
+ * visitor nothing, and showing them on a real business's page was worse than
+ * showing none. The page renders its chat either way.
  */
 export async function starterChipsFor(userId: string): Promise<{ q: string }[]> {
   const rows = await prisma.cannedAnswer.findMany({
@@ -277,6 +269,5 @@ export async function starterChipsFor(userId: string): Promise<{ q: string }[]> 
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     select: { question: true },
   });
-  if (!rows.length) return starterQuestions;
   return rows.map((r) => ({ q: r.question }));
 }

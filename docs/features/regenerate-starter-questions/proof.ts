@@ -90,11 +90,29 @@ function brokenClient() {
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
-  const { seedStarterAnswers, normalizeQuestion } = await import("../../../lib/canned");
+  const { normalizeQuestion } = await import("../../../lib/canned");
+  const { starterQuestions } = await import("../../../lib/theme");
   const { regenerateStarterQuestions } = await import("../../../lib/starterQuestions");
 
   const baseUsers = await prisma.user.count();
   const baseCanned = await prisma.cannedAnswer.count();
+
+  /**
+   * The blank placeholder rows a fresh account used to arrive with. Signup no
+   * longer creates them (docs/features/remove-default-starter-questions), so
+   * the fixture writes them here — regenerate must still replace exactly this
+   * kind of untouched row.
+   */
+  async function seedRows(userId: string) {
+    await prisma.cannedAnswer.createMany({
+      data: starterQuestions.map((s, i) => ({
+        userId,
+        question: s.q,
+        matchKey: normalizeQuestion(s.q),
+        order: i,
+      })),
+    });
+  }
 
   async function makeUser(tag: string) {
     const id = `${PREFIX}-${tag}`;
@@ -122,7 +140,7 @@ async function main() {
   try {
     // ── Mixed rows: two owner-authored (one disabled), plus generic seeds ──
     const mixed = await makeUser("mixed");
-    await seedStarterAnswers(mixed);
+    await seedRows(mixed);
     const kept = await prisma.cannedAnswer.create({
       data: {
         userId: mixed,
@@ -153,7 +171,7 @@ async function main() {
     });
 
     const bystander = await makeUser("bystander");
-    await seedStarterAnswers(bystander);
+    await seedRows(bystander);
 
     const first = fakeClient(GENERATED);
     const written = await regenerateStarterQuestions(mixed, { client: first.client });
