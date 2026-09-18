@@ -305,6 +305,17 @@ select {
   animation: onboard-phase-in 0.45s ease 0.9s both;
 }
 
+/* Public home screen: title, chips, composer and photo strip rise in, staggered
+   by an inline animation-delay. */
+.home-rise {
+  animation: onboard-phase-in 0.5s ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-rise {
+    animation: none;
+  }
+}
+
 /* A2UI photo carousel: hide the WebKit scrollbar on the snap track. */
 .carousel-track::-webkit-scrollbar {
   display: none;

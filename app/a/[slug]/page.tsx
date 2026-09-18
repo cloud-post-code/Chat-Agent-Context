@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { starterChipsFor } from "@/lib/starterQuestions";
+import { homePhotos } from "@/lib/cards";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
 import Chat from "@/app/Chat";
 
@@ -34,11 +35,13 @@ export default async function AgentPage({ params }: Params) {
   const user = await prisma.user.findUnique({ where: { slug } });
   if (!user) notFound();
 
-  const [profile, persona, theme, starters] = await Promise.all([
+  const [profile, persona, theme, starters, photos] = await Promise.all([
     getProfile(user.id),
     getPersonaConfig(user.id),
     getThemeConfig(user.id).catch(() => null),
     starterChipsFor(user.id),
+    // Decoration only: the page must render even if the photo read fails.
+    homePhotos(user.id).catch(() => []),
   ]);
 
   return (
@@ -50,6 +53,7 @@ export default async function AgentPage({ params }: Params) {
         logo={persona.company_logo}
         starters={starters}
         slug={user.slug}
+        photos={photos}
       />
     </>
   );

@@ -125,6 +125,27 @@ export async function bookingBlock(userId: string): Promise<UiBlock | null> {
   };
 }
 
+/** The owner's curated photos for the public home screen's bottom strip. */
+export async function homePhotos(
+  userId: string,
+  limit = 12,
+): Promise<{ src: string; alt: string }[]> {
+  // Same rule as the gallery — no `ingest:*` photos — minus the owner's
+  // headshot, which is not a picture of the business.
+  const photos = await prisma.photo.findMany({
+    where: {
+      userId,
+      NOT: [{ kind: { startsWith: "ingest:" } }, { kind: "profile" }],
+    },
+    orderBy: { order: "asc" },
+    take: limit,
+  });
+  return photos.map((ph) => ({
+    src: `/api/uploads/${ph.filename}`,
+    alt: ph.caption || ph.description || "",
+  }));
+}
+
 export async function galleryBlock(
   userId: string,
   layout: "carousel" | "filmstrip",

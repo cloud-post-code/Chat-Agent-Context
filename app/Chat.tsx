@@ -18,6 +18,7 @@ type Msg = {
   cards?: UiBlock[];
 };
 type Starter = { q: string };
+type HomePhoto = { src: string; alt: string };
 
 /** localStorage, or null when unavailable (private mode) — history is then off. */
 function store(): Storage | null {
@@ -36,6 +37,7 @@ export default function Chat({
   logo,
   starters,
   slug,
+  photos = [],
 }: {
   name: string;
   tagline: string;
@@ -43,6 +45,8 @@ export default function Chat({
   starters: Starter[];
   /** Whose agent this page chats with — sent with every /api/chat call. */
   slug: string;
+  /** The business's curated photos for the home screen's bottom strip. */
+  photos?: HomePhoto[];
 }) {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -50,6 +54,7 @@ export default function Chat({
   const [chats, setChats] = useState<ChatMeta[]>([]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const heroRef = useRef<HTMLElement>(null);
   // One id per conversation: it doubles as the /api/chat sessionId, so each
   // sidebar chat is one ChatSession in the admin Activity tab.
   const [chatId, setChatId] = useState<string>(() => newChatId());
@@ -247,30 +252,40 @@ export default function Chat({
         </>
       )}
       {!started ? (
-        <section style={styles.hero}>
-          <h1 style={styles.h1}>
-            Hey, I&apos;m {name}.<br />
-            <span style={styles.h1accent}>Talk to me.</span>
-          </h1>
-          <p style={styles.sub}>{tagline}</p>
+        <section ref={heroRef} style={styles.hero}>
+          <div style={styles.heroMain}>
+            <div className="home-rise" style={styles.titleBlock}>
+              {logo ? (
+                // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded file served from the app's own volume; next/image adds nothing here
+                <img src={logo} alt="" style={styles.headerAvatar} />
+              ) : (
+                <div style={styles.headerAvatarFallback}>{name.slice(0, 1)}</div>
+              )}
+              <h1 style={styles.h1}>{name}</h1>
+              <div style={styles.h1accent}>Ask me anything.</div>
+              {tagline && <p style={styles.sub}>{tagline}</p>}
+            </div>
 
-          <div style={styles.starters}>
-            {starters.map((s) => (
-              <button key={s.q} style={styles.chip} onClick={() => send(s.q)}>
-                {s.q}
-              </button>
-            ))}
+            <div className="home-rise" style={{ ...styles.starters, animationDelay: "80ms" }}>
+              {starters.map((s) => (
+                <button key={s.q} style={styles.chip} onClick={() => send(s.q)}>
+                  {s.q}
+                </button>
+              ))}
+            </div>
+
+            <div className="home-rise" style={{ ...styles.composerSlot, animationDelay: "160ms" }}>
+              <Composer input={input} setInput={setInput} onSend={() => send(input)} loading={loading} big />
+            </div>
+            <p style={styles.footnote}>
+              An AI host answers as {name}, using only what they&apos;ve shared.
+            </p>
+            {/* Other agents get the same host over A2A, not just people. */}
+            <a href="/agent" style={styles.agentLink}>
+              🪪 Agent card &amp; facts — this site is callable by other AI agents
+            </a>
           </div>
-
-          <Composer input={input} setInput={setInput} onSend={() => send(input)} loading={loading} big />
-          <p style={styles.footnote}>
-            This whole page is a conversation. An AI host answers as {name}, using only what
-            they&apos;ve shared — and can show you cards, projects, and galleries right here.
-          </p>
-          {/* Other agents get the same host over A2A, not just people. */}
-          <a href="/agent" style={styles.agentLink}>
-            🪪 Agent card &amp; facts — this site is callable by other AI agents
-          </a>
+          <PhotoStrip photos={photos} scope={heroRef} />
         </section>
       ) : (
         <section style={styles.chatWrap}>
@@ -344,8 +359,8 @@ function Composer({
         value={input}
         onChange={(e) => setInput(e.target.value)}
         onKeyDown={(e) => e.key === "Enter" && onSend()}
-        placeholder="Ask me anything…"
-        style={styles.input}
+        placeholder="Type your question…"
+        style={{ ...styles.input, ...(big ? styles.inputBig : {}) }}
         autoFocus
       />
       <button
@@ -355,6 +370,80 @@ function Composer({
       >
         {loading ? "…" : "Send ↵"}
       </button>
+    </div>
+  );
+}
+
+/**
+ * The home screen's bottom band: the business's own photos in a sideways
+ * strip, or a brand-color glow of the same height when there are none, so
+ * every tenant's page has the same shape.
+ */
+function PhotoStrip({
+  photos,
+  scope,
+}: {
+  photos: HomePhoto[];
+  /** The wheel is listened for across this element, not just the strip. */
+  scope: React.RefObject<HTMLElement | null>;
+}) {
+  const trackRef = useRef<HTMLDivElement>(null);
+
+  // The mouse wheel moves the strip sideways. React's onWheel is passive, so
+  // the listener is attached by hand to be allowed to preventDefault.
+  useEffect(() => {
+    const area = scope.current;
+    const track = trackRef.current;
+    if (!area || !track) return;
+    const onWheel = (e: WheelEvent) => {
+      // A sideways gesture (trackpad) already scrolls the strip natively.
+      if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      if (track.scrollWidth <= track.clientWidth) return;
+      // Never trap a page that needs to scroll down: away from the strip, the
+      // wheel is only taken over when there is nothing to scroll vertically.
+      const overStrip = track.contains(e.target as Node);
+      const pageScrolls = document.documentElement.scrollHeight > window.innerHeight + 1;
+      if (!overStrip && pageScrolls) return;
+      e.preventDefault();
+      track.scrollLeft += e.deltaY;
+    };
+    area.addEventListener("wheel", onWheel, { passive: false });
+    return () => area.removeEventListener("wheel", onWheel);
+  }, [scope]);
+
+  if (photos.length === 0) {
+    return (
+      <div
+        className="home-rise"
+        data-home-strip="glow"
+        aria-hidden
+        style={{ ...styles.strip, ...styles.glowBand, animationDelay: "240ms" }}
+      >
+        <i style={{ ...styles.glowBlob, left: "12%", background: "var(--accent)" }} />
+        <i style={{ ...styles.glowBlob, right: "12%", background: "var(--primary)" }} />
+      </div>
+    );
+  }
+  return (
+    <div
+      ref={trackRef}
+      className="home-rise carousel-track"
+      data-home-strip="photos"
+      style={{ ...styles.strip, ...styles.stripTrack, animationDelay: "240ms" }}
+    >
+      <div style={styles.stripRow}>
+        {photos.map((p, i) => (
+          // eslint-disable-next-line @next/next/no-img-element -- admin-uploaded file served from the app's own volume; next/image adds nothing here
+          <img
+            key={p.src}
+            src={p.src}
+            alt={p.alt}
+            loading="lazy"
+            draggable={false}
+            style={{ ...styles.stripPhoto, marginTop: i % 2 ? STRIP_STAGGER : 0 }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -403,6 +492,10 @@ function Bubble({
     </div>
   );
 }
+
+/** How far every other strip photo sits below its neighbours. */
+const STRIP_STAGGER = 14;
+const STRIP_PHOTO_HEIGHT = "clamp(104px, 19vh, 184px)";
 
 const styles: Record<string, React.CSSProperties> = {
   shell: { minHeight: "100dvh", display: "flex", flexDirection: "column" },
@@ -509,25 +602,74 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
 
-  hero: {
+  hero: { flex: 1, display: "flex", flexDirection: "column", width: "100%", minWidth: 0 },
+  heroMain: {
     flex: 1,
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
     textAlign: "center",
-    padding: "40px 20px 80px",
+    // Top padding clears the fixed "Chats" toggle on narrow screens.
+    padding: "56px 20px 20px",
     maxWidth: 720,
     margin: "0 auto",
     width: "100%",
   },
-  h1: { fontSize: "clamp(40px, 8vw, 68px)", lineHeight: 1.02, marginBottom: 16 },
+  titleBlock: { display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 28 },
+  h1: { fontSize: "clamp(32px, 6vw, 52px)", lineHeight: 1.06, margin: "18px 0 8px" },
   h1accent: {
     // The accent as text on the page background — not --accent, which is a
     // fill and can sit too close to the background to read.
     color: "var(--accent-on-bg)",
+    fontFamily: "var(--font-heading), serif",
+    fontWeight: 600,
+    fontSize: "clamp(18px, 2.6vw, 22px)",
   },
-  sub: { color: "var(--text)", fontStyle: "italic", fontSize: 18, marginBottom: 36, maxWidth: 520 },
+  sub: { color: "var(--text)", fontStyle: "italic", fontSize: 17, marginTop: 12, maxWidth: 520 },
+
+  // ── Bottom strip: the business's photos, or a brand glow of the same height ──
+  strip: {
+    width: "100%",
+    height: `calc(${STRIP_PHOTO_HEIGHT} + ${STRIP_STAGGER}px)`,
+    marginBottom: 20,
+    flexShrink: 0,
+  },
+  stripTrack: {
+    overflowX: "auto",
+    overflowY: "hidden",
+    scrollbarWidth: "none",
+    maskImage: "linear-gradient(to right, transparent, #000 7%, #000 93%, transparent)",
+    WebkitMaskImage: "linear-gradient(to right, transparent, #000 7%, #000 93%, transparent)",
+  },
+  // max-content + auto margins: a short row sits centered, a long one scrolls.
+  stripRow: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 12,
+    width: "max-content",
+    margin: "0 auto",
+    padding: "0 6vw",
+  },
+  stripPhoto: {
+    height: STRIP_PHOTO_HEIGHT,
+    width: `calc(${STRIP_PHOTO_HEIGHT} * 1.3)`,
+    objectFit: "cover",
+    borderRadius: "var(--radius-lg)",
+    border: "1px solid var(--border)",
+    flexShrink: 0,
+    userSelect: "none",
+  },
+  glowBand: { position: "relative", overflow: "hidden" },
+  glowBlob: {
+    position: "absolute",
+    bottom: "-60%",
+    width: "38%",
+    height: "140%",
+    borderRadius: "50%",
+    filter: "blur(60px)",
+    opacity: 0.28,
+  },
 
   composer: {
     display: "flex",
@@ -539,7 +681,9 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     boxShadow: "var(--glow-primary)",
   },
-  composerBig: { maxWidth: 560, marginTop: 28 },
+  composerBig: { maxWidth: 460 },
+  composerSlot: { width: "100%", display: "flex", justifyContent: "center", marginTop: 24 },
+  inputBig: { fontSize: 15, padding: "9px 12px" },
   input: {
     flex: 1,
     background: "transparent",
@@ -573,7 +717,7 @@ const styles: Record<string, React.CSSProperties> = {
     maxWidth: "100%",
     textAlign: "center",
   },
-  footnote: { color: "var(--text)", fontStyle: "italic", fontSize: 13, marginTop: 32, maxWidth: 460 },
+  footnote: { color: "var(--text)", fontStyle: "italic", fontSize: 13, marginTop: 20, maxWidth: 460 },
   // Quiet by design: a visitor is here to talk, not to read a protocol spec.
   agentLink: {
     color: "var(--accent-on-bg)",

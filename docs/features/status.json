@@ -544,6 +544,15 @@
       "priority": 1,
       "status": "passing",
       "notes": "Requested 2026-09-10: the 'Filing everything into your agent's memory' step sat static for minutes. lib/onboarding/graphIndex.ts estimateFilingWork counts the pass's own inputs (2 + projects + photos + approved answers + appointments origins, scanned sources with chunks, computeClusters count) and filingSeconds turns them into a whole-ten-second estimate from EMBED_PACE_MS pacing plus CALL_MS per call and TAIL_CALLS for the starter-question/card stages. jobs.ts records job.filing {startedAt, seconds} and the log line reads '... \u2014 about 4 minutes 10 seconds to go'; jobPayload emits eta {totalSeconds, remainingSeconds} as of the poll (etaFor), absent before filing and once done/failed. OnboardingFlow anchors each poll's remainingSeconds to Date.now() and ActivityStream's Countdown ticks from elapsed wall-clock ('About 3:05 left', 'Taking a little longer than estimated \u2014 still working' past zero). Proof: npx tsx docs/features/onboarding-filing-eta/proof/filing-eta.ts (no server; red before at 'filingSeconds is not a function'). Not yet eyeballed against a live extraction run."
+    },
+    {
+      "id": "home-screen-refresh",
+      "title": "Public home screen: logo + company-name title and a bottom photo strip",
+      "feature_dir": "docs/features/home-screen-refresh",
+      "proof": "docs/features/home-screen-refresh/PROOF.md",
+      "priority": 1,
+      "status": "passing",
+      "notes": "Requested 2026-09-18: home screen was boring and the title wordy. Title is now logo/initial badge + company name + 'Ask me anything.' + tagline; lib/cards.ts homePhotos feeds a full-width bottom strip in app/Chat.tsx (PhotoStrip) that the mouse wheel moves sideways without trapping vertical page scroll; tenants with no photos get a same-height brand glow band. home-rise load animation, one-line footnote, OG image and ThemePicker preview text kept in step. Proof green, gate PASS, evaluator PASS. Wheel behavior, glow fallback and mobile verified live in the browser preview against local fixture tenants (their photos are solid-color fixtures); not yet seen with a real business's photos."
     }
   ]
 }
