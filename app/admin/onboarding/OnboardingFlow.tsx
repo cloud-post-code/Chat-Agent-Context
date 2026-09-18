@@ -9,7 +9,7 @@ import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 import { GalleryCard, type GalleryItem } from "./GalleryCard";
-import { ActivityStream, Typewriter } from "./ActivityStream";
+import { ActivityStream, Typewriter, type Eta } from "./ActivityStream";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
@@ -41,6 +41,8 @@ type Status = {
   };
   graph?: { entities: number; relations: number };
   cards?: { written: number; attached: number; cards: { label: string }[] };
+  /** Seconds left in the run as of this poll, once the filing pass has begun. */
+  eta?: { totalSeconds: number; remainingSeconds: number };
 };
 
 type Step =
@@ -294,6 +296,8 @@ export function OnboardingFlow() {
   // The greeting types exactly once, so its flag is never reset — the URL
   // card must come back if the user retries after a failed extraction.
   const [greetingDone, setGreetingDone] = useState(false);
+  // The countdown anchors to the client clock at the moment the poll landed.
+  const [eta, setEta] = useState<Eta | null>(null);
   const themeFormRef = useRef<HTMLFormElement>(null);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -357,6 +361,7 @@ export function OnboardingFlow() {
       const s: Status = await res.json();
       statusRef.current = s;
       setStatus(s);
+      setEta(s.eta ? { remainingSeconds: s.eta.remainingSeconds, receivedAt: Date.now() } : null);
       if (s.phase === "failed") return;
       if (step === "core-running" && s.phase === "core-done" && s.step1) {
         const p = s.step1 as Record<string, unknown>;
@@ -1048,6 +1053,7 @@ export function OnboardingFlow() {
             <ActivityStream
               lines={linesFor("knowledge-running")}
               progress={status?.phase === "done" ? 100 : status?.progress ?? 0}
+              eta={status?.phase === "done" ? null : eta}
             />
             {status?.phase === "done" && (
               <div style={{ marginTop: 12 }}>

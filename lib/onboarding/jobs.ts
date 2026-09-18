@@ -11,7 +11,10 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
-import { indexOnboardingGraph, finishOnboardingIndex, type GraphIndexReport } from "./graphIndex";
+import {
+  indexOnboardingGraph, finishOnboardingIndex, estimateFilingWork, filingSeconds,
+  type GraphIndexReport,
+} from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
 import { generateOnboardingCards, type CardsReport } from "./cards";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
@@ -71,6 +74,9 @@ export type Job = {
   starterQuestions?: number;
   /** The A2UI cards designed for this business (lib/onboarding/cards.ts). */
   cards?: CardsReport;
+  /** When the filing pass started and how long the rest of the run was
+   *  estimated to take, so the chat can count down to done. */
+  filing?: { startedAt: number; seconds: number };
   /** Real activity lines, appended as work happens — the chat streams these. */
   log: string[];
   error?: string;
@@ -93,8 +99,18 @@ export function getJob(id: string, userId: string): Job | null {
 
 /** The polling wire shape — everything except the internal crawl state. */
 export function jobPayload(job: Job) {
-  const { userId: _u, crawler: _c, home: _h, extras: _e, busy: _b, ...rest } = job;
-  return rest;
+  const { userId: _u, crawler: _c, home: _h, extras: _e, busy: _b, filing, ...rest } = job;
+  return { ...rest, eta: etaFor(filing, job.phase) };
+}
+
+/** The wire form of the estimate: seconds left as of THIS poll, so the client
+ *  counts down from its own clock and server/browser clock skew never shows. */
+export function etaFor(
+  filing: Job["filing"], phase: Job["phase"], now = Date.now(),
+): { totalSeconds: number; remainingSeconds: number } | undefined {
+  if (!filing || phase === "done" || phase === "failed") return undefined;
+  const elapsed = Math.floor((now - filing.startedAt) / 1000);
+  return { totalSeconds: filing.seconds, remainingSeconds: Math.max(0, filing.seconds - elapsed) };
 }
 
 function fail(job: Job, err: unknown) {
@@ -105,6 +121,15 @@ function fail(job: Job, err: unknown) {
 function log(job: Job, msg: string) {
   job.log.push(msg);
   if (job.log.length > 400) job.log.splice(0, job.log.length - 400);
+}
+
+/** "2 minutes" / "1 minute 30 seconds" / "40 seconds" — for the estimate line. */
+export function describeDuration(seconds: number): string {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (m === 0) return part(s, "second");
+  return s ? `${part(m, "minute")} ${part(s, "second")}` : part(m, "minute");
 }
 
 /** One honest line for what the cards stage did. */
@@ -479,7 +504,14 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     // with no sources, no graph and no goals yet, and the questions fell back
     // to the generic seeds. They belong here, at the real end of extraction.
     // Best-effort, in order: the knowledge is already saved either way.
-    log(job, "Filing everything into your agent's memory");
+    // Estimated up front so the chat can say how long the quiet stretch will
+    // be and count it down; the pass itself emits few lines. Best-effort: a
+    // failed count just means no countdown.
+    const seconds = await estimateFilingWork(job.userId).then(filingSeconds).catch(() => 0);
+    if (seconds > 0) job.filing = { startedAt: Date.now(), seconds };
+    log(job, seconds > 0
+      ? `Filing everything into your agent's memory — about ${describeDuration(seconds)} to go`
+      : "Filing everything into your agent's memory");
     try {
       await finishOnboardingIndex(job.userId, { onEvent });
     } catch {
