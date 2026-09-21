@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { claude, claudeModel } from "@/lib/claude";
 import { normalizeQuestion } from "@/lib/canned";
+import { CHIP_COUNT, CHIP_WORDS, chipLabel, clampLabel } from "@/lib/chipLabel";
 
 /**
  * Business-specific starter questions, generated once when onboarding
@@ -33,8 +34,14 @@ export type StarterClient = {
 
 export type StarterDeps = { client?: StarterClient };
 
-/** How many questions we ask for and keep — the same count as the chips row. */
-const QUESTION_COUNT = 5;
+/**
+ * How many questions we ask for and keep — exactly the tabs the page shows, so
+ * every generated question is one a visitor can actually tap.
+ */
+const QUESTION_COUNT = CHIP_COUNT;
+
+/** A generated question and the short text of its tab ("" when none came). */
+type Generated = { question: string; label: string };
 
 /**
  * How long onboarding completion will wait. Past this the response goes out
@@ -45,8 +52,9 @@ function starterDeadlineMs(): number {
   return Number(process.env.STARTER_QUESTIONS_DEADLINE_MS) || 12_000;
 }
 
-const BRIEF = `You write the starter-question chips for a business's AI agent page.
-Visitors see these chips under the chat box and tap one to start talking.
+const BRIEF = `You write the starter tabs for a business's AI agent page.
+Visitors see a row of ${QUESTION_COUNT} small tabs by the chat box and tap one to start talking.
+Each tab shows a short label; tapping it asks the full question behind it.
 
 Write exactly ${QUESTION_COUNT} questions a likely prospective customer would
 ask this business when learning about it — services and offerings, pricing or
@@ -56,8 +64,13 @@ choosing. Phrase each as the customer speaking to the business ("Do you...",
 Ground every question in the business context provided; when the context names
 goals, favor questions that lead a conversation toward them.
 
+Each label names its question's topic in ${CHIP_WORDS} words or fewer ("Services and pricing",
+"Book a visit", "Hours and location") — a noun phrase, not a cut-off sentence,
+no punctuation, first word capitalized. The ${QUESTION_COUNT} labels cover different topics.
+
 Rules: each question is short (under 70 characters), plain text, no emojis, no
-numbering. Reply with ONLY a JSON array of ${QUESTION_COUNT} strings.`;
+numbering. Reply with ONLY a JSON array of ${QUESTION_COUNT} objects:
+[{"label": "...", "question": "..."}]`;
 
 /** The text blocks of a completion, joined. */
 function textOf(content: unknown[]): string {
@@ -71,8 +84,12 @@ function textOf(content: unknown[]): string {
     .trim();
 }
 
-/** Parse the model's reply into clean, deduplicated questions. */
-function parseQuestions(text: string): string[] {
+/**
+ * Parse the model's reply into clean, deduplicated questions. An item is
+ * normally {label, question}; a bare string is still a usable question — it
+ * just arrives unlabelled, and its tab derives a label instead.
+ */
+function parseQuestions(text: string): Generated[] {
   const raw = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
   const start = raw.indexOf("[");
   const end = raw.lastIndexOf("]");
@@ -86,14 +103,21 @@ function parseQuestions(text: string): string[] {
   if (!Array.isArray(parsed)) return [];
 
   const seen = new Set<string>();
-  const questions: string[] = [];
+  const questions: Generated[] = [];
   for (const item of parsed) {
-    if (typeof item !== "string") continue;
-    const q = item.trim();
+    const fields = (typeof item === "string" ? { question: item } : item ?? {}) as {
+      question?: unknown;
+      label?: unknown;
+    };
+    if (typeof fields.question !== "string") continue;
+    const q = fields.question.trim();
     const key = normalizeQuestion(q);
     if (!q || !key || seen.has(key)) continue;
     seen.add(key);
-    questions.push(q);
+    questions.push({
+      question: q,
+      label: clampLabel(typeof fields.label === "string" ? fields.label : ""),
+    });
     if (questions.length === QUESTION_COUNT) break;
   }
   return questions;
@@ -152,7 +176,7 @@ async function businessContext(userId: string): Promise<string> {
 }
 
 /** One bounded, grounded generation call. Empty array on any failure. */
-async function generateQuestions(userId: string, deps: StarterDeps): Promise<string[]> {
+async function generateQuestions(userId: string, deps: StarterDeps): Promise<Generated[]> {
   const context = await businessContext(userId);
   const call = (deps.client ?? claude()).messages.create({
     model: claudeModel(),
@@ -191,10 +215,11 @@ export async function personalizeStarterQuestions(
     await prisma.$transaction([
       prisma.cannedAnswer.deleteMany({ where: { userId } }),
       prisma.cannedAnswer.createMany({
-        data: questions.map((q, i) => ({
+        data: questions.map((g, i) => ({
           userId,
-          question: q,
-          matchKey: normalizeQuestion(q),
+          question: g.question,
+          label: g.label,
+          matchKey: normalizeQuestion(g.question),
           order: i,
         })),
       }),
@@ -230,7 +255,7 @@ export async function regenerateStarterQuestions(
     const replaceIds = rows.filter((r) => !keptKeys.has(r.matchKey)).map((r) => r.id);
 
     const questions = (await generateQuestions(userId, deps)).filter(
-      (q) => !keptKeys.has(normalizeQuestion(q)),
+      (g) => !keptKeys.has(normalizeQuestion(g.question)),
     );
     if (!questions.length) return 0;
 
@@ -239,10 +264,11 @@ export async function regenerateStarterQuestions(
     await prisma.$transaction([
       prisma.cannedAnswer.deleteMany({ where: { userId, id: { in: replaceIds } } }),
       prisma.cannedAnswer.createMany({
-        data: questions.map((q, i) => ({
+        data: questions.map((g, i) => ({
           userId,
-          question: q,
-          matchKey: normalizeQuestion(q),
+          question: g.question,
+          label: g.label,
+          matchKey: normalizeQuestion(g.question),
           order: afterKept + i,
         })),
       }),
@@ -255,19 +281,25 @@ export async function regenerateStarterQuestions(
 }
 
 /**
- * The starter chips for one user's public page: their own preset questions
- * (enabled, in order), so chips and preset answers can never disagree.
+ * The starter tabs for one user's public page: their first three preset
+ * questions (enabled, in order — CHIP_COUNT), so tabs and preset answers can
+ * never disagree. `q` is the whole question a tap sends; `label` is the tab's
+ * text, never more than three words. Questions past the first three stay live
+ * as preset answers — they just have no tab.
  *
  * An account with no usable rows gets no chips. There is deliberately no
  * fallback list: generic questions written for no particular business told a
  * visitor nothing, and showing them on a real business's page was worse than
  * showing none. The page renders its chat either way.
  */
-export async function starterChipsFor(userId: string): Promise<{ q: string }[]> {
+export async function starterChipsFor(
+  userId: string,
+): Promise<{ q: string; label: string }[]> {
   const rows = await prisma.cannedAnswer.findMany({
     where: { userId, enabled: true },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-    select: { question: true },
+    take: CHIP_COUNT,
+    select: { question: true, label: true },
   });
-  return rows.map((r) => ({ q: r.question }));
+  return rows.map((r) => ({ q: r.question, label: chipLabel(r) }));
 }

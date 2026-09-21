@@ -40,6 +40,34 @@ export type OriginInput = {
 };
 
 /**
+ * One user's graph writes run one at a time.
+ *
+ * Indexing is concurrent now — onboarding extracts several origins at once
+ * (lib/onboarding/graphIndex.ts) — and the model call is the slow part, so that
+ * is what overlaps. The writes must not: `persistGraph` upserts an entity and
+ * only then attaches its mentions, while every graph write ends by pruning
+ * entities that have none. Two interleaved writers would prune each other's
+ * just-created entities out from under the mention insert. The writes are
+ * milliseconds each, so queuing them costs nothing next to the calls they
+ * follow. In-process, like the onboarding job that needs it.
+ */
+const graphWrites: Map<string, Promise<void>> =
+  ((globalThis as Record<string, unknown>).__graphWrites as Map<string, Promise<void>>) ??
+  new Map<string, Promise<void>>();
+(globalThis as Record<string, unknown>).__graphWrites = graphWrites;
+
+function withGraphLock<T>(userId: string, fn: () => Promise<T>): Promise<T> {
+  const run = (graphWrites.get(userId) ?? Promise.resolve()).then(fn);
+  // The queue's tail never rejects, so one failed write doesn't fail the next.
+  const tail = run.then(() => {}, () => {});
+  graphWrites.set(userId, tail);
+  void tail.then(() => {
+    if (graphWrites.get(userId) === tail) graphWrites.delete(userId);
+  });
+  return run;
+}
+
+/**
  * Retract everything an origin contributed: its chunks (mentions cascade with
  * them), its ownership of extracted relations, and any entity left with nothing
  * supporting it. Deleting content is the admin's retraction mechanism, so it has
@@ -48,8 +76,10 @@ export type OriginInput = {
  */
 export async function dropOrigin(userId: string, kind: string, id: string): Promise<void> {
   await prisma.chunk.deleteMany({ where: { userId, originKind: kind, originId: id } });
-  await retractEdgeOwnership(userId, kind, id);
-  await pruneUnsupportedEntities(userId);
+  await withGraphLock(userId, async () => {
+    await retractEdgeOwnership(userId, kind, id);
+    await pruneUnsupportedEntities(userId);
+  });
 }
 
 /**
@@ -260,7 +290,16 @@ export async function embedMissingChunks(
   return { attempted: pending.length, embedded, model };
 }
 
-export async function persistGraph(
+export function persistGraph(
+  userId: string,
+  graph: ExtractedGraph,
+  chunks: { id: string; text: string }[],
+  origin: OriginInput,
+): Promise<void> {
+  return withGraphLock(userId, () => writeGraph(userId, graph, chunks, origin));
+}
+
+async function writeGraph(
   userId: string,
   graph: ExtractedGraph,
   chunks: { id: string; text: string }[],

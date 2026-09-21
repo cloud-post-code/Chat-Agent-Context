@@ -5,7 +5,10 @@ import {
   keyFromLabel,
   saveAppointmentField,
 } from "@/lib/appointments";
+import { isChoiceType, type FieldConfig } from "@/lib/appointmentTypes";
+import { servicePickerField, type MenuService } from "@/lib/bookingMenu";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
+import { SERVICES_SOURCE_TITLE, formatServiceCatalog } from "@/lib/serviceCatalog";
 import type { Crawler, Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
@@ -26,21 +29,26 @@ export const SERVICES_SYSTEM_PROMPT = `You read text from a business's website a
 
 Rules:
 - A service is something the business actually offers customers: a treatment, a package, a job type, a menu category. "name" is the site's own name for it; "description" is what the text says about it (what's included, price, duration). Copy from the text; never invent or embellish.
+- "price" and "duration" are that service's own price and length exactly as the text writes them ("$35", "$40+", "from £25", "45 min"); "category" is the menu heading the text lists it under ("Manicures", "Add-ons"). Each is "" when the text does not state it. Never estimate, convert, or fill one in from a similar service.
 - "takesAppointments" is true ONLY if the text says customers can book, schedule, or make an appointment/reservation with this business.
-- "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, the treatment they want, party size). One entry per piece. "type" is one of: short_text, long_text, email, phone. "required" is true when the text presents it as needed.
+- "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, party size, a preferred stylist). One entry per piece. Do NOT list the choice of service itself — services are already reported above. "required" is true when the text presents it as needed.
+- A requirement's "type" is one of: short_text, long_text, email, phone, number (a count: party size, guests, pets), yes_no, select (the customer picks ONE of choices the text lists), multi_select (picks ANY of them). "options" holds those listed choices, copied from the text, and is [] for every other type. Use select/multi_select only when the text itself lists at least two choices; otherwise short_text.
 - Nothing qualifying? Return empty lists and false. Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":""}],"booking":{"takesAppointments":false,"requirements":[{"label":"","type":"short_text","required":false}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":""}],"booking":{"takesAppointments":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
 
-export type ServiceItem = { name: string; description: string };
+export type { ServiceItem } from "@/lib/serviceCatalog";
 export type BookingRequirement = {
   label: string;
   type: (typeof FIELD_TYPES)[number];
   required: boolean;
+  /** The choices the site lists, for select / multi_select; empty otherwise. */
+  options: string[];
 };
 export type ServicesExtract = {
-  services: ServiceItem[];
+  /** A ServiceItem plus the menu facts (price, duration, category) the form's picker shows. */
+  services: MenuService[];
   takesAppointments: boolean;
   requirements: BookingRequirement[];
 };
@@ -57,7 +65,15 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
     for (const s of raw.services.slice(0, 40)) {
       const item = (s ?? {}) as Record<string, unknown>;
       const name = str(item.name, 200);
-      if (name) out.services.push({ name, description: str(item.description) });
+      if (!name) continue;
+      const service: MenuService = { name, description: str(item.description) };
+      const price = str(item.price, 40);
+      const duration = str(item.duration, 40);
+      const category = str(item.category, 60);
+      if (price) service.price = price;
+      if (duration) service.duration = duration;
+      if (category) service.category = category;
+      out.services.push(service);
     }
   }
 
@@ -73,10 +89,20 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
         const item = r as Record<string, unknown>;
         const label = str(item.label, 120);
         if (!label) continue;
-        const type = (FIELD_TYPES as readonly string[]).includes(String(item.type))
+        let type = (FIELD_TYPES as readonly string[]).includes(String(item.type))
           ? (String(item.type) as BookingRequirement["type"])
           : "short_text";
-        out.requirements.push({ label, type, required: item.required === true });
+        const options = isChoiceType(type) && Array.isArray(item.options)
+          ? [...new Set(item.options.map((o) => str(o, 120)).filter(Boolean))].slice(0, 30)
+          : [];
+        // A pick-from-a-list question with nothing to pick from is a text question.
+        if (isChoiceType(type) && options.length < 2) type = "short_text";
+        out.requirements.push({
+          label,
+          type,
+          required: item.required === true,
+          options: isChoiceType(type) ? options : [],
+        });
       }
     }
   }
@@ -101,10 +127,9 @@ export async function discoverServicePages(
     if (abs) candidates.push(abs);
   }
 
-  for (const url of [...new Set(candidates)].slice(0, 8)) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const page = await crawler.load(url);
+  // Loaded together (the crawler caps the open tabs), kept in candidate order.
+  const urls = [...new Set(candidates)].slice(0, 8).filter((u) => !seen.has(u));
+  for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (page) pages.push(page);
   }
   return pages;
@@ -153,9 +178,16 @@ export async function extractServicesAndBooking(
     const pieces = clean.services.map((s) =>
       s.description ? `${s.name}. ${s.description}` : `${s.name}.`,
     );
+    // rawText is the catalog the services card reads back (lib/serviceCatalog.ts);
+    // the pieces stay sentence-shaped, which is what retrieval embeds well.
     const saved = await saveKnowledgeRecord(
       userId,
-      { url, title: "Services", kind: onboardingIngestKind("services"), rawText: pieces.join("\n\n") },
+      {
+        url,
+        title: SERVICES_SOURCE_TITLE,
+        kind: onboardingIngestKind("services"),
+        rawText: formatServiceCatalog(clean.services),
+      },
       pieces,
     );
     chunks = saved.chunks;
@@ -172,32 +204,6 @@ export async function extractServicesAndBooking(
   return { report, chunks };
 }
 
-/** `saveAppointmentField` caps labels at 120; keep the picker under it. */
-const PICKER_LABEL_CAP = 120;
-
-/**
- * The generated service-picker question. Names the tenant's own services so
- * the wizard asks in their words, and drops whole names — never a fragment —
- * to stay inside the label cap.
- */
-export function servicePickerLabel(services: ServiceItem[]): string {
-  const names = services.map((s) => s.name).filter(Boolean);
-  if (!names.length) return "";
-  const head = "Which service are you booking? ";
-  const kept: string[] = [];
-  for (const n of names) {
-    const next = [...kept, n].join(", ");
-    // "…, or more" is appended when anything is left out, so budget for it.
-    const suffix = kept.length + 1 < names.length ? ", or something else" : "";
-    if ((head + next + suffix).length > PICKER_LABEL_CAP) break;
-    kept.push(n);
-  }
-  // Not even one name fits: ask the plain question rather than a truncated one.
-  if (!kept.length) return "Which service are you booking?";
-  const tail = kept.length < names.length ? ", or something else" : "";
-  return `${head}${kept.join(", ")}${tail}`;
-}
-
 /**
  * Seed the question catalog when it is empty. Returns how many questions were
  * written. The order is defaults → service picker → extracted requirements:
@@ -206,7 +212,9 @@ export function servicePickerLabel(services: ServiceItem[]): string {
 async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<number> {
   if ((await prisma.appointmentField.count({ where: { userId } })) > 0) return 0;
 
-  const picker = servicePickerLabel(clean.services);
+  // The services as a menu to pick from — every option with the price and
+  // duration the site states — not a text box that names a few of them.
+  const picker = servicePickerField(clean.services);
   // "reason" is the generic catch-all; keep it only when nothing more specific
   // takes its place, so the fallback form still asks something useful.
   const replaced = Boolean(picker) || clean.requirements.length > 0;
@@ -218,7 +226,13 @@ async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<
   // Seeding is additive: the first question to claim a key keeps it.
   const taken = new Set<string>();
   let seeded = 0;
-  const write = async (f: { key?: string; label: string; type: string; required: boolean }) => {
+  const write = async (f: {
+    key?: string;
+    label: string;
+    type: string;
+    required: boolean;
+    config?: FieldConfig;
+  }) => {
     // Mirror saveAppointmentField's own truncation before deriving the key.
     const key = f.key ?? keyFromLabel(f.label.trim().slice(0, 120));
     if (taken.has(key)) return;
@@ -227,8 +241,12 @@ async function seedBookingForm(userId: string, clean: ServicesExtract): Promise<
   };
 
   for (const f of defaults) await write(f);
-  if (picker) await write({ key: "service", label: picker, type: "short_text", required: true });
-  for (const r of clean.requirements) await write(r);
+  if (picker) await write(picker);
+  for (const { options, ...r } of clean.requirements) {
+    // The site's list is what it happened to name, not a closed set, so a
+    // seeded choice question always leaves room for an answer that isn't on it.
+    await write({ ...r, config: { options: options.map((label) => ({ label })), allowOther: true } });
+  }
   return seeded;
 }
 

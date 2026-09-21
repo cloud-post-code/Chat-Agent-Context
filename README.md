@@ -350,6 +350,7 @@ blocks:
 | `show_project` | One project card, by id |
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
 | `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
+| `show_services` | The business's services, read live from the services knowledge onboarding saved — each with a **Book** button that opens the appointment wizard with that service already chosen (no button while booking is off; no card when no services are on file) |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
 | `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
 
@@ -565,6 +566,15 @@ npx tsx scripts/reindex.ts --all    # rebuild EVERY origin
 embed request per origin back-to-back trips provider per-minute limits. The
 pacing lives in the backfill, not the embed layer, so live chat is never
 throttled.
+
+Onboarding's extraction does not pace; it runs several agents at once.
+`ONBOARDING_CONCURRENCY` (default 4, max 12) is how many category extractors,
+page renders and model calls run at a time — the four categories side by side,
+their pages a few at a time, then several sources at once in the graph pass. A
+rate-limit response cools every agent down for the provider's `retry-after`
+and retries, so a tight key slows the run rather than failing it; on an
+entry-tier key lower the setting (`1` is one at a time) or set `EMBED_PACE_MS`,
+which onboarding's indexing honors when it is set.
 
 ---
 

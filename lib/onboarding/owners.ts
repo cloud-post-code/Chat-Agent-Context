@@ -51,10 +51,9 @@ export async function discoverOwnerPages(
     if (abs) candidates.push(abs);
   }
 
-  for (const url of [...new Set(candidates)].slice(0, 10)) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const page = await crawler.load(url);
+  // Loaded together (the crawler caps the open tabs), kept in candidate order.
+  const urls = [...new Set(candidates)].slice(0, 10).filter((u) => !seen.has(u));
+  for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (page) pages.push(page);
   }
   return pages;

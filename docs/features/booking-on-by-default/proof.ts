@@ -92,7 +92,7 @@ const NOTHING = {
   booking: { takesAppointments: false, requirements: [] },
 };
 
-/** Many long service names — the label must survive the 120-char cap. */
+/** Many long service names — every one must survive whole, as an option. */
 const LONG_SERVICES = {
   services: Array.from({ length: 12 }, (_, i) => ({
     name: `Extremely Elaborate Service Number ${i + 1} With A Very Long Name`,
@@ -102,6 +102,10 @@ const LONG_SERVICES = {
 };
 
 const LABEL_CAP = 120;
+
+/** The names a choice question offers; empty for any other question. */
+const optionNames = (f?: { config: { options?: { label: string }[] } }) =>
+  (f?.config.options ?? []).map((o) => o.label);
 
 async function main() {
   const { prisma, getProfile } = await import("../../../lib/db");
@@ -196,10 +200,10 @@ async function main() {
       keysNoReqs.join(","),
     );
 
-    // B8/B9/B12: the generated service picker.
-    const picker = cfgNoReqs.fields.find(
-      (f) => f.label.includes(SVC_1) || f.label.includes(SVC_2),
-    );
+    // B8/B9/B12: the generated service picker. Since booking-menu-fields the
+    // services are the question's OPTIONS (a pick-any menu), not names packed
+    // into a text box's label.
+    const picker = cfgNoReqs.fields.find((f) => f.key === "service");
     check(
       "B8 a service picker question is generated",
       picker !== undefined,
@@ -207,13 +211,13 @@ async function main() {
     );
     check(
       "B8 the picker names the extracted services",
-      !!picker && picker.label.includes(SVC_1) && picker.label.includes(SVC_2),
-      picker?.label,
+      optionNames(picker).includes(SVC_1) && optionNames(picker).includes(SVC_2),
+      JSON.stringify(picker?.config),
     );
-    check("B8 the picker is short_text", picker?.type === "short_text", picker?.type);
+    check("B8 the picker is a pick-any menu", picker?.type === "multi_select", picker?.type);
     check(
       "B8 exactly one picker exists",
-      cfgNoReqs.fields.filter((f) => f.label.includes(SVC_1)).length === 1,
+      cfgNoReqs.fields.filter((f) => optionNames(f).includes(SVC_1)).length === 1,
     );
     check(
       "B9 the picker sorts after the defaults",
@@ -244,7 +248,7 @@ async function main() {
     );
     check(
       "B11 no services means no picker",
-      cfgNothing.fields.length > 0 && !cfgNothing.fields.some((f) => f.label.includes(SVC_1)),
+      cfgNothing.fields.length > 0 && !cfgNothing.fields.some((f) => f.key === "service"),
       keysNothing.join(","),
     );
     check(
@@ -271,20 +275,20 @@ async function main() {
       treatment?.type === "short_text",
       JSON.stringify(treatment),
     );
-    const pickerReqs = cfgReqs.fields.find((f) => f.label.includes(SVC_1));
+    const pickerReqs = cfgReqs.fields.find((f) => optionNames(f).includes(SVC_1));
     check(
       "B9 the picker sorts before the extracted requirements",
       !!pickerReqs && !!phone && pickerReqs.order < phone.order,
       JSON.stringify(cfgReqs.fields.map((f) => [f.key, f.order])),
     );
 
-    // B10: the label survives the cap without truncating mid-service-name.
+    // B10: long names cost the label nothing — it no longer carries them.
     const userLong = await newUser("long");
     await extractServicesAndBooking(PAGES, userLong.id, quiet, {
       llm: scriptedLlm(LONG_SERVICES),
     });
     const cfgLong = await getBookingConfig(userLong.id);
-    const longPicker = cfgLong.fields.find((f) => f.label.includes("Extremely Elaborate"));
+    const longPicker = cfgLong.fields.find((f) => f.key === "service");
     check("B10 a picker was still seeded", longPicker !== undefined);
     check(
       "B10 the label is within the 120-char cap",
@@ -292,9 +296,10 @@ async function main() {
       `${longPicker?.label.length}`,
     );
     check(
-      "B10 the label does not end mid-service-name",
-      !!longPicker && !/Number \d+ With A?$|Elaborate$|Service$/.test(longPicker.label.trim()),
-      longPicker?.label,
+      "B10 every service survives whole, as an option",
+      optionNames(longPicker).length === LONG_SERVICES.services.length &&
+        LONG_SERVICES.services.every((sv) => optionNames(longPicker).includes(sv.name)),
+      JSON.stringify(optionNames(longPicker)),
     );
 
     // B13: a catalog the tenant already owns is never touched.
@@ -326,8 +331,8 @@ async function main() {
     const clashPicker = cfgClash.fields.find((f) => f.key === "service");
     check(
       "B13b a colliding requirement does not overwrite the service picker",
-      !!clashPicker && clashPicker.label.includes(SVC_1),
-      clashPicker?.label,
+      optionNames(clashPicker).includes(SVC_1),
+      JSON.stringify(clashPicker),
     );
     check(
       "B13b a colliding requirement does not overwrite a default",
@@ -360,8 +365,8 @@ async function main() {
     // B15: tenant isolation.
     check(
       "B15 one tenant's services never reach another's catalog",
-      !(await getBookingConfig(userReqs.id)).fields.some((f) => f.label.includes(SVC_2)) &&
-        !(await getBookingConfig(userNothing.id)).fields.some((f) => f.label.includes(SVC_1)),
+      !(await getBookingConfig(userReqs.id)).fields.some((f) => optionNames(f).includes(SVC_2)) &&
+        !(await getBookingConfig(userNothing.id)).fields.some((f) => optionNames(f).includes(SVC_1)),
     );
 
     // B16: best-effort — a seeding failure must not abort the stage or lose

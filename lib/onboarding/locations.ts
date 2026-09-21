@@ -46,27 +46,33 @@ export async function discoverLocationPages(
     if (abs) candidates.push(abs);
   }
 
-  for (const url of [...new Set(candidates)].slice(0, 8)) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const page = await crawler.load(url);
+  // Two levels, each loaded together (the crawler caps the open tabs) and
+  // read back in candidate order: the candidates, then the pages they link.
+  const urls = [...new Set(candidates)].slice(0, 8).filter((u) => !seen.has(u));
+  urls.forEach((u) => seen.add(u));
+  const found: { page: Page; subs: string[] }[] = [];
+  for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (!page) continue;
-    pages.push(page);
+    const subs = new Set<string>();
     // A locations INDEX links each location's own page — follow one level.
     if (/locations?\/?$/i.test(new URL(page.url).pathname)) {
-      const subs = new Set<string>();
       page.$("a").each((_, el) => {
         const href = page.$(el).attr("href");
         const abs = href ? crawler.resolve(href, page.url) : null;
         if (abs && /locations?\//i.test(new URL(abs).pathname) && !seen.has(abs)) subs.add(abs);
       });
-      for (const sub of [...subs].slice(0, 12)) {
-        seen.add(sub);
-        const subPage = await crawler.load(sub);
-        if (subPage) pages.push(subPage);
-      }
     }
+    const kept = [...subs].slice(0, 12);
+    kept.forEach((u) => seen.add(u));
+    found.push({ page, subs: kept });
   }
+  const subPages = await Promise.all(
+    found.map((f) => Promise.all(f.subs.map((u) => crawler.load(u)))),
+  );
+  found.forEach((f, i) => {
+    pages.push(f.page);
+    for (const sub of subPages[i]) if (sub) pages.push(sub);
+  });
   return pages;
 }
 

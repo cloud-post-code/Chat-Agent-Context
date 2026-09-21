@@ -4,6 +4,7 @@ import { prisma, getProfile } from "../db";
 import { tokenize } from "./chunking";
 import { indexOrigin } from "./indexer";
 import { entityKey } from "./entities";
+import { mapPool } from "../pool";
 
 /**
  * GraphRAG-lite: neighborhood overviews for broad questions.
@@ -32,7 +33,7 @@ export const CLUSTER_KIND = "cluster";
 /// Only a genuinely everything-touching entity is a hub worth removing.
 const HUB_MIN_DEGREE = 4;
 const MIN_CLUSTER_SIZE = 2;
-const MAX_CLUSTERS = 6;
+export const MAX_CLUSTERS = 6;
 /// Cap on source text fed to one summary call.
 const CLUSTER_TEXT_BUDGET = 8000;
 /// A token this common across chunks selects nothing.
@@ -114,7 +115,7 @@ export type ClusterSummarizer = (
 ) => Promise<string>;
 
 /** One grounded paragraph per neighborhood; the only model call here. */
-const summarizeCluster: ClusterSummarizer = async (label, members, text) => {
+export const summarizeCluster: ClusterSummarizer = async (label, members, text) => {
   const msg = await claude().messages.create({
     model: claudeModel(),
     max_tokens: 400,
@@ -137,7 +138,12 @@ const summarizeCluster: ClusterSummarizer = async (label, members, text) => {
     .trim();
 };
 
-export type BuildOverviewOpts = { summarize?: ClusterSummarizer };
+export type BuildOverviewOpts = {
+  summarize?: ClusterSummarizer;
+  /// Clusters summarized at once. 1 unless the caller raises it (onboarding
+  /// does); clusters share nothing but the final sweep, which waits for all.
+  concurrency?: number;
+};
 
 /**
  * Recompute clusters and rewrite one overview chunk per cluster. A failed
@@ -167,7 +173,7 @@ export async function buildClusterOverviews(
 
   const keep: string[] = [];
   let written = 0;
-  for (const c of clusters) {
+  await mapPool(clusters, opts.concurrency ?? 1, async (c) => {
     const originId = `ov:${c.slug}`;
     const mentions = await prisma.entityMention.findMany({
       where: { entityId: { in: c.memberIds } },
@@ -181,7 +187,7 @@ export async function buildClusterOverviews(
       if (text.length + m.chunk.text.length > CLUSTER_TEXT_BUDGET) break;
       text += `${m.chunk.text}\n\n`;
     }
-    if (!text.trim()) continue;
+    if (!text.trim()) return;
 
     let summary: string;
     try {
@@ -194,11 +200,11 @@ export async function buildClusterOverviews(
       ).trim();
     } catch {
       keep.push(originId); // provider hiccup: the previous overview survives
-      continue;
+      return;
     }
     if (!summary) {
       keep.push(originId);
-      continue;
+      return;
     }
 
     await indexOrigin(
@@ -209,7 +215,7 @@ export async function buildClusterOverviews(
     );
     keep.push(originId);
     written++;
-  }
+  });
 
   await prisma.chunk.deleteMany({
     where: { userId, originKind: CLUSTER_KIND, originId: { notIn: keep } },

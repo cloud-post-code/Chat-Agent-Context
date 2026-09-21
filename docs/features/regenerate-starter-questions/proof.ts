@@ -180,7 +180,9 @@ async function main() {
       where: { userId: mixed },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     });
-    const expectedNew = [GENERATED[0], GENERATED[2], GENERATED[3]];
+    // Generation keeps the first three it is offered (the page has three tabs —
+    // docs/features/starter-tabs); the duplicate among them is then dropped.
+    const expectedNew = [GENERATED[0], GENERATED[2]];
     check(
       "drafts and blanks are replaced in exactly one call",
       first.spy.calls === 1 && written === expectedNew.length,

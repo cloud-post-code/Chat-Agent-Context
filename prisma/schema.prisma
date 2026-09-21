@@ -306,6 +306,10 @@ model CannedAnswer {
   userId    String
   /// The question as written, shown in the admin list.
   question  String @db.Text
+  /// What this question's starter tab says on the public page: three words at
+  /// most (lib/chipLabel.ts). Tapping the tab still sends `question` whole.
+  /// Empty means nobody wrote one — the tab derives a label from the question.
+  label     String   @default("")
   /// `question` run through normalizeQuestion() — the actual lookup key.
   matchKey  String
   /// The answer text. Empty means "not written yet": falls through to the model.
@@ -560,10 +564,16 @@ model AppointmentField {
   /// Form-safe answer key, derived from the label.
   key      String
   label    String
-  /// short_text | long_text | email | phone — the input the wizard renders.
+  /// short_text | long_text | email | phone | select | multi_select | number |
+  /// yes_no — the input the wizard renders (FIELD_TYPES, lib/appointmentTypes.ts).
   type     String  @default("short_text")
   required Boolean @default(false)
   order    Int     @default(0)
+  /// JSON FieldConfig: what the type needs beyond a label — a choice question's
+  /// options (each with an optional price, duration, description and menu
+  /// section) and whether "something else" is accepted; a number's min/max.
+  /// Read through parseFieldConfig, which drops whatever the type can't use.
+  config   String  @default("{}") @db.Text
 
   @@unique([userId, key])
 }

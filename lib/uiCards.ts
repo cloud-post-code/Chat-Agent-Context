@@ -36,6 +36,7 @@ const BLOCK_TYPES = [
   "projects",
   "project",
   "gallery",
+  "services",
   "contact",
   "custom",
   "html",

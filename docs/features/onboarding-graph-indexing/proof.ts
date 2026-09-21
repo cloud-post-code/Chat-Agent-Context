@@ -230,13 +230,45 @@ async function main() {
     check("10 retrieval reaches a graph-only chunk", reached,
       `got: ${res.chunks.map((c) => c.text.slice(0, 40)).join(" | ")}`);
 
-    // 12. Pacing default matches the shared per-minute-limit spacing. The
-    // production call site (lib/onboarding/jobs.ts) passes no paceMs, so a
-    // default of 0 would fire unpaced model calls in real onboarding while
-    // every stubbed assertion above still passed.
+    // 12. The defaults are bounded. The production call site
+    // (lib/onboarding/jobs.ts) passes no pace and no concurrency, so whatever
+    // the defaults allow is what real onboarding does — while every stubbed
+    // assertion above would pass either way. The pass used to be bounded by a
+    // fixed 21s sleep between calls; it now reads several sources at once
+    // (docs/features/parallel-onboarding-extraction) and what bounds it is the
+    // shared model gate. So: more than one call in flight, never more than the
+    // configured agents, and every source still indexed exactly once.
     const { DEFAULT_PACE_MS } = await import("../../../lib/onboarding/graphIndex");
-    check("12 pacing default matches indexEverything/reindex", DEFAULT_PACE_MS === 21_000,
-      `got ${DEFAULT_PACE_MS}, expected 21000 (see lib/retrieval/origins.ts)`);
+    const { onboardingConcurrency } = await import("../../../lib/onboarding/pool");
+    check("12a onboarding is unpaced unless EMBED_PACE_MS says otherwise",
+      DEFAULT_PACE_MS === Number(process.env.EMBED_PACE_MS ?? 0), `got ${DEFAULT_PACE_MS}`);
+    for (let i = 0; i < 9; i++) {
+      await saveKnowledgeRecord(
+        userB.id,
+        { url: `https://${TAG}.test/b/${i}`, title: `B page ${i}`, kind: "other", rawText: `${SALON} page ${i}` },
+        [`${SALON} page ${i}`],
+      );
+    }
+    let inFlight = 0;
+    let peak = 0;
+    let calls = 0;
+    const bReport = await indexOnboardingGraph(userB.id, {
+      extract: async (text) => {
+        calls++;
+        inFlight++;
+        peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 40));
+        inFlight--;
+        return stub.extract(text);
+      },
+    });
+    check("12b default run reads several sources at once, capped by the model gate",
+      peak > 1 && peak <= onboardingConcurrency(), `peak=${peak} cap=${onboardingConcurrency()}`);
+    check("12c every source indexed exactly once under concurrency",
+      calls === 10 && bReport.indexed === 10 && bReport.failed === 0,
+      `calls=${calls} report=${JSON.stringify(bReport)}`);
+    const bSalon = await prisma.entity.count({ where: { userId: userB.id, name: SALON } });
+    check("12d concurrent writers converge on one entity row", bSalon === 1, `rows=${bSalon}`);
 
     // 13. Only scanned sources are indexed. A pending/failed source asserts
     // nothing yet; indexing it would attach entities to provisional text.

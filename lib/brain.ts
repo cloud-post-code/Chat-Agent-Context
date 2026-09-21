@@ -7,6 +7,7 @@ import {
   galleryBlock,
   contactBlock,
   bookingBlock,
+  servicesBlock,
   type UiBlock,
 } from "@/lib/cards";
 import { getBookingConfig } from "@/lib/appointments";
@@ -96,6 +97,12 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "show_services",
+    description:
+      "Render the business's services as a card: each service with what it includes, and a Book button when appointments are on. Use when the visitor asks what the business offers, or about its services, treatments, packages or pricing in general.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "show_contact_form",
     description:
       "Render a contact form so the visitor can leave their name, email, and a message for the owner. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for the owner.",
@@ -147,6 +154,9 @@ async function hydrate(
       return singleProjectBlock(userId, String(input.id ?? ""));
     case "show_gallery":
       return galleryBlock(userId, input.layout === "carousel" ? "carousel" : "filmstrip");
+    case "show_services":
+      // Null when no services are on file — the model answers in words.
+      return servicesBlock(userId);
     case "show_contact_form":
       return contactBlock();
     case "show_booking":

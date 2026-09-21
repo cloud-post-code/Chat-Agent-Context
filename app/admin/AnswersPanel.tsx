@@ -1,4 +1,5 @@
 import { cannedStats } from "@/lib/canned";
+import { CHIP_COUNT, CHIP_WORDS, deriveLabel } from "@/lib/chipLabel";
 import { saveCanned, deleteCanned, redraftCanned, regenerateCanned } from "./actions";
 import { CardFields } from "./CardFields";
 import { PendingButton } from "./PendingButton";
@@ -18,6 +19,7 @@ import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./u
 type Row = {
   id: string;
   question: string;
+  label: string;
   answer: string;
   cardTool: string | null;
   cardInput: string | null;
@@ -29,6 +31,10 @@ type Row = {
 
 export function AnswersPanel({ rows }: { rows: Row[] }) {
   const stats = cannedStats(rows);
+  // The page's tabs are the first CHIP_COUNT live rows, in this list's order
+  // (the same rule as starterChipsFor) — numbered here so the owner can see
+  // which questions a visitor can tap.
+  const tabIds = rows.filter((r) => r.enabled).slice(0, CHIP_COUNT).map((r) => r.id);
 
   return (
     <div>
@@ -43,6 +49,11 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
           Blank rows are drafted for you from your knowledge base the next time
           this tab loads, and go live as soon as they&apos;re written. Edit one and
           hit Save to make it yours; hit Redraft to throw it away and ask again.
+        </p>
+        <p style={{ fontSize: 13, marginBottom: 12, lineHeight: 1.55 }}>
+          Your first {CHIP_COUNT} live questions are the tabs on your page&apos;s home
+          screen. Each tab shows its short label ({CHIP_WORDS} words at most); tapping
+          it asks the full question.
         </p>
         <div
           style={{
@@ -70,7 +81,7 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
       </div>
 
       {rows.map((r) => (
-        <AnswerForm key={r.id} row={r} />
+        <AnswerForm key={r.id} row={r} tab={tabIds.indexOf(r.id) + 1} />
       ))}
 
       <AnswerForm />
@@ -78,7 +89,8 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
   );
 }
 
-function AnswerForm({ row }: { row?: Row }) {
+/** `tab` is the row's 1-based tab position on the page, or 0 when it has none. */
+function AnswerForm({ row, tab = 0 }: { row?: Row; tab?: number }) {
   const isNew = !row;
   const draft = !!row?.aiDraft && !!row.answer.trim();
 
@@ -92,6 +104,20 @@ function AnswerForm({ row }: { row?: Row }) {
         name="question"
         defaultValue={row?.question ?? ""}
         placeholder="What do visitors ask?"
+        style={field}
+      />
+
+      <Label>
+        Tab label
+        {tab ? ` — tab ${tab} of ${CHIP_COUNT} on your page` : ""}
+        {!isNew && !tab ? " — not a tab; only your first three live questions are" : ""}
+      </Label>
+      <input
+        name="label"
+        defaultValue={row?.label ?? ""}
+        // Left blank, the tab says what the placeholder shows.
+        placeholder={row ? deriveLabel(row.question) : `${CHIP_WORDS} words at most`}
+        maxLength={40}
         style={field}
       />
 

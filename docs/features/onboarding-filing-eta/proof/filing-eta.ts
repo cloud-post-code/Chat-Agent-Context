@@ -37,19 +37,38 @@ async function main() {
     await import("../../../../app/admin/onboarding/ActivityStream");
 
 // ── Estimate math ──
+// The pass is concurrent now (docs/features/parallel-onboarding-extraction):
+// origins and sources index side by side on one budget of `agents` calls in
+// flight, then clusters a wave at a time, then the tail stages.
 const pace = 21_000;
-const base = filingSeconds({ origins: 2, sources: 5, clusters: 2 }, pace);
-const expected = Math.ceil(((1 + 4) * pace + (2 + 5 + 2 + TAIL_CALLS) * CALL_MS) / 10_000) * 10;
-check("estimate follows the pacing formula", base === expected, `${base} vs ${expected}`);
-check("one more source adds a pause and a call",
-  filingSeconds({ origins: 2, sources: 6, clusters: 2 }, pace) > base);
-check("one more origin adds a pause and a call",
-  filingSeconds({ origins: 3, sources: 5, clusters: 2 }, pace) > base);
-check("a cluster adds an unpaced call only",
-  filingSeconds({ origins: 2, sources: 5, clusters: 3 }, pace) - base < pace / 1000);
+const agents = 4;
+const wave = (n: number) => Math.ceil(n / agents);
+const round = (ms: number) => Math.max(10, Math.ceil(ms / 10_000) * 10);
+
+// Unpaced — onboarding's default: a call per wave.
+const work = { origins: 4, sources: 36, clusters: 6 };
+const base = filingSeconds(work, 0, agents);
+check("estimate follows the wave formula", base === round((wave(40) + wave(6) + TAIL_CALLS) * CALL_MS),
+  `${base} vs ${round((wave(40) + wave(6) + TAIL_CALLS) * CALL_MS)}`);
+check("more sources, longer estimate", filingSeconds({ ...work, sources: 60 }, 0, agents) > base);
+check("more origins, longer estimate", filingSeconds({ ...work, origins: 28 }, 0, agents) > base);
+check("more agents, shorter estimate",
+  filingSeconds(work, 0, 8) < base && base < filingSeconds(work, 0, 1));
+
+// Paced — an operator's EMBED_PACE_MS: each pass spaces its starts apart, and
+// the passes overlap, so the longer one sets the floor.
+const paced = filingSeconds({ origins: 2, sources: 5, clusters: 2 }, pace, agents);
+check("a pace spaces the longer pass's starts apart",
+  paced === round(4 * pace + CALL_MS + (wave(2) + TAIL_CALLS) * CALL_MS), String(paced));
+check("one more source adds a pause",
+  filingSeconds({ origins: 2, sources: 6, clusters: 2 }, pace, agents) - paced >= 20);
+check("the shorter pass rides along for free",
+  filingSeconds({ origins: 3, sources: 5, clusters: 2 }, pace, agents) === paced);
+check("a cluster adds an unpaced call at most",
+  filingSeconds({ origins: 2, sources: 5, clusters: 5 }, pace, agents) - paced < pace / 1000);
 check("nothing to file still costs the tail stages",
-  filingSeconds({ origins: 0, sources: 0, clusters: 0 }, pace) >= TAIL_CALLS * CALL_MS / 1000);
-check("estimate is a whole ten seconds", base % 10 === 0);
+  filingSeconds({ origins: 0, sources: 0, clusters: 0 }, pace, agents) >= TAIL_CALLS * CALL_MS / 1000);
+check("estimate is a whole ten seconds", base % 10 === 0 && paced % 10 === 0);
 
 // ── Wire ETA ──
 const filing = { startedAt: 1_000_000, seconds: 240 };

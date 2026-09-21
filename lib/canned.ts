@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/db";
+import { clampLabel } from "@/lib/chipLabel";
 
 /**
  * Hand-written answers to the questions visitors ask over and over. A
@@ -19,6 +20,7 @@ export const CARD_TOOLS = [
   "show_projects",
   "show_project",
   "show_gallery",
+  "show_services",
   "show_contact_form",
   // The booking wizard; hydration guards it, so a canned answer naming it
   // after booking is disabled draws nothing.
@@ -75,6 +77,8 @@ export async function listCannedAnswers(userId: string) {
 export async function saveCannedAnswer(userId: string, input: {
   id?: string;
   question: string;
+  /** The starter tab's text; held to three words. Blank derives one. */
+  label?: string;
   answer: string;
   cardTool?: string | null;
   cardInput?: string | null;
@@ -88,6 +92,7 @@ export async function saveCannedAnswer(userId: string, input: {
     : null;
   const data = {
     question,
+    label: clampLabel(input.label ?? ""),
     matchKey: normalizeQuestion(question),
     answer: input.answer.trim(),
     cardTool,

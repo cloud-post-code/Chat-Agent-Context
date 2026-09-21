@@ -12,7 +12,7 @@ import {
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
 import {
-  indexOnboardingGraph, finishOnboardingIndex, estimateFilingWork, filingSeconds,
+  finishOnboardingIndex, estimateFilingWork, filingSeconds,
   type GraphIndexReport,
 } from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
@@ -20,6 +20,7 @@ import { generateOnboardingCards, type CardsReport } from "./cards";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
+import { mapPool, onboardingConcurrency } from "./pool";
 
 /**
  * Staged onboarding extraction, driven by the chat flow: each stage runs only
@@ -31,6 +32,12 @@ import type { SocialLink } from "@/lib/socialLinks";
  *   advance("social")          -> social stage -> phase "social-done", stepSocial set
  *   advance("theme")           -> theme stage  -> phase "theme-done", step2 set
  *   advance("knowledge", [..]) -> selected extractions -> phase "done"
+ *
+ * Within a stage the work fans out (pool.ts): the knowledge stage runs its
+ * category extractors as agents side by side, each of which reads its own pages
+ * a few at a time, and the indexing that follows reads several sources at once.
+ * The log is the one thing they all share, so its lines interleave — each line
+ * names what it is about, and that is what the feed shows: agents at work.
  *
  * One job per run, held in process memory and keyed on globalThis so dev HMR
  * doesn't orphan it. The job keeps its Crawler (and page cache) across stages,
@@ -50,6 +57,8 @@ export type Job = {
     | "social" | "social-done"
     | "images" | "images-done"
     | "theme" | "theme-done"
+    /** The category extractors, running together. */
+    | "knowledge"
     | "blog" | "testimonials" | "team" | "services" | "sweep"
     | "done" | "failed";
   progress: number; // 0–100 within the currently running stage
@@ -253,15 +262,18 @@ async function runCore(job: Job): Promise<void> {
   job.extras = (await Promise.all(extraUrls.map((u) => crawler.load(u))))
     .filter((p): p is Page => !!p);
   job.progress = 80;
-  job.step1 = await extractCoreInfo(crawler, [home, ...job.extras], onEvent);
-  const s1 = job.step1;
 
   // Owner names live in prose on about/team pages, not under labels — the
   // dedicated module reads more pages and understands bios (lib/onboarding/owners.ts).
+  // It shares nothing with the contact-details read, so the two run together.
+  const extras = job.extras;
   log(job, "Looking for the owner's name on about and team pages");
-  const ownerPages = await discoverOwnerPages(crawler, home, job.extras);
+  const [s1, owners] = await Promise.all([
+    extractCoreInfo(crawler, [home, ...extras], onEvent),
+    discoverOwnerPages(crawler, home, extras).then((pages) => extractOwners(pages, onEvent)),
+  ]);
+  job.step1 = s1;
   job.progress = 90;
-  const owners = await extractOwners(ownerPages, onEvent);
   if (owners.length) s1.owner_name = ownersToOwnerName(owners);
   log(job, s1.owner_name
     ? `Owner${owners.length > 1 ? "s" : ""}: ${s1.owner_name}`
@@ -332,36 +344,43 @@ async function runImages(job: Job): Promise<void> {
 }
 
 async function runTheme(job: Job): Promise<void> {
+  const pages = [job.home!, ...(job.extras ?? [])];
   job.progress = 20;
-  log(job, "Reading your site's CSS for colors, fonts, and corners");
-  job.step2 = await extractTheme(job.crawler!, [job.home!, ...(job.extras ?? [])], (m) => log(job, m));
-  const s2 = job.step2;
-  if (s2.themeColors.primary) log(job, `Brand color: ${s2.themeColors.primary}`);
-  log(job, `Body font matched: ${s2.themeBodyFont}; corners: ${s2.themeRadius}`);
-  log(job, s2.themeLogo ? "Logo imported from your site" : "No importable logo found");
+
+  const theme = async () => {
+    log(job, "Reading your site's CSS for colors, fonts, and corners");
+    job.step2 = await extractTheme(job.crawler!, pages, (m) => log(job, m));
+    const s2 = job.step2;
+    if (s2.themeColors.primary) log(job, `Brand color: ${s2.themeColors.primary}`);
+    log(job, `Body font matched: ${s2.themeBodyFont}; corners: ${s2.themeRadius}`);
+    log(job, s2.themeLogo ? "Logo imported from your site" : "No importable logo found");
+  };
 
   // Brand voice rides along with the theme stage — same pages, same review
   // card. Fail-soft: a failed brand call must not take down the theme review,
   // so the fields just come back empty for the user to fill in.
-  job.progress = 80;
-  log(job, "Reading your brand voice — tagline, values, and tone");
-  try {
-    job.stepBrand = await extractBrandIdentity(
-      [job.home!, ...(job.extras ?? [])], (m) => log(job, m));
-    const b = job.stepBrand;
-    log(job, b.tagline
-      ? b.taglineSource === "extracted"
-        ? `Tagline found on your site: “${b.tagline}”`
-        : `No stated tagline — suggested one from your copy: “${b.tagline}”`
-      : "No tagline found");
-    log(job, b.values.length
-      ? `Brand values: ${b.values.join(", ")}`
-      : "No brand values stated on the site");
-    log(job, b.tone ? "Tone of voice captured" : "Not enough copy to judge your tone of voice");
-  } catch {
-    log(job, "Couldn't read your brand voice — you can fill it in by hand");
-    job.stepBrand = { tagline: "", taglineSource: "", values: [], tone: "" };
-  }
+  const brand = async () => {
+    log(job, "Reading your brand voice — tagline, values, and tone");
+    try {
+      job.stepBrand = await extractBrandIdentity(pages, (m) => log(job, m));
+      const b = job.stepBrand;
+      log(job, b.tagline
+        ? b.taglineSource === "extracted"
+          ? `Tagline found on your site: “${b.tagline}”`
+          : `No stated tagline — suggested one from your copy: “${b.tagline}”`
+        : "No tagline found");
+      log(job, b.values.length
+        ? `Brand values: ${b.values.join(", ")}`
+        : "No brand values stated on the site");
+      log(job, b.tone ? "Tone of voice captured" : "Not enough copy to judge your tone of voice");
+    } catch {
+      log(job, "Couldn't read your brand voice — you can fill it in by hand");
+      job.stepBrand = { tagline: "", taglineSource: "", values: [], tone: "" };
+    }
+  };
+
+  // Two readings of the same pages that share nothing — so they run together.
+  await Promise.all([theme(), brand().then(() => (job.progress = Math.max(job.progress, 80)))]);
   job.phase = "theme-done";
   job.progress = 100;
 }
@@ -376,15 +395,20 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   // ones that say what this business actually wants out of a conversation.
   let goalPages: Page[] = [home, ...(job.extras ?? [])];
   let chunks = 0;
-  const stepShare = 100 / Math.max(picked.length, 1);
-  let stepsDone = 0;
   const onEvent = (m: string) => log(job, m);
-  log(job, "Model extraction is on — each category reads your pages with its own prompt");
 
-  try {
-    if (picked.includes("blog")) {
-      job.phase = "blog";
-      job.progress = Math.round(stepShare * stepsDone++);
+  // The bar moves as agents FINISH, whatever order that happens in. The extra
+  // step is everything after the extractors — indexing, goals, questions and
+  // cards — so the bar still has somewhere to go while that runs.
+  const steps = picked.length + 1;
+  let stepsDone = 0;
+  const stepDone = () => (job.progress = Math.round((100 * ++stepsDone) / steps));
+
+  // One agent per category. Each reads its own pages with its own prompt and
+  // writes its own records, so nothing here waits on anything else; what they
+  // share — the crawler's tabs, the model — is capped where it is shared.
+  const agents: Record<Exclude<Extractor, "sweep">, () => Promise<void>> = {
+    blog: async () => {
       log(job, "Looking for a blog — nav links, common paths, and RSS feeds");
       const blog = await extractBlog(crawler, home, job.userId, onEvent);
       blog.covered.forEach((u) => covered.add(u));
@@ -393,10 +417,8 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, blog.report.existed
         ? `Blog: saved ${blog.report.postsSaved} post${blog.report.postsSaved === 1 ? "" : "s"}${blog.report.feedCount != null ? ` (feed listed ${blog.report.feedCount})` : ""}`
         : "No blog found on this site");
-    }
-    if (picked.includes("testimonials")) {
-      job.phase = "testimonials";
-      job.progress = Math.round(stepShare * stepsDone++);
+    },
+    testimonials: async () => {
       log(job, "Checking for customer testimonials and reviews");
       const t = await extractTestimonials(crawler, home, job.userId, onEvent);
       t.covered.forEach((u) => covered.add(u));
@@ -407,10 +429,8 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
         : t.report.embeddedWidget
           ? "Your reviews load through a third-party widget — those quotes aren't in the page itself"
           : "No customer testimonials found");
-    }
-    if (picked.includes("team")) {
-      job.phase = "team";
-      job.progress = Math.round(stepShare * stepsDone++);
+    },
+    team: async () => {
       log(job, "Reading your team and about pages");
       const team = await extractTeam(crawler, home, job.userId, onEvent);
       team.covered.forEach((u) => covered.add(u));
@@ -419,10 +439,8 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, team.report.blocks
         ? `Team: saved ${team.report.blocks} bio${team.report.blocks === 1 ? "" : "s"}`
         : "No team bios found");
-    }
-    if (picked.includes("services")) {
-      job.phase = "services";
-      job.progress = Math.round(stepShare * stepsDone++);
+    },
+    services: async () => {
       log(job, "Reading your services and how you take bookings");
       const svcPages = await discoverServicePages(crawler, home, job.extras ?? []);
       svcPages.forEach((p) => covered.add(p.url));
@@ -436,87 +454,109 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, svc.report.seededFields
         ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}, editable on the Calendar`
         : "Booking is on — your existing booking questions were left as they are");
+    },
+  };
+
+  try {
+    const categories = EXTRACTORS.filter(
+      (e): e is Exclude<Extractor, "sweep"> => e !== "sweep" && picked.includes(e),
+    );
+    log(job, "Model extraction is on — each category reads your pages with its own prompt");
+    const atOnce = Math.min(categories.length, onboardingConcurrency());
+    if (atOnce > 1) {
+      log(job, `Running ${atOnce} extraction agents at once: ${categories.join(", ")}`);
     }
+    job.phase = "knowledge";
+    job.progress = 0;
+    // A failed extraction still fails the run, as it did one at a time: the
+    // first rejection ends the stage, and closing the crawler (the finally
+    // below) is what winds the other agents down.
+    await mapPool(categories, atOnce, (c) => agents[c]().then(stepDone));
+
+    // The sweep goes after the categories, not beside them: it takes every
+    // page they did NOT claim, so it needs their `covered` sets complete.
     if (picked.includes("sweep")) {
       job.phase = "sweep";
-      job.progress = Math.round(stepShare * stepsDone++);
       log(job, "Sweeping the sitemap for remaining pages");
       const sweep = await sweepSitemap(crawler, job.userId, covered, home, onEvent);
       report.sweep = sweep.report;
       chunks += sweep.chunks;
       if (sweep.crawled) log(job, "No sitemap on this site — crawled its own links instead");
       log(job, `Sitemap sweep: kept ${sweep.report.pages.length} page${sweep.report.pages.length === 1 ? "" : "s"}`);
+      stepDone();
     }
     job.report = report;
     job.chunkCount = chunks;
     log(job, `Saved ${chunks} knowledge chunk${chunks === 1 ? "" : "s"}`);
 
-    // The graph half of indexing. Onboarding writes its own chunks (curated
-    // boundaries the generic indexer would re-chunk away), so entities and
-    // relations are attached to those chunks here rather than by indexSource.
-    // Best-effort: the chunks are already saved and searchable, so a failure
-    // costs relation-hop retrieval, never the knowledge itself.
-    if (chunks > 0) {
-      log(job, "Reading how everything connects — people, services and places");
-      try {
-        job.graph = await indexOnboardingGraph(job.userId, { onEvent });
-        log(job, job.graph.entities
-          ? `Connected ${job.graph.entities} thing${job.graph.entities === 1 ? "" : "s"} across ${job.graph.relations} relationship${job.graph.relations === 1 ? "" : "s"}`
-          : "Nothing linkable found — your pages are still fully searchable");
-      } catch {
-        log(job, "Couldn't map the connections — your knowledge is saved and searchable");
-      }
-    }
-
-    // What the agent is FOR. The knowledge above tells it what to say; this
-    // reads the same run back and writes the outcomes the owner wants out of a
-    // visitor chat, live on the Agent Behavior tab. Best-effort like the graph
-    // pass: onboarding is already successful by this point, and a goal draft
-    // must never cost it. Seeds only into an empty catalog.
-    log(job, "Working out what your agent should be steering visitors toward");
-    try {
-      job.goals = await deriveGoals(
-        goalPages,
-        job.userId,
-        {
-          takesAppointments: report.services?.takesAppointments ?? false,
-          categories: picked,
-        },
-        onEvent,
-      );
-      const g = job.goals;
-      log(job,
-        g.keptExisting
-          ? "You already have goals set — left them exactly as they are"
-          : g.written
-            ? `Set ${g.written} goal${g.written === 1 ? "" : "s"} for your agent, editable under Agent Behavior: ${g.goals.join("; ")}`
-            : g.failed
-              ? "Couldn't draft your agent's goals — you can write them under Agent Behavior"
-              : "Nothing on your site pointed to a clear goal — you can add them under Agent Behavior");
-    } catch {
-      log(job, "Couldn't draft your agent's goals — you can write them under Agent Behavior");
-    }
-
-    // Index the profile/persona/photo origins the save route wrote straight to
-    // their tables, then rewrite the generic seeded starter questions into
-    // business-specific ones. BOTH used to run in /complete, which the flow
-    // calls the instant this stage is kicked off — so they read a database
-    // with no sources, no graph and no goals yet, and the questions fell back
-    // to the generic seeds. They belong here, at the real end of extraction.
-    // Best-effort, in order: the knowledge is already saved either way.
+    // Everything below used to run in /complete, which the flow calls the
+    // instant this stage is kicked off — so it read a database with no sources,
+    // no graph and no goals yet, and the questions fell back to generic seeds.
+    // It belongs here, at the real end of extraction. Best-effort throughout:
+    // the knowledge is already saved either way.
+    //
     // Estimated up front so the chat can say how long the quiet stretch will
     // be and count it down; the pass itself emits few lines. Best-effort: a
     // failed count just means no countdown.
-    const seconds = await estimateFilingWork(job.userId).then(filingSeconds).catch(() => 0);
+    const seconds = await estimateFilingWork(job.userId).then((w) => filingSeconds(w)).catch(() => 0);
     if (seconds > 0) job.filing = { startedAt: Date.now(), seconds };
     log(job, seconds > 0
       ? `Filing everything into your agent's memory — about ${describeDuration(seconds)} to go`
       : "Filing everything into your agent's memory");
-    try {
-      await finishOnboardingIndex(job.userId, { onEvent });
-    } catch {
-      log(job, "Couldn't file some details — they're saved and still shown on your page");
-    }
+
+    // The memory. One pass: the profile/persona/photo origins the save route
+    // wrote straight to their tables, and the graph half of indexing for the
+    // sources above. Onboarding writes its own chunks (curated boundaries the
+    // generic indexer would re-chunk away), so entities and relations are
+    // attached to those chunks here rather than by indexSource. A failure
+    // costs relation-hop retrieval, never the knowledge itself.
+    const filing = async () => {
+      log(job, "Reading how everything connects — people, services and places");
+      try {
+        job.graph = await finishOnboardingIndex(job.userId, { onEvent });
+        log(job, job.graph.entities
+          ? `Connected ${job.graph.entities} thing${job.graph.entities === 1 ? "" : "s"} across ${job.graph.relations} relationship${job.graph.relations === 1 ? "" : "s"}`
+          : "Nothing linkable found — your pages are still fully searchable");
+      } catch {
+        log(job, "Couldn't file some details — they're saved and still shown on your page");
+      }
+    };
+
+    // What the agent is FOR. The knowledge above tells it what to say; this
+    // reads the same run back and writes the outcomes the owner wants out of a
+    // visitor chat, live on the Agent Behavior tab. Best-effort like the
+    // filing pass: onboarding is already successful by this point, and a goal
+    // draft must never cost it. Seeds only into an empty catalog.
+    const goals = async () => {
+      log(job, "Working out what your agent should be steering visitors toward");
+      try {
+        job.goals = await deriveGoals(
+          goalPages,
+          job.userId,
+          {
+            takesAppointments: report.services?.takesAppointments ?? false,
+            categories: picked,
+          },
+          onEvent,
+        );
+        const g = job.goals;
+        log(job,
+          g.keptExisting
+            ? "You already have goals set — left them exactly as they are"
+            : g.written
+              ? `Set ${g.written} goal${g.written === 1 ? "" : "s"} for your agent, editable under Agent Behavior: ${g.goals.join("; ")}`
+              : g.failed
+                ? "Couldn't draft your agent's goals — you can write them under Agent Behavior"
+                : "Nothing on your site pointed to a clear goal — you can add them under Agent Behavior");
+      } catch {
+        log(job, "Couldn't draft your agent's goals — you can write them under Agent Behavior");
+      }
+    };
+
+    // Goals read the pages, filing reads the database, and neither reads the
+    // other — so they run together. The questions and cards after them read
+    // both, so they wait.
+    await Promise.all([filing(), goals()]);
 
     log(job, "Writing the questions visitors will see first");
     try {

@@ -1,12 +1,12 @@
 import {
   setBookingEnabledAction,
-  saveAppointmentFieldAction,
   deleteAppointmentFieldAction,
   moveAppointmentFieldAction,
 } from "./actions";
+import { BookingFieldForm } from "./BookingFieldForm";
 import { PendingButton } from "./PendingButton";
-import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./ui";
-import { FIELD_TYPES, type BookingConfig } from "@/lib/appointmentTypes";
+import { panel, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
+import type { BookingConfig } from "@/lib/appointmentTypes";
 
 /**
  * The Appointments settings: the booking toggle and the question catalog the
@@ -17,13 +17,6 @@ import { FIELD_TYPES, type BookingConfig } from "@/lib/appointmentTypes";
  * Exported as a fragment rather than its own <section>: the Calendar panel
  * owns the section these render into.
  */
-
-const TYPE_LABELS: Record<string, string> = {
-  short_text: "Short text",
-  long_text: "Long text",
-  email: "Email",
-  phone: "Phone",
-};
 
 export function BookingSettings({ config }: { config: BookingConfig }) {
   return (
@@ -54,32 +47,7 @@ export function BookingSettings({ config }: { config: BookingConfig }) {
         <>
           {config.fields.map((f, i) => (
             <div key={f.key} data-fill="surface" style={panel}>
-              <form
-                action={saveAppointmentFieldAction}
-                style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}
-              >
-                <input type="hidden" name="key" value={f.key} />
-                <div style={{ flex: "1 1 220px" }}>
-                  <Label>Question</Label>
-                  <input name="label" defaultValue={f.label} style={field} />
-                </div>
-                <div>
-                  <Label>Type</Label>
-                  <select name="type" defaultValue={f.type} style={{ ...field, width: "auto" }}>
-                    {FIELD_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {TYPE_LABELS[t] ?? t}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingBottom: 8 }}>
-                  <input type="checkbox" name="required" defaultChecked={f.required} /> Required
-                </label>
-                <PendingButton pendingLabel="Saving…" style={btn as React.CSSProperties}>
-                  Save
-                </PendingButton>
-              </form>
+              <BookingFieldForm field={f} />
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 {i > 0 ? <MoveButton fieldKey={f.key} dir="up" /> : null}
                 {i < config.fields.length - 1 ? <MoveButton fieldKey={f.key} dir="down" /> : null}
@@ -93,32 +61,11 @@ export function BookingSettings({ config }: { config: BookingConfig }) {
             </div>
           ))}
 
-          <form
-            action={saveAppointmentFieldAction}
-            data-fill="surface"
-            style={{ ...panel, display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}
-          >
-            <div style={{ flex: "1 1 220px" }}>
-              <Label>New question</Label>
-              <input name="label" placeholder="e.g. Your phone number" style={field} />
-            </div>
-            <div>
-              <Label>Type</Label>
-              <select name="type" defaultValue="short_text" style={{ ...field, width: "auto" }}>
-                {FIELD_TYPES.map((t) => (
-                  <option key={t} value={t}>
-                    {TYPE_LABELS[t] ?? t}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingBottom: 8 }}>
-              <input type="checkbox" name="required" /> Required
-            </label>
-            <PendingButton pendingLabel="Adding…" style={btn as React.CSSProperties}>
-              Add question
-            </PendingButton>
-          </form>
+          {/* Keyed by the catalog's size so a successful Add remounts the form
+              and its type picker falls back to the default. */}
+          <div data-fill="surface" style={panel}>
+            <BookingFieldForm key={config.fields.length} />
+          </div>
         </>
       ) : null}
     </>

@@ -3,6 +3,7 @@ import { claude, cardBuilderModel } from "@/lib/claude";
 import { prisma, getProfile, getPersonaConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
 import { CARD_TOOLS, type CardTool } from "@/lib/canned";
+import { listServices } from "@/lib/cards";
 import { parseSampleBlock, swatch } from "@/lib/uiCards";
 import { retrieve as defaultRetrieve, formatContext } from "@/lib/retrieval/search";
 import {
@@ -39,6 +40,7 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_projects: ["projects"],
   show_project: ["project"],
   show_gallery: ["gallery"],
+  show_services: ["services"],
   show_contact_form: ["contact"],
   show_booking: ["booking"],
   show_card: ["custom", "html"],
@@ -90,10 +92,11 @@ const BUILDER_BRIEF = `You design "A2UI cards" for a personal portfolio site's c
 
 There are three ways to build a card. FIRST decide which fits, in this order:
 
-1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
+1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, services, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
 - show_projects → {"type":"projects","items":[ProjectCard, …]} — a grid of project cards
 - show_project → {"type":"project","item":ProjectCard} — one project, drawn wide
 - show_gallery → {"type":"gallery","layout":"carousel"|"filmstrip","items":[PhotoCard, …]} — photos
+- show_services → {"type":"services","items":[{"id":"1","name":"…","description":"…"}, …],"booking":null} — the business's services, each with a Book button when appointments are on. ALWAYS this for a services, treatments, menu or price-list card: it lists the real services on file, which a custom or coded card would freeze as a copy
 - show_contact_form → {"type":"contact"} — the in-chat contact form
 
 2. A CUSTOM card (tool "show_card"), ONLY for content that is genuinely a plain vertical stack — an FAQ, a testimonial, a short list of points. Stock elements render as a single unstyled column at one text size; they cannot express layout. The content you write IS what visitors will see (nothing is hydrated later — write it fully and well). Shape:
@@ -154,11 +157,12 @@ Respond with ONLY a JSON object (no prose, no code fences):
  */
 async function siteDataBrief(userId: string): Promise<string> {
   try {
-    const [profile, persona, projects, photoCount] = await Promise.all([
+    const [profile, persona, projects, photoCount, services] = await Promise.all([
       getProfile(userId),
       getPersonaConfig(userId),
       prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
       prisma.photo.count({ where: { userId } }),
+      listServices(userId),
     ]);
     const lines: string[] = ["REAL SITE DATA (build card content from this — do not invent facts):"];
     const who = profile.company_name || profile.owner_name;
@@ -171,6 +175,13 @@ async function siteDataBrief(userId: string): Promise<string> {
     } else {
       lines.push("Projects: none added yet.");
     }
+    // show_services draws nothing without services on file, so the model has
+    // to know which side of that line this account is on before choosing it.
+    lines.push(
+      services.length
+        ? `Services on file (${services.length}): ${services.slice(0, 20).map((s) => s.name).join(", ")}`
+        : "Services: none on file — show_services would draw nothing.",
+    );
     const contact = [profile.company_email, profile.company_phone_number, profile.company_address, profile.company_hours].filter(Boolean).join(" | ");
     if (contact) lines.push(`Contact: ${contact}`);
     lines.push(`Photos: ${photoCount} uploaded.`);

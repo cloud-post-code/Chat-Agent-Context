@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { chunkText } from "@/lib/retrieval/chunking";
 import { embedTexts, vecToBytes } from "@/lib/retrieval/embed";
 import type { Crawler, Page } from "./crawl";
+import { mapPool, onboardingConcurrency } from "./pool";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import {
   BLOG_SYSTEM_PROMPT, TESTIMONIALS_SYSTEM_PROMPT, TEAM_SYSTEM_PROMPT, GENERAL_SYSTEM_PROMPT,
@@ -19,6 +20,11 @@ import {
  * fails the stage rather than degrading to a parser. Entity extraction is
  * skipped here: it costs a model call per origin and the graph back-fills the
  * next time each source is reindexed from the dashboard.
+ *
+ * Every extractor is safe to run alongside the others and fans its own
+ * per-page work out through `mapPool` (pool.ts): page renders are capped by
+ * the shared Crawler, model calls by the shared model gate, and results are
+ * gathered in input order so dedup and the report read as the serial run did.
  *
  * Dedup rules the report asserts: a blog post is saved once no matter how
  * many index/category/feed pages list it; a testimonial repeated on the
@@ -60,6 +66,18 @@ const norm = (s: string) => s.replace(/\s+/g, " ").trim();
 const MAX_POSTS = 100;
 const MAX_LISTING_PAGES = 50;
 const MAX_SWEEP_PAGES = 40;
+
+/**
+ * Per-page agents (one blog post, one swept page) in progress at a time. Each
+ * is a render, then a model call, then a save — and the render and the model
+ * call are each capped on their own (the Crawler's tabs, pool.ts's model
+ * gate). Twice the cap keeps both busy: while some agents wait on the model,
+ * the rest are already rendering the pages that go next.
+ */
+const PAGE_AGENTS = () => {
+  const n = onboardingConcurrency();
+  return n === 1 ? 1 : n * 2; // 1 means strictly one thing at a time
+};
 
 /** One Source row + one Chunk per piece, through the existing pipeline.
  *  Exported for the services extractor (lib/onboarding/services.ts). */
@@ -146,52 +164,61 @@ export async function extractBlog(
   const seenLists = new Set<string>();
   const paginationPages: string[] = [];
   while (queue.length && seenLists.size < MAX_LISTING_PAGES) {
-    const url = queue.shift()!;
-    if (seenLists.has(url)) continue;
-    seenLists.add(url);
-    const page = await crawler.load(url);
-    if (!page) continue;
-    covered.add(page.url);
-    page.$("a").each((_, el) => {
-      const href = page.$(el).attr("href");
-      const abs = href ? crawler.resolve(href, page.url) : null;
-      if (!abs || seenLists.has(abs)) return;
-      const label = page.$(el).text() + " " + (page.$(el).attr("class") || "") + " " + abs;
-      if (/category|tag/i.test(abs)) queue.push(abs);
-      else if (/page[/=-]?\d|pagination|older|newer|archive/i.test(label)) {
-        queue.push(abs);
-        if (!/index\.html$|\/blog\/?$/.test(abs)) paginationPages.push(abs);
-      } else if (/\/(blog|news|articles?|posts)\/[^/?#]+/.test(abs)) {
-        // Any link into the listing's own path is a post candidate. Builders
-        // differ on listing markup (Webflow uses div[role=listitem], not
-        // li/article), so the URL shape is the reliable signal; a non-post
-        // that slips through yields no title/body and is skipped below.
-        postUrls.add(abs);
-      }
-    });
+    // The whole frontier loads at once (the crawler caps the open tabs), then
+    // its pages are read in queue order, so discovery matches the serial walk.
+    const wave: string[] = [];
+    while (queue.length && seenLists.size < MAX_LISTING_PAGES) {
+      const url = queue.shift()!;
+      if (seenLists.has(url)) continue;
+      seenLists.add(url);
+      wave.push(url);
+    }
+    for (const page of await Promise.all(wave.map((u) => crawler.load(u)))) {
+      if (!page) continue;
+      covered.add(page.url);
+      page.$("a").each((_, el) => {
+        const href = page.$(el).attr("href");
+        const abs = href ? crawler.resolve(href, page.url) : null;
+        if (!abs || seenLists.has(abs)) return;
+        const label = page.$(el).text() + " " + (page.$(el).attr("class") || "") + " " + abs;
+        if (/category|tag/i.test(abs)) queue.push(abs);
+        else if (/page[/=-]?\d|pagination|older|newer|archive/i.test(label)) {
+          queue.push(abs);
+          if (!/index\.html$|\/blog\/?$/.test(abs)) paginationPages.push(abs);
+        } else if (/\/(blog|news|articles?|posts)\/[^/?#]+/.test(abs)) {
+          // Any link into the listing's own path is a post candidate. Builders
+          // differ on listing markup (Webflow uses div[role=listitem], not
+          // li/article), so the URL shape is the reliable signal; a non-post
+          // that slips through yields no title/body and is skipped below.
+          postUrls.add(abs);
+        }
+      });
+    }
   }
 
   const existed = seenLists.size > 0 && (postUrls.size > 0 || !!feed);
-  let chunks = 0;
-  let postsSaved = 0;
-  for (const url of [...postUrls].slice(0, MAX_POSTS)) {
-    const page = await crawler.load(url);
-    if (!page) continue;
-    covered.add(page.url);
-    // The blog prompt cleans the post from the raw page text.
-    const raw = await llmExtract(BLOG_SYSTEM_PROMPT, llmPageText(page).slice(0, 30_000), 6000, log);
-    if (raw.post === null) continue; // model: not actually an article
-    const cleaned = sanitizePost(raw);
-    if (!cleaned) continue; // no usable title/body — not a savable post
-    const { title, author, date, body } = cleaned;
-    const header = [title, author && `By ${author}`, date && `Published ${date}`]
-      .filter(Boolean).join(". ");
-    const saved = await saveKnowledgeRecord(userId,
-      { url: page.url, title, kind: onboardingIngestKind("blog"), summary: header, rawText: body },
-      chunkText(`${header}\n\n${body}`));
-    chunks += saved.chunks;
-    if (saved.chunks) postsSaved++;
-  }
+  // One agent per post, a few at a time: load, clean with the blog prompt,
+  // save. Posts are distinct urls, so their records never touch each other.
+  const savedPerPost = await mapPool([...postUrls].slice(0, MAX_POSTS), PAGE_AGENTS(),
+    async (url): Promise<number> => {
+      const page = await crawler.load(url);
+      if (!page) return 0;
+      covered.add(page.url);
+      // The blog prompt cleans the post from the raw page text.
+      const raw = await llmExtract(BLOG_SYSTEM_PROMPT, llmPageText(page).slice(0, 30_000), 6000, log);
+      if (raw.post === null) return 0; // model: not actually an article
+      const cleaned = sanitizePost(raw);
+      if (!cleaned) return 0; // no usable title/body — not a savable post
+      const { title, author, date, body } = cleaned;
+      const header = [title, author && `By ${author}`, date && `Published ${date}`]
+        .filter(Boolean).join(". ");
+      const saved = await saveKnowledgeRecord(userId,
+        { url: page.url, title, kind: onboardingIngestKind("blog"), summary: header, rawText: body },
+        chunkText(`${header}\n\n${body}`));
+      return saved.chunks;
+    });
+  const chunks = savedPerPost.reduce((a, b) => a + b, 0);
+  const postsSaved = savedPerPost.filter(Boolean).length;
 
   return {
     report: {
@@ -259,8 +286,7 @@ export async function extractTestimonials(
     items.push({ quote, author, title: rest.join(", "), sourceUrl, imageUrl });
   };
   const loaded: Page[] = [];
-  for (const url of new Set(pages)) {
-    const page = await crawler.load(url);
+  for (const page of await Promise.all([...new Set(pages)].map((u) => crawler.load(u)))) {
     if (!page) continue;
     loaded.push(page);
     pagesChecked.push(page.url);
@@ -286,7 +312,12 @@ export async function extractTestimonials(
 
   let chunks = 0;
   if (items.length) {
-    const url = pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) || pagesChecked[0];
+    // "#testimonials" for the reason "#team" exists below: a site with no
+    // reviews page falls back to the homepage here, and so does the services
+    // extractor — which now runs at the same time. Two agents upserting one
+    // Source row race on the unique key, and whichever wrote second would reset
+    // the other's chunks.
+    const url = `${pagesChecked.find((p) => /testimonial|review|customer/i.test(p)) || pagesChecked[0]}#testimonials`;
     const pieces = items.map((t) =>
       `Customer testimonial from ${t.author}${t.title ? ` (${t.title})` : ""}: "${t.quote}"`);
     const saved = await saveKnowledgeRecord(userId, {
@@ -313,8 +344,7 @@ export async function extractTeam(
   // bios, and the sweep's catch-all prompt distills the rest into facts.
   const covered = new Set<string>();
   const loaded: Page[] = [];
-  for (const url of candidates) {
-    const page = await crawler.load(url);
+  for (const page of await Promise.all(candidates.map((u) => crawler.load(u)))) {
     if (!page) continue;
     loaded.push(page);
     pagesChecked.push(page.url);
@@ -369,21 +399,26 @@ export async function sweepSitemap(
   const pages: string[] = [];
   let chunks = 0;
 
-  const savePage = async (page: Page): Promise<void> => {
+  /** Distill and save one page; resolves to the chunks it contributed. */
+  const savePage = async (page: Page): Promise<number> => {
     // The catch-all prompt distills the page into discrete facts — each fact
     // its own chunk. A page the model reports empty is skipped, not chunked.
     const raw = await llmExtract(GENERAL_SYSTEM_PROMPT, llmPageText(page).slice(0, 15_000), 3000, log);
     const distilled = sanitizeFacts(raw);
-    if (!distilled?.facts.length) return; // model: nothing substantive
+    if (!distilled?.facts.length) return 0; // model: nothing substantive
     const saved = await saveKnowledgeRecord(userId, {
       url: page.url, title: distilled.title || page.url, kind: onboardingIngestKind("sweep"),
       rawText: llmPageText(page).slice(0, 60_000),
     }, distilled.facts);
-    if (saved.chunks) {
-      chunks += saved.chunks;
-      pages.push(page.url);
-    }
+    return saved.chunks;
   };
+
+  /** One agent per url, a few at a time: load, distill, save. Null when the
+   *  page would not load. Results come back in url order. */
+  const sweepUrls = (list: string[]) => mapPool(list, PAGE_AGENTS(), async (url) => {
+    const page = await crawler.load(url);
+    return page ? { page, chunks: await savePage(page) } : null;
+  });
 
   if (crawled) {
     const seen = new Set<string>([home!.url, ...covered]);
@@ -400,16 +435,25 @@ export async function sweepSitemap(
     enqueue(home!);
     let loaded = 0;
     while (queue.length && loaded < MAX_SWEEP_PAGES) {
-      const page = await crawler.load(queue.shift()!);
-      if (!page) continue;
-      loaded++;
-      enqueue(page); // one growing frontier; the load cap bounds the walk
-      await savePage(page);
+      // Breadth-first by level: everything the cap still has room for goes out
+      // together, and the frontier grows from the results in queue order — the
+      // same pages the one-at-a-time walk reached. Only a page that loaded
+      // counts against the cap, as before.
+      for (const hit of await sweepUrls(queue.splice(0, MAX_SWEEP_PAGES - loaded))) {
+        if (!hit) continue;
+        loaded++;
+        enqueue(hit.page); // one growing frontier; the load cap bounds the walk
+        if (hit.chunks) {
+          chunks += hit.chunks;
+          pages.push(hit.page.url);
+        }
+      }
     }
   } else {
-    for (const url of urls) {
-      const page = await crawler.load(url);
-      if (page) await savePage(page);
+    for (const hit of await sweepUrls(urls)) {
+      if (!hit?.chunks) continue;
+      chunks += hit.chunks;
+      pages.push(hit.page.url);
     }
   }
   return { report: { pages }, chunks, crawled };
