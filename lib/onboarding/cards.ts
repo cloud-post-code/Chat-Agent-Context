@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/db";
 import { getBookingConfig } from "@/lib/appointments";
-import { allProjectsBlock, galleryBlock } from "@/lib/cards";
+import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/lib/cards";
 import { draftUiCard, type BuilderDeps, type CardDraft } from "@/lib/cardBuilder";
 import { writeUiCard } from "@/lib/uiCards";
 import type { Page } from "./crawl";
@@ -14,10 +14,10 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * Nothing is seeded at signup any more: the old starter set was written for a
  * personal portfolio and gave a nail salon an "All projects" card. This stage
  * is where a business's cards come from. Live-data cards (the gallery of the
- * photos onboarding imported, the contact form, projects when there are any)
- * are written straight into the catalog with the tenant's own data as their
- * preview. Business-specific cards — services and prices, hours and
- * locations, the team — go through the same research-enabled card builder
+ * photos onboarding imported, the services it read, the contact form, projects
+ * when there are any) are written straight into the catalog with the tenant's
+ * own data as their preview. Business-specific cards — hours and locations,
+ * the team, what to expect — go through the same research-enabled card builder
  * the admin's "Build a card" page uses, so they are drafted from the
  * knowledge base the run just indexed. Every card the plan ties to a starter
  * question is attached to that question, so the visitor who taps the chip
@@ -34,23 +34,25 @@ The text contains the site's pages, each preceded by "=== <url>", then a BUSINES
 
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" (one photo at a time) or "filmstrip" (thumbnails with a lightbox).
+- "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file — and then ALWAYS plan it, for the question about what the business offers.
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
-- "designed": a card designed for this business from its own content — a services-and-prices card, an hours-and-locations card, a meet-the-team card, a what-to-expect-on-your-first-visit card, an FAQ, a testimonials card. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
+- "designed": a card designed for this business from its own content — an hours-and-locations card, a meet-the-team card, a what-to-expect-on-your-first-visit card, an FAQ, a testimonials card. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
 
 Rules:
 - Every card serves what a prospective customer of THIS business needs, named in the business's own words for what it sells.
+- Never plan a "designed" card that lists services or prices: the "services" card does that from live data, and a designed copy goes stale.
 - Never plan a card for content the site does not have. Never invent a service, price, person or policy.
 - "reason" is the instruction the agent will receive about when to show the card. Write it as guidance starting "When …".
 - "questions" lists the numbers of the starter questions this card should appear with — the card answers that question visually. A question belongs to at most one card; leave the list empty when no starter question fits.
 - At most 5 cards, at most 3 of them "designed". Fewer, sharper cards beat padding. Nothing groundable? Return an empty list.
 
 Respond with ONLY this JSON, no other text:
-{"cards":[{"kind":"gallery|contact|projects|booking|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"cards":[{"kind":"gallery|services|contact|projects|booking|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
-export type CardKind = "gallery" | "contact" | "projects" | "booking" | "designed";
-const KINDS: readonly CardKind[] = ["gallery", "contact", "projects", "booking", "designed"];
+export type CardKind = "gallery" | "services" | "contact" | "projects" | "booking" | "designed";
+const KINDS: readonly CardKind[] = ["gallery", "services", "contact", "projects", "booking", "designed"];
 
 export type PlannedCard = {
   kind: CardKind;
@@ -71,6 +73,8 @@ export type CardPlan = { cards: PlannedCard[] };
 export type CardSignals = {
   photos: number;
   projects: number;
+  /** Services on file — what the services card would list. */
+  services: number;
   takesAppointments: boolean;
   contactChannels: string[];
   /** Knowledge categories that produced content this run. */
@@ -104,6 +108,7 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
 function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "gallery") return signals.photos > 0;
   if (kind === "projects") return signals.projects > 0;
+  if (kind === "services") return signals.services > 0;
   if (kind === "booking") return signals.takesAppointments;
   return true;
 }
@@ -206,10 +211,11 @@ async function businessBlock(userId: string): Promise<Business> {
 
 /** What the account has, read from the tables the cards would draw from. */
 async function readSignals(userId: string, categories: string[]): Promise<CardSignals> {
-  const [photos, projects, booking, profile] = await Promise.all([
+  const [photos, projects, services, booking, profile] = await Promise.all([
     // The public gallery shows the owner's curated kinds, not ingested images.
     prisma.photo.count({ where: { userId, NOT: { kind: { startsWith: "ingest:" } } } }),
     prisma.project.count({ where: { userId } }),
+    listServices(userId),
     getBookingConfig(userId),
     prisma.profile.findUnique({ where: { userId } }),
   ]);
@@ -221,6 +227,7 @@ async function readSignals(userId: string, categories: string[]): Promise<CardSi
   return {
     photos,
     projects,
+    services: services.length,
     takesAppointments: booking.enabled && booking.fields.length > 0,
     contactChannels,
     categories: categories.filter(Boolean),
@@ -241,6 +248,7 @@ export function cardsCorpus(
     `${pagesBlock}\n\n=== BUSINESS\n${business.text}\n\n=== SIGNALS\n` +
     `Gallery photos on file: ${signals.photos}\n` +
     `Projects on file: ${signals.projects}\n` +
+    `Services on file: ${signals.services}\n` +
     `Takes appointments (customers can book): ${signals.takesAppointments ? "yes" : "no"}\n` +
     `Contact channels listed: ${signals.contactChannels.length ? signals.contactChannels.join(", ") : "none"}\n` +
     `Knowledge this site provided: ${signals.categories.length ? signals.categories.join(", ") : "none"}\n\n` +
@@ -292,6 +300,12 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
   }
   if (card.kind === "projects") {
     return { tool: "show_projects", sample: JSON.stringify(await allProjectsBlock(userId)) };
+  }
+  if (card.kind === "services") {
+    // The signal gate means services exist; the fallback only covers a record
+    // deleted between the plan and this read.
+    const block = (await servicesBlock(userId)) ?? { type: "services", items: [], booking: null };
+    return { tool: "show_services", sample: JSON.stringify(block) };
   }
   return { tool: "show_contact_form", sample: JSON.stringify({ type: "contact" }) };
 }

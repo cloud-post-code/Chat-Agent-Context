@@ -11,13 +11,15 @@ import {
   newChatId,
   type ChatMeta,
 } from "@/lib/chatStore";
+import { CHIP_COUNT, chipLabel } from "@/lib/chipLabel";
 
 type Msg = {
   role: "user" | "assistant";
   content: string;
   cards?: UiBlock[];
 };
-type Starter = { q: string };
+/** `q` is the whole question a tap sends; `label` is the tab's short text. */
+type Starter = { q: string; label?: string };
 type HomePhoto = { src: string; alt: string };
 
 /** localStorage, or null when unavailable (private mode) — history is then off. */
@@ -59,6 +61,12 @@ export default function Chat({
   // sidebar chat is one ChatSession in the admin Activity tab.
   const [chatId, setChatId] = useState<string>(() => newChatId());
   const started = messages.length > 0;
+  // The starter tabs: never more than CHIP_COUNT, never more than three words
+  // each — held here as well as in starterChipsFor, so no caller can hand the
+  // home screen a wrapping stack of sentences again.
+  const tabs = starters
+    .slice(0, CHIP_COUNT)
+    .map((s) => ({ q: s.q, label: chipLabel({ label: s.label, question: s.q }) }));
 
   // Saved conversations for this agent, from the visitor's own localStorage.
   useEffect(() => {
@@ -266,13 +274,21 @@ export default function Chat({
               {tagline && <p style={styles.sub}>{tagline}</p>}
             </div>
 
-            <div className="home-rise" style={{ ...styles.starters, animationDelay: "80ms" }}>
-              {starters.map((s) => (
-                <button key={s.q} style={styles.chip} onClick={() => send(s.q)}>
-                  {s.q}
-                </button>
-              ))}
-            </div>
+            {/* Only when there are tabs, so an account with no starter questions
+                gets no empty row. */}
+            {tabs.length > 0 && (
+              <div
+                className="home-rise"
+                data-starter-tabs="home"
+                style={{ ...tabRow(tabs.length), animationDelay: "80ms" }}
+              >
+                {tabs.map((t) => (
+                  <button key={t.q} style={styles.chip} onClick={() => send(t.q)} title={t.q}>
+                    {t.label}
+                  </button>
+                ))}
+              </div>
+            )}
 
             <div className="home-rise" style={{ ...styles.composerSlot, animationDelay: "160ms" }}>
               <Composer input={input} setInput={setInput} onSend={() => send(input)} loading={loading} big />
@@ -321,13 +337,13 @@ export default function Chat({
             ))}
           </div>
           <div style={styles.composerDock}>
-            {/* Only when there are chips: the row carries bottom padding, and an
+            {/* Only when there are tabs: the row carries bottom padding, and an
                 account with no starter questions must not show a stray gap. */}
-            {starters.length > 0 && (
-              <div style={styles.startersRow}>
-                {starters.slice(0, 5).map((s) => (
-                  <button key={s.q} style={styles.chipSmall} onClick={() => send(s.q)} title={s.q}>
-                    {s.q}
+            {tabs.length > 0 && (
+              <div data-starter-tabs="dock" style={{ ...tabRow(tabs.length), ...styles.startersRow }}>
+                {tabs.map((t) => (
+                  <button key={t.q} style={styles.chipSmall} onClick={() => send(t.q)} title={t.q}>
+                    {t.label}
                   </button>
                 ))}
               </div>
@@ -492,6 +508,9 @@ function Bubble({
     </div>
   );
 }
+
+/** The widest a starter tab grows — room for a three-word label on one line. */
+const TAB_MAX_WIDTH = 190;
 
 /** How far every other strip photo sits below its neighbours. */
 const STRIP_STAGGER = 14;
@@ -703,19 +722,24 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: 14,
   },
 
-  starters: { display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center", maxWidth: 620 },
-  // Sized to its question rather than pinned to 340px: a fixed width left
-  // short questions padded with empty space and long ones cramped.
+  // A starter tab: the size of the admin's own tabs, carrying a label of three
+  // words at most. The row is a grid (tabRow), so the tabs are one width and
+  // one height; on a phone a three-word label takes its second line inside the
+  // tab rather than pushing a tab off the row.
   chip: {
     background: "var(--bg-soft)",
     border: "1px solid var(--border)",
     color: "var(--on-bg-soft)",
     borderRadius: "var(--radius-pill)",
-    padding: "10px 18px",
-    fontSize: 14,
-    lineHeight: 1.35,
-    maxWidth: "100%",
+    // Type and side padding ease down with the viewport so a long word
+    // ("appointment") still fits a phone-width tab unbroken.
+    padding: "8px clamp(6px, 2vw, 12px)",
+    fontSize: "clamp(12.5px, 3.4vw, 14px)",
+    fontWeight: 600,
+    lineHeight: 1.2,
+    minWidth: 0,
     textAlign: "center",
+    overflowWrap: "anywhere",
   },
   footnote: { color: "var(--text)", fontStyle: "italic", fontSize: 13, marginTop: 20, maxWidth: 460 },
   // Quiet by design: a visitor is here to talk, not to read a protocol spec.
@@ -829,30 +853,35 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   composerDock: { paddingTop: 10, display: "flex", flexDirection: "column", gap: 8 },
-  // Wraps rather than scrolling sideways: chips now carry whole questions, and
-  // a horizontal scroller hides every chip past the first two.
-  startersRow: {
-    display: "flex",
-    gap: 8,
-    justifyContent: "center",
-    flexWrap: "wrap",
-    padding: "0 0 10px",
-  },
+  // The same tab row, docked above the composer once a conversation is going.
+  startersRow: { gap: 6, margin: "0 auto", padding: "0 0 10px" },
   chipSmall: {
     background: "var(--bg-soft)",
     border: "1px solid var(--border)",
     color: "var(--on-bg-soft)",
     borderRadius: "var(--radius-pill)",
-    padding: "8px 16px",
-    fontSize: 14,
-    fontWeight: 500,
+    padding: "6px clamp(6px, 2vw, 10px)",
+    fontSize: "clamp(12px, 3.2vw, 13px)",
+    fontWeight: 600,
     lineHeight: 1.2,
-    textAlign: "left",
-    // One line each, elided if a question is unusually long — the full text
-    // stays in the button's title attribute.
-    maxWidth: "100%",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
+    minWidth: 0,
+    textAlign: "center",
+    overflowWrap: "anywhere",
   },
 };
+
+/**
+ * The starter tabs' row: one line of equal-width tabs, always. A grid rather
+ * than a wrapping flex row, so the tabs can never stack into extra lines and
+ * push the composer down the first screen. Fewer than three tabs keep the
+ * same tab width instead of stretching across the row.
+ */
+function tabRow(count: number): React.CSSProperties {
+  return {
+    display: "grid",
+    gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))`,
+    gap: 8,
+    width: "100%",
+    maxWidth: count * TAB_MAX_WIDTH,
+  };
+}

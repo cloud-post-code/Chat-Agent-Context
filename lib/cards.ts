@@ -1,10 +1,13 @@
+import type { FieldConfig, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
+import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
+import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
- * the tool blocks Claude emits (show_projects / show_project / show_gallery)
- * into concrete payloads the frontend renders as cards.
+ * the tool blocks Claude emits (show_projects / show_project / show_gallery /
+ * show_services) into concrete payloads the frontend renders as cards.
  */
 
 export type ProjectCard = {
@@ -24,6 +27,19 @@ export type PhotoCard = {
   description: string;
   caption: string | null;
 };
+
+export type ServiceCard = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+/**
+ * What a services card needs to book from: the live wizard fields, and which
+ * of them the chosen service pre-answers (null when the tenant asks no such
+ * question, so the wizard opens with nothing filled in).
+ */
+export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null };
 
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
@@ -53,6 +69,10 @@ export type UiBlock =
   // iframe's px height, since a sandboxed document can't report its own.
   | { type: "html"; html: string; height?: number }
   | { type: "contact" }
+  // The tenant's services, read from the knowledge onboarding saved. `booking`
+  // rides in the block when appointments are on, so each service opens the
+  // wizard with itself already chosen; null draws the list with no Book button.
+  | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   // The booking wizard: one question per configured field, then a time, then
   // a confirm. The fields ride in the block so the card asks exactly what the
   // tenant configured at the moment it was drawn.
@@ -98,11 +118,17 @@ export async function contactBlock(): Promise<UiBlock> {
   return { type: "contact" };
 }
 
+/**
+ * One wizard question as the card receives it. `config` is what makes the
+ * card draw the right control: a choice question's options (a menu, when they
+ * carry prices) or a number's bounds — empty for the text types.
+ */
 export type BookingField = {
   key: string;
   label: string;
-  type: "short_text" | "long_text" | "email" | "phone";
+  type: FieldType;
   required: boolean;
+  config: FieldConfig;
 };
 
 /**
@@ -121,7 +147,51 @@ export async function bookingBlock(userId: string): Promise<UiBlock | null> {
       label: f.label,
       type: f.type,
       required: f.required,
+      config: f.config,
     })),
+  };
+}
+
+/** The tenant's services as saved knowledge; empty when none are on file. */
+export async function listServices(userId: string): Promise<ServiceCard[]> {
+  // The sweep files its pages under the same `ingest:services` mark, so the
+  // title is what singles out the catalog. Newest wins if a re-onboard against
+  // a moved site left an older copy behind.
+  const source = await prisma.source.findFirst({
+    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
+    orderBy: { updatedAt: "desc" },
+    select: { id: true, rawText: true },
+  });
+  if (!source) return [];
+  return parseServiceCatalog(source.rawText).map((s, i) => ({
+    id: `${source.id}:${i}`,
+    name: s.name,
+    description: s.description,
+  }));
+}
+
+/**
+ * The question a chosen service pre-answers: the picker onboarding seeds
+ * (key "service"), else the generic "reason" default. Anything else would be
+ * guessing which of the tenant's questions a service name belongs in.
+ */
+function serviceQuestionKey(fields: BookingField[]): string | null {
+  return (["service", "reason"] as const).find((k) => fields.some((f) => f.key === k)) ?? null;
+}
+
+/**
+ * The services card, hydrated from saved knowledge plus the live booking
+ * config. Null when no services are on file: nothing is drawn and the model
+ * answers in words, rather than a visitor being shown an empty price list.
+ */
+export async function servicesBlock(userId: string): Promise<UiBlock | null> {
+  const [items, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
+  if (!items.length) return null;
+  const fields = booking?.type === "booking" ? booking.fields : null;
+  return {
+    type: "services",
+    items,
+    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields) } : null,
   };
 }
 

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { createLimiter, onboardingConcurrency, type Limiter } from "./pool";
 
 /**
  * Crawler for the guided onboarding flow. Renders pages with Playwright
@@ -158,13 +159,20 @@ const renderDigest = `(() => {
 export class Crawler {
   readonly origin: string;
   private cache = new Map<string, Page | null>();
-  private browser: import("playwright").Browser | null = null;
+  /** Renders under way, so two agents asking for one url share one tab. */
+  private inflight = new Map<string, Promise<Page | null>>();
+  private launching: Promise<import("playwright").Browser> | null = null;
+  private closed = false;
+  /** Caps open tabs across every agent sharing this crawler: the extractors
+   *  run side by side, and each one fans its own page loads out too. */
+  private limit: Limiter;
   /** Real-time activity callback — the onboarding chat streams these lines. */
   onEvent?: (msg: string) => void;
 
-  constructor(entryUrl: string, onEvent?: (msg: string) => void) {
+  constructor(entryUrl: string, onEvent?: (msg: string) => void, concurrency = onboardingConcurrency()) {
     this.origin = new URL(entryUrl).origin;
     this.onEvent = onEvent;
+    this.limit = createLimiter(concurrency);
   }
 
   /** Resolve a possibly-relative href against the site; null when offsite. */
@@ -179,8 +187,10 @@ export class Crawler {
     }
   }
 
-  private async page(): Promise<import("playwright").Page> {
-    if (!this.browser) {
+  /** Launch the browser once. Concurrent first loads share the one launch —
+   *  each launching its own would leak every browser but the last. */
+  private launch(): Promise<import("playwright").Browser> {
+    this.launching ??= (async () => {
       // Playwright's import self-checks the Node version and can hard-exit
       // the process on <20 — never even import it there (deploy safety).
       if (Number(process.versions.node.split(".")[0]) < 20) {
@@ -188,27 +198,50 @@ export class Crawler {
       }
       try {
         const { chromium } = await import("playwright");
-        this.browser = await chromium.launch({ headless: true });
+        return await chromium.launch({ headless: true });
       } catch (err) {
         throw new Error(
           `Could not launch the Playwright browser: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`,
         );
       }
-    }
-    return this.browser.newPage();
+    })();
+    // A failed launch is not remembered: the next load tries again, as before.
+    this.launching.catch(() => (this.launching = null));
+    return this.launching;
+  }
+
+  /** A fresh tab, or null when the crawler was closed while the browser was
+   *  still launching. */
+  private async page(): Promise<import("playwright").Page | null> {
+    const browser = await this.launch();
+    return this.closed ? null : browser.newPage();
   }
 
   /** Render one on-domain page as parsed HTML. Cached; null when the page
-   *  itself fails to load. A browser that can't launch throws instead. */
+   *  itself fails to load. A browser that can't launch throws instead.
+   *  Safe to call concurrently: a url is rendered once however many callers
+   *  ask, and at most `concurrency` tabs are open at a time. */
   async load(url: string): Promise<Page | null> {
     const abs = this.resolve(url);
     if (!abs) return null;
     if (this.cache.has(abs)) return this.cache.get(abs)!;
+    const pending = this.inflight.get(abs);
+    if (pending) return pending;
+    const render = this.limit(() => this.render(abs)).finally(() => this.inflight.delete(abs));
+    this.inflight.set(abs, render);
+    return render;
+  }
+
+  private async render(abs: string): Promise<Page | null> {
+    // A closed crawler never relaunches: when one agent fails the job, the
+    // others' queued loads must wind down, not reopen a browser nobody closes.
+    if (this.closed) return null;
     this.onEvent?.(`Reading ${abs.replace(this.origin, "") || "/"}`);
 
     let html: string | null = null;
     let rendered: Rendered | undefined;
     const p = await this.page();
+    if (!p) return null;
     try {
       const res = await p.goto(abs, { waitUntil: "domcontentloaded", timeout: 15_000 });
       if (res && res.ok()) {
@@ -345,8 +378,13 @@ export class Crawler {
     return out;
   }
 
+  /** Close for good. Waits out a launch still under way so that browser is
+   *  closed too, not orphaned; loads queued behind it come back null. */
   async close(): Promise<void> {
-    await this.browser?.close().catch(() => {});
-    this.browser = null;
+    this.closed = true;
+    const launching = this.launching;
+    this.launching = null;
+    const browser = await launching?.catch(() => null);
+    await browser?.close().catch(() => {});
   }
 }

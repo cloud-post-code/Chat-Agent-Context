@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { Page } from "./crawl";
+import { modelCall } from "./pool";
 
 /**
  * The four knowledge-extraction system prompts. Each category runs its OWN
@@ -77,6 +78,9 @@ const LLM_RETRIES = 2;
  * One extraction call: system prompt + text in, parsed JSON out. A failed or
  * unparseable call retries up to LLM_RETRIES times and then throws — the job
  * surfaces the error rather than degrading to a parser or an empty result.
+ * The call itself goes through the shared model gate (pool.ts): the extractors
+ * run concurrently, so the gate bounds calls in flight and waits out a rate
+ * limit before it ever counts against the retries here.
  */
 export async function llmExtract(
   system: string,
@@ -89,12 +93,12 @@ export async function llmExtract(
   }
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await claude().messages.create({
+      const res = await modelCall(() => claude().messages.create({
         model: claudeModel(),
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content: userText }],
-      });
+      }));
       const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const json = text.match(/\{[\s\S]*\}/)?.[0];
       if (!json) throw new Error("model returned no JSON");
@@ -138,12 +142,12 @@ export async function llmExtractVision(
   content.push({ type: "text", text: userText });
   for (let attempt = 0; ; attempt++) {
     try {
-      const res = await claude().messages.create({
+      const res = await modelCall(() => claude().messages.create({
         model: claudeModel(),
         max_tokens: maxTokens,
         system,
         messages: [{ role: "user", content }],
-      });
+      }));
       const text = res.content.flatMap((b) => (b.type === "text" ? [b.text] : [])).join("");
       const json = text.match(/\{[\s\S]*\}/)?.[0];
       if (!json) throw new Error("model returned no JSON");

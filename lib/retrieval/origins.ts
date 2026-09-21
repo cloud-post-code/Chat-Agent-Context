@@ -4,6 +4,7 @@ import { splitPersonaFacts, type PersonaFact } from "../personaFacts";
 import { safeTags } from "../knowledge";
 import { parseSocialLinks } from "../socialLinks";
 import { indexOrigin, dropOrigin, type IndexOpts } from "./indexer";
+import { createPacer, mapPool } from "../pool";
 
 /**
  * Turns every admin surface into indexable text, so one graph covers
@@ -276,48 +277,60 @@ export async function indexApprovedAnswer(
  * lives here rather than in the embedding layer on purpose — live chat embeds
  * the visitor's question on every message and must never be throttled.
  * Override with EMBED_PACE_MS (0 disables) when on a higher-limit plan.
+ *
+ * `concurrency` is how many origins index at once — 1 unless the caller says
+ * otherwise, so the backfill script stays the paced one-at-a-time walk above.
+ * Onboarding raises it (lib/onboarding/graphIndex.ts). Origins are independent
+ * of each other: each replaces only its own chunks, and the graph writes they
+ * end in are serialized per user inside the indexer. The pace, when there is
+ * one, spaces the STARTS of steps, whichever worker takes them.
  */
 export async function indexEverything(
   userId: string,
-  opts: IndexOpts & { onProgress?: (label: string) => void; paceMs?: number } = {},
+  opts: IndexOpts & {
+    onProgress?: (label: string) => void;
+    paceMs?: number;
+    concurrency?: number;
+  } = {},
 ): Promise<number> {
-  const { onProgress, paceMs, ...indexOpts } = opts;
-  const pause = paceMs ?? Number(process.env.EMBED_PACE_MS ?? 21_000);
-  let done = 0;
-  const step = async (label: string, run: () => Promise<void>) => {
-    if (done > 0 && pause > 0) await new Promise((r) => setTimeout(r, pause));
-    await run();
-    done++;
-    onProgress?.(label);
-  };
+  const { onProgress, paceMs, concurrency, ...indexOpts } = opts;
+  const pace = createPacer(paceMs ?? Number(process.env.EMBED_PACE_MS ?? 21_000));
 
-  await step("Profile", () => indexProfile(userId, indexOpts));
-  await step("Persona", () => indexPersona(userId, indexOpts));
+  const [projects, photos, approved, appointments] = await Promise.all([
+    prisma.project.findMany({ where: { userId }, select: { id: true, name: true } }),
+    prisma.photo.findMany({ where: { userId }, select: { id: true, filename: true } }),
+    prisma.chatMessage.findMany({
+      where: { role: "assistant", rating: "up", session: { userId } },
+      select: { id: true },
+    }),
+    prisma.appointment.findMany({ where: { userId }, select: { id: true } }),
+  ]);
 
-  for (const p of await prisma.project.findMany({
-    where: { userId },
-    select: { id: true, name: true },
-  })) {
-    await step(`Project: ${p.name}`, () => indexProject(userId, p.id, indexOpts));
-  }
-  for (const ph of await prisma.photo.findMany({
-    where: { userId },
-    select: { id: true, filename: true },
-  })) {
-    await step(`Photo: ${ph.filename}`, () => indexPhoto(userId, ph.id, indexOpts));
-  }
-  const approved = await prisma.chatMessage.findMany({
-    where: { role: "assistant", rating: "up", session: { userId } },
-    select: { id: true },
+  const steps: { label: string; run: () => Promise<void> }[] = [
+    { label: "Profile", run: () => indexProfile(userId, indexOpts) },
+    { label: "Persona", run: () => indexPersona(userId, indexOpts) },
+    ...projects.map((p) => ({
+      label: `Project: ${p.name}`,
+      run: () => indexProject(userId, p.id, indexOpts),
+    })),
+    ...photos.map((ph) => ({
+      label: `Photo: ${ph.filename}`,
+      run: () => indexPhoto(userId, ph.id, indexOpts),
+    })),
+    ...approved.map((m) => ({
+      label: "Approved answer",
+      run: () => indexApprovedAnswer(userId, m.id, indexOpts),
+    })),
+    ...appointments.map((a) => ({
+      label: "Appointment",
+      run: () => indexAppointment(userId, a.id, indexOpts),
+    })),
+  ];
+
+  await mapPool(steps, concurrency ?? 1, async (s) => {
+    await pace();
+    await s.run();
+    onProgress?.(s.label);
   });
-  for (const m of approved) {
-    await step("Approved answer", () => indexApprovedAnswer(userId, m.id, indexOpts));
-  }
-  for (const a of await prisma.appointment.findMany({
-    where: { userId },
-    select: { id: true },
-  })) {
-    await step("Appointment", () => indexAppointment(userId, a.id, indexOpts));
-  }
-  return done;
+  return steps.length;
 }

@@ -39,12 +39,52 @@ export type Retrieval = { chunks: RetrievedChunk[]; relations: string[] };
 const BM25_K1 = 1.4;
 const BM25_B = 0.6;
 
+/**
+ * An origin this small is served whole once any of its chunks is a seed. A
+ * price list is saved one item per chunk ("Dip. $50"), so ranking alone hands
+ * the model six rows of a forty-row menu — enough to answer nothing about
+ * "all services", "the cheapest pedicure" or a combo. Long documents stay
+ * chunk-ranked: they blow this cap.
+ */
+const WHOLE_ORIGIN_CHARS = 5000;
+
+/**
+ * Visitor words → the forms a site uses. Lexical only: tokenize() also feeds
+ * the stored local embeddings, so it must not change. Plurals, -ing and a
+ * trailing e fold together (prices/pricing/price); hyphenated tokens also
+ * count as their parts (fill-in → fill, in).
+ */
+function stems(text: string): string[] {
+  const out: string[] = [];
+  for (const tok of tokenize(text)) {
+    for (const part of tok.includes("-") ? [tok, ...tok.split("-")] : [tok]) {
+      let t = part.replace(/'s$/, "");
+      if (t.length > 4 && t.endsWith("ies")) t = `${t.slice(0, -3)}y`;
+      else if (t.length > 4 && t.endsWith("ses")) t = t.slice(0, -2);
+      else if (t.length > 3 && t.endsWith("s") && !t.endsWith("ss")) t = t.slice(0, -1);
+      if (t.length > 5 && t.endsWith("ing")) t = t.slice(0, -3);
+      if (t.length > 4 && t.endsWith("e")) t = t.slice(0, -1);
+      if (t.length > 1) out.push(t);
+    }
+  }
+  return out;
+}
+
+const originKey = (c: { originKind: string; originId: string }) =>
+  `${c.originKind}:${c.originId}`;
+
+/** Equal stems, or one abbreviates the other ("mani" → "manicur"). */
+function stemMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  return Math.min(a.length, b.length) >= 4 && (a.startsWith(b) || b.startsWith(a));
+}
+
 export async function retrieve(
   userId: string,
   query: string,
   opts: { seedLimit?: number; graphLimit?: number; charBudget?: number } = {},
 ): Promise<Retrieval> {
-  const { seedLimit = 6, graphLimit = 4, charBudget = 6000 } = opts;
+  const { seedLimit = 6, graphLimit = 4, charBudget = 9000 } = opts;
 
   // Cluster overviews are synthesized FROM these chunks (lib/retrieval/
   // clusters.ts) and are served whole for broad questions; letting them
@@ -57,25 +97,35 @@ export async function retrieve(
   if (chunks.length === 0) return { chunks: [], relations: [] };
 
   // ── Lexical (BM25-style) ──
-  const qTokens = [...new Set(tokenize(query))];
-  const docs = chunks.map((c) => tokenize(c.text));
+  const qTokens = [...new Set(stems(query))];
+  const docs = chunks.map((c) => stems(c.text));
   const avgLen = docs.reduce((s, d) => s + d.length, 0) / docs.length || 1;
+  const tfs = docs.map((d) => qTokens.map((t) => d.filter((x) => stemMatch(x, t)).length));
   const df = new Map<string, number>();
-  for (const d of docs) {
-    for (const t of new Set(d)) if (qTokens.includes(t)) df.set(t, (df.get(t) ?? 0) + 1);
+  qTokens.forEach((t, qi) => df.set(t, tfs.filter((row) => row[qi] > 0).length));
+  // A menu row never says "services" — its source's title does. Title hits are
+  // weighed across origins, not chunks: forty rows sharing one title is one
+  // rare title, not forty common words.
+  const labels = new Map<string, string[]>();
+  for (const c of chunks) labels.set(originKey(c), stems(c.originLabel ?? ""));
+  const labelScore = new Map<string, number>();
+  for (const t of qTokens) {
+    const hits = [...labels].filter(([, l]) => l.some((x) => stemMatch(x, t))).map(([k]) => k);
+    const idf = Math.log(1 + (labels.size - hits.length + 0.5) / (hits.length + 0.5));
+    for (const k of hits) labelScore.set(k, (labelScore.get(k) ?? 0) + idf);
   }
-  const lex = docs.map((d) => {
+  const lex = docs.map((d, di) => {
     let score = 0;
-    for (const t of qTokens) {
+    for (const [qi, t] of qTokens.entries()) {
       const n = df.get(t);
       if (!n) continue;
-      const tf = d.filter((x) => x === t).length;
+      const tf = tfs[di][qi];
       if (!tf) continue;
       const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5));
       score += (idf * tf * (BM25_K1 + 1)) /
         (tf + BM25_K1 * (1 - BM25_B + (BM25_B * d.length) / avgLen));
     }
-    return score;
+    return score + (labelScore.get(originKey(chunks[di])) ?? 0);
   });
 
   // ── Vector (same-model cosine) ──
@@ -155,8 +205,27 @@ export async function retrieve(
     });
     used += r.c.text.length;
   };
-  for (const r of seeds) push(r, "rank");
-  for (const r of graphRows) push(r, "graph");
+  // A seed from a small multi-chunk origin brings the whole origin, in order,
+  // as one block. Blocks are what count toward the seed limit, so a menu's
+  // rows filling the top ranks don't shut every other source out.
+  const byOrigin = new Map<string, typeof chunks>();
+  for (const c of chunks) byOrigin.set(originKey(c), [...(byOrigin.get(originKey(c)) ?? []), c]);
+  const served = new Set<string>();
+  let blocks = 0;
+  for (const r of ranked) {
+    if (blocks >= seedLimit) break;
+    const k = originKey(r.c);
+    if (served.has(k)) continue;
+    const family = byOrigin.get(k) ?? [];
+    const text = [...family].sort((a, b) => a.seq - b.seq).map((c) => c.text).join("\n");
+    const whole = family.length > 1 && text.length <= WHOLE_ORIGIN_CHARS;
+    if (whole) served.add(k);
+    push({ c: whole ? { ...r.c, text } : r.c, score: r.score }, "rank");
+    blocks++;
+  }
+  for (const r of graphRows) {
+    if (!served.has(originKey(r.c))) push(r, "graph");
+  }
 
   return { chunks: out, relations: [...new Set(relations)].slice(0, 12) };
 }

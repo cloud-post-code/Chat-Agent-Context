@@ -2,8 +2,9 @@
 
 ## Definition Of Done
 - `filingSeconds` turns counted work into a whole-ten-second estimate that
-  grows with origins and sources by the pace interval and includes the tail
-  stages.
+  grows with origins and sources, shrinks with the number of agents the pass
+  runs at once (docs/features/parallel-onboarding-extraction), honors a pace
+  when an operator sets one, and includes the tail stages.
 - `etaFor` reports remaining seconds as of now, floors at zero, and is absent
   once the job is done or failed.
 - The filing activity line states the estimate in words.
@@ -18,8 +19,8 @@ Command:
 npx tsx docs/features/onboarding-filing-eta/proof/filing-eta.ts
 ```
 
-Prints `PROOF PASS` or exits 1. Asserts the estimate math against the pacing
-formula, the wire ETA's floor and lifecycle, the wording of the log line, a
+Prints `PROOF PASS` or exits 1. Asserts the estimate math against the wave
+formula (unpaced) and the pacing floor (paced), the wire ETA's floor and lifecycle, the wording of the log line, a
 static render with and without an ETA, and a jsdom mount whose countdown
 falls as `Date.now` advances and flips to the over-estimate wording past
 zero.

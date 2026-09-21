@@ -7,12 +7,15 @@ import {
   galleryBlock,
   contactBlock,
   bookingBlock,
+  servicesBlock,
   type UiBlock,
 } from "@/lib/cards";
 import { getBookingConfig } from "@/lib/appointments";
 import { recordTurn } from "@/lib/activity";
 import { findServableCanned, recordCannedHit } from "@/lib/canned";
 import { cardCatalog, customCardBlock } from "@/lib/uiCards";
+import { prisma } from "@/lib/db";
+import { formatContext, retrieve } from "@/lib/retrieval/search";
 
 /**
  * The chatbot, independent of how it was reached. `answer()` is the one entry
@@ -96,6 +99,12 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "show_services",
+    description:
+      "Render the business's services as a card: each service with what it includes, and a Book button when appointments are on. Use when the visitor asks what the business offers, or about its services, treatments, packages or pricing in general.",
+    input_schema: { type: "object", properties: {} },
+  },
+  {
     name: "show_contact_form",
     description:
       "Render a contact form so the visitor can leave their name, email, and a message for the owner. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for the owner.",
@@ -134,6 +143,47 @@ function customCardTool(keys: string[]): Anthropic.Tool {
   };
 }
 
+/**
+ * The model's second look. The prompt carries one retrieval, keyed on the
+ * visitor's literal words; when those words miss ("anything for my face?"),
+ * the model can ask again in the site's vocabulary instead of apologizing.
+ * Draws nothing — its result goes back to the model, not the visitor.
+ */
+const SEARCH_TOOL: Anthropic.Tool = {
+  name: "search_knowledge",
+  description:
+    "Search everything the owner has published (services and prices, policies, pages, posts) " +
+    "and get the matching passages back. Use it before telling a visitor you don't know: " +
+    "search with the business's likely wording, a section name from KNOWLEDGE SECTIONS, or a " +
+    "synonym of what they asked.",
+  input_schema: {
+    type: "object",
+    properties: { query: { type: "string", description: "A few keywords to look up" } },
+    required: ["query"],
+  },
+};
+
+/** What there is to search, so the model's queries aren't guesses. */
+async function searchPromptSection(userId: string): Promise<string> {
+  const groups = await prisma.chunk.groupBy({
+    by: ["originLabel"],
+    where: { userId, originKind: { not: "cluster" } },
+    _count: { _all: true },
+    orderBy: { _count: { originLabel: "desc" } },
+    take: 40,
+  });
+  const sections = groups
+    .filter((g) => g.originLabel)
+    .map((g) => `- ${g.originLabel} (${g._count._all})`)
+    .join("\n");
+  return `
+
+LOOKING THINGS UP:
+KNOWLEDGE above is only a first guess at what this question needs. If it doesn't answer the question, call search_knowledge with different words before you say you don't know — never tell a visitor information is unavailable without searching first.${
+    sections ? `\nKNOWLEDGE SECTIONS (title, passage count):\n${sections}` : ""
+  }`;
+}
+
 /** Turn a tool call into the UI block it names. Shared by both tiers. */
 async function hydrate(
   userId: string,
@@ -147,6 +197,9 @@ async function hydrate(
       return singleProjectBlock(userId, String(input.id ?? ""));
     case "show_gallery":
       return galleryBlock(userId, input.layout === "carousel" ? "carousel" : "filmstrip");
+    case "show_services":
+      // Null when no services are on file — the model answers in words.
+      return servicesBlock(userId);
     case "show_contact_form":
       return contactBlock();
     case "show_booking":
@@ -187,11 +240,14 @@ async function* runModel(
 ): AsyncGenerator<BrainEvent> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [basePrompt, catalog, booking] = await Promise.all([
+  const [corePrompt, catalog, booking, searchSection] = await Promise.all([
     buildSystemPrompt(userId, message),
     cardCatalog(userId),
     getBookingConfig(userId),
+    searchPromptSection(userId),
   ]);
+  // A scripted turn has its words already; it gets no search tool to wander with.
+  const basePrompt = script ? corePrompt : corePrompt + searchSection;
   const system = script
     ? `${basePrompt}\n\nAPPROVED ANSWER\nThe owner has already written the answer to this exact question. ` +
       `Reply with it as written — do not reword, shorten, extend or add to it:\n\n${script}\n\n` +
@@ -206,6 +262,7 @@ async function* runModel(
   if (customKeys.length) tools.push(customCardTool(customKeys));
   // Booking is gated by its own toggle, not the catalog.
   if (booking.enabled && booking.fields.length > 0) tools.push(BOOKING_TOOL);
+  if (!script) tools.push(SEARCH_TOOL);
   const convo: Anthropic.MessageParam[] = history.map((m) => ({
     role: m.role,
     content: m.content,
@@ -216,7 +273,7 @@ async function* runModel(
   for (let turn = 0; turn < 4; turn++) {
     const stream = client.messages.stream({
       model: claudeModel(),
-      max_tokens: 1024,
+      max_tokens: 2048,
       system,
       tools,
       messages: convo,
@@ -236,6 +293,12 @@ async function* runModel(
 
     const results: Anthropic.ToolResultBlockParam[] = [];
     for (const tu of toolUses) {
+      if (tu.name === SEARCH_TOOL.name) {
+        const query = String((tu.input as { query?: unknown })?.query ?? "").trim() || message;
+        const found = formatContext(await retrieve(userId, query));
+        results.push({ type: "tool_result", tool_use_id: tu.id, content: found });
+        continue;
+      }
       const block = await hydrate(userId, tu.name, (tu.input ?? {}) as Record<string, unknown>);
       if (block) yield { t: "card", v: block };
       results.push({

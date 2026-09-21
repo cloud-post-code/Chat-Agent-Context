@@ -1,5 +1,17 @@
 import { prisma, getProfile } from "./db";
-import { FIELD_TYPES, type FieldType, type AppointmentFieldRow, type BookingConfig } from "./appointmentTypes";
+import {
+  FIELD_TYPES,
+  isChoiceType,
+  parseFieldConfig,
+  resolveAnswer,
+  sanitizeFieldConfig,
+  type FieldType,
+  type AppointmentFieldRow,
+  type BookingConfig,
+} from "./appointmentTypes";
+import { LEGACY_PICKER_HEAD, SERVICE_PICKER_KEY, servicePickerField } from "./bookingMenu";
+import { onboardingIngestKind } from "./ingestionSources";
+import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 import { indexAppointment } from "./retrieval/origins";
 import { dropOrigin } from "./retrieval/indexer";
 
@@ -21,6 +33,8 @@ import { dropOrigin } from "./retrieval/indexer";
 export {
   FIELD_TYPES,
   type FieldType,
+  type FieldConfig,
+  type FieldOption,
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
@@ -47,14 +61,50 @@ function toFieldRow(f: {
   type: string;
   required: boolean;
   order: number;
+  config: string;
 }): AppointmentFieldRow {
+  const type = (FIELD_TYPES as readonly string[]).includes(f.type) ? (f.type as FieldType) : "short_text";
   return {
     key: f.key,
     label: f.label,
-    type: (FIELD_TYPES as readonly string[]).includes(f.type) ? (f.type as FieldType) : "short_text",
+    type,
     required: f.required,
     order: f.order,
+    config: parseFieldConfig(type, f.config),
   };
+}
+
+/**
+ * The service question onboarding used to write: a text box whose label
+ * listed what fit of the menu. Recognized only while it is still exactly what
+ * was generated — the seeded key, still a text box, still the generated
+ * opening words — so a question the tenant has since made their own is never
+ * touched.
+ */
+const isLegacyPicker = (f: AppointmentFieldRow) =>
+  f.key === SERVICE_PICKER_KEY && f.type === "short_text" && f.label.startsWith(LEGACY_PICKER_HEAD);
+
+/**
+ * Present a legacy picker as the menu it was standing in for, built from the
+ * services on file. On read, not as a data migration: the catalog is text
+ * only this code can parse, and a read-time rule fixes every tenant's form
+ * the moment it deploys. Everything downstream — the card, the validator, the
+ * admin editor — reads this one config, so they all agree on what is being
+ * asked; the first admin Save writes the menu down and the rule lets go.
+ */
+async function upgradeLegacyPicker(userId: string, fields: AppointmentFieldRow[]): Promise<AppointmentFieldRow[]> {
+  if (!fields.some(isLegacyPicker)) return fields;
+  const source = await prisma.source.findFirst({
+    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
+    orderBy: { updatedAt: "desc" },
+    select: { rawText: true },
+  });
+  const picker = servicePickerField(parseServiceCatalog(source?.rawText));
+  // No services on file: the text box is still the best question available.
+  if (!picker) return fields;
+  return fields.map((f) =>
+    isLegacyPicker(f) ? { ...f, label: picker.label, type: picker.type, config: picker.config } : f,
+  );
 }
 
 export async function getBookingConfig(userId: string): Promise<BookingConfig> {
@@ -62,7 +112,10 @@ export async function getBookingConfig(userId: string): Promise<BookingConfig> {
     getProfile(userId),
     prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } }),
   ]);
-  return { enabled: profile.bookingEnabled, fields: fields.map(toFieldRow) };
+  return {
+    enabled: profile.bookingEnabled,
+    fields: await upgradeLegacyPicker(userId, fields.map(toFieldRow)),
+  };
 }
 
 /** Toggle booking; the first enable seeds the default fields so the wizard
@@ -86,7 +139,7 @@ export const keyFromLabel = (label: string) =>
 /** Create or update one field. Returns an error string, or null on success. */
 export async function saveAppointmentField(
   userId: string,
-  input: { key?: string; label: string; type: string; required: boolean },
+  input: { key?: string; label: string; type: string; required: boolean; config?: unknown },
 ): Promise<string | null> {
   const label = input.label.trim().slice(0, 120);
   if (!label) return "The question needs a label.";
@@ -95,14 +148,21 @@ export async function saveAppointmentField(
   const type = (FIELD_TYPES as readonly string[]).includes(input.type)
     ? input.type
     : "short_text";
+  // `config` left out means "keep what's stored" — a caller renaming a
+  // question shouldn't have to resend its menu to avoid wiping it.
+  const config = input.config === undefined ? undefined : sanitizeFieldConfig(type, input.config);
+  if (config && isChoiceType(type) && !config.options?.length) {
+    return "A choice question needs at least one option.";
+  }
+  const stored = config === undefined ? {} : { config: JSON.stringify(config) };
   const last = await prisma.appointmentField.findFirst({
     where: { userId },
     orderBy: { order: "desc" },
   });
   await prisma.appointmentField.upsert({
     where: { userId_key: { userId, key } },
-    update: { label, type, required: input.required },
-    create: { userId, key, label, type, required: input.required, order: (last?.order ?? -1) + 1 },
+    update: { label, type, required: input.required, ...stored },
+    create: { userId, key, label, type, required: input.required, order: (last?.order ?? -1) + 1, ...stored },
   });
   return null;
 }
@@ -147,12 +207,15 @@ export async function createAppointment(
   if (Number.isNaN(startsAt.getTime())) return { ok: false, error: "That date doesn't look right." };
   if (startsAt.getTime() <= Date.now()) return { ok: false, error: "Pick a time in the future." };
 
-  // Keep only answers to questions that exist; reject a missing required one.
+  // Keep only answers to questions that exist, each held to what its question
+  // allows (a pick must be on the menu, a count inside its bounds); reject a
+  // missing required one.
   const answers: Record<string, string> = {};
   for (const f of fields) {
-    const v = String(input.answers?.[f.key] ?? "").trim().slice(0, 2000);
-    if (f.required && !v) return { ok: false, error: `"${f.label}" is required.` };
-    if (v) answers[f.key] = v;
+    const resolved = resolveAnswer(f, input.answers?.[f.key]);
+    if (!resolved.ok) return resolved;
+    if (f.required && !resolved.value) return { ok: false, error: `"${f.label}" is required.` };
+    if (resolved.value) answers[f.key] = resolved.value;
   }
 
   try {

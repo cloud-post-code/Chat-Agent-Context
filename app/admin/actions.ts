@@ -35,6 +35,7 @@ import {
   saveAppointmentField,
   setBookingEnabled,
 } from "@/lib/appointments";
+import { parseOptionLines } from "@/lib/appointmentTypes";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
@@ -885,6 +886,7 @@ export async function saveCanned(formData: FormData) {
   await saveCannedAnswer(user.id, {
     id: String(formData.get("id") ?? "").trim() || undefined,
     question: String(formData.get("question") ?? ""),
+    label: String(formData.get("label") ?? ""),
     answer: String(formData.get("answer") ?? ""),
     cardTool: String(formData.get("cardTool") ?? "") || null,
     cardInput: String(formData.get("cardInput") ?? "") || null,
@@ -1349,11 +1351,24 @@ export async function setBookingEnabledAction(formData: FormData) {
 
 export async function saveAppointmentFieldAction(formData: FormData) {
   const user = await requireUser();
+  // The form only renders the inputs its type uses, so every part of the
+  // config is read as "absent unless posted"; saveAppointmentField keeps the
+  // parts the type can use and drops the rest.
+  const int = (name: string) => {
+    const raw = String(formData.get(name) ?? "").trim();
+    return raw && Number.isInteger(Number(raw)) ? Number(raw) : undefined;
+  };
   await saveAppointmentField(user.id, {
     key: String(formData.get("key") ?? "") || undefined,
     label: String(formData.get("label") ?? ""),
     type: String(formData.get("type") ?? "short_text"),
     required: formData.get("required") === "on",
+    config: {
+      options: parseOptionLines(String(formData.get("options") ?? "")),
+      allowOther: formData.get("allowOther") === "on",
+      min: int("min"),
+      max: int("max"),
+    },
   });
   revalidateAll();
 }

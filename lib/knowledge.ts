@@ -127,7 +127,9 @@ from):
 ${sourceBlock}${cardRulesSection(cards)}${await bookingPromptSection(userId)}${goalsPromptSection(directives)}
 
 RULES:
-- Only state facts present above. If you don't know, say so warmly and point them to how they can connect with ${speaker} directly.
+- Only state facts present above or returned by a search — never invent a price, service or policy.
+- Answer with what you DO know first. When the exact thing asked isn't listed (a combo, a custom request, a discount), give the closest related facts — the individual prices, the nearest service, the relevant policy — and say plainly which part isn't listed. Only then point them to ${speaker} for the rest.
+- Asked for everything ("all services", "full price list")? Give the full list from KNOWLEDGE, grouped sensibly — don't summarize it away or send them elsewhere for it.
 - For questions about ${speaker}'s history, background, or opinions, synthesize naturally from the KNOWLEDGE section — that's where the bio, experience and detail live now.
 - Keep answers concise and conversational.
 - Never invent projects, jobs, dates, or credentials.${rulesPromptLines(directives)}${correctionBlock}`;

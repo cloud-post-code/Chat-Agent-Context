@@ -51,6 +51,9 @@ const GENERATED = [
   "Do you offer tours of the apiary?",
   "What does a subscription cost?",
 ];
+// The model may offer five; generation keeps the three the page has tabs for
+// (docs/features/starter-tabs).
+const KEPT = GENERATED.slice(0, 3);
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
@@ -190,7 +193,7 @@ async function main() {
     await withBusiness(fresh);
     const { client, spy } = fakeClient(GENERATED);
     const written = await personalizeStarterQuestions(fresh, { client });
-    check("generation writes into an empty table", written === GENERATED.length, `written=${written}`);
+    check("generation writes into an empty table", written === KEPT.length, `written=${written}`);
     check("generation made exactly one model call", spy.calls === 1, `calls=${spy.calls}`);
 
     const rows = await prisma.cannedAnswer.findMany({
@@ -199,7 +202,7 @@ async function main() {
     });
     check(
       "the stored questions are exactly the generated ones, in order",
-      rows.map((r) => r.question).join("|") === GENERATED.join("|"),
+      rows.map((r) => r.question).join("|") === KEPT.join("|"),
       rows.map((r) => r.question).join("|"),
     );
 
@@ -207,7 +210,7 @@ async function main() {
     const liveHtml = renderPage(liveChips);
     check(
       "the public page shows exactly the generated questions",
-      GENERATED.every((q) => liveHtml.includes(q)) && !GENERIC.some((q) => liveHtml.includes(q)),
+      KEPT.every((q) => liveHtml.includes(q)) && !GENERIC.some((q) => liveHtml.includes(q)),
       `chips=${liveChips.length}`,
     );
 

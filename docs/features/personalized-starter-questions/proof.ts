@@ -47,6 +47,9 @@ const GENERATED = [
   "Can I get a quote before committing?",
   "Where is your loft and when are you open?",
 ];
+// The model may offer five; generation keeps the three the page has tabs for
+// (docs/features/starter-tabs).
+const KEPT = GENERATED.slice(0, 3);
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
@@ -176,8 +179,8 @@ async function main() {
     check(
       "untouched seeds are replaced in exactly one call",
       first.spy.calls === 1 &&
-        rows.length === GENERATED.length &&
-        rows.every((r, i) => r.question === GENERATED[i]),
+        rows.length === KEPT.length &&
+        rows.every((r, i) => r.question === KEPT[i]),
       `calls=${first.spy.calls} questions=${JSON.stringify(rows.map((r) => r.question))}`,
     );
     check(
@@ -286,7 +289,7 @@ async function main() {
     const chips = await starterChipsFor(fresh);
     check(
       "public chips are the tenant's own generated questions, in order",
-      JSON.stringify(chips.map((c) => c.q)) === JSON.stringify(GENERATED),
+      JSON.stringify(chips.map((c) => c.q)) === JSON.stringify(KEPT),
       JSON.stringify(chips),
     );
     await prisma.cannedAnswer.updateMany({
@@ -318,8 +321,8 @@ async function main() {
     check(
       "a re-onboarded user with no rows still gets generated questions",
       rerun.spy.calls === 1 &&
-        rerunRows.length === GENERATED.length &&
-        rerunRows.every((r, i) => r.question === GENERATED[i]),
+        rerunRows.length === KEPT.length &&
+        rerunRows.every((r, i) => r.question === KEPT[i]),
       `calls=${rerun.spy.calls} rows=${JSON.stringify(rerunRows.map((r) => r.question))}`,
     );
 

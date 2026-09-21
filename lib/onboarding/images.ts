@@ -1,6 +1,7 @@
 import type { Crawler, Page } from "./crawl";
 import { saveBytes } from "@/lib/uploads";
 import { llmExtractVision, type VisionImage, type VisionMediaType } from "./knowledgeLlm";
+import { onboardingConcurrency } from "./pool";
 
 /**
  * The gallery-images stage. Candidates are collected from the crawled pages
@@ -63,10 +64,9 @@ export async function discoverImagePages(
     if (abs) candidates.push(abs);
   }
 
-  for (const url of [...new Set(candidates)].slice(0, 6)) {
-    if (seen.has(url)) continue;
-    seen.add(url);
-    const page = await crawler.load(url);
+  // Loaded together (the crawler caps the open tabs), kept in candidate order.
+  const urls = [...new Set(candidates)].slice(0, 6).filter((u) => !seen.has(u));
+  for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (page) pages.push(page);
   }
   return pages;
@@ -162,13 +162,20 @@ async function downloadCandidates(
   candidates: Candidate[],
 ): Promise<Downloaded[]> {
   const out: Downloaded[] = [];
-  for (const c of candidates) {
-    if (out.length >= MAX_CANDIDATE_DOWNLOADS) break;
-    const got = await crawler.loadImageBytes(c.url);
-    if (!got || got.bytes.length > MAX_IMAGE_BYTES) continue;
-    const mediaType = sniffImageType(got.bytes);
-    if (!mediaType || !VISION_TYPES.has(mediaType)) continue;
-    out.push({ ...c, bytes: got.bytes, mediaType });
+  // A few at a time, kept in candidate order; the cap is checked per wave, so
+  // at most one wave's worth is fetched past it.
+  const wave = onboardingConcurrency();
+  for (let i = 0; i < candidates.length && out.length < MAX_CANDIDATE_DOWNLOADS; i += wave) {
+    const batch = candidates.slice(i, i + wave);
+    const fetched = await Promise.all(batch.map((c) => crawler.loadImageBytes(c.url)));
+    batch.forEach((c, j) => {
+      const got = fetched[j];
+      if (out.length >= MAX_CANDIDATE_DOWNLOADS) return;
+      if (!got || got.bytes.length > MAX_IMAGE_BYTES) return;
+      const mediaType = sniffImageType(got.bytes);
+      if (!mediaType || !VISION_TYPES.has(mediaType)) return;
+      out.push({ ...c, bytes: got.bytes, mediaType });
+    });
   }
   return out;
 }

@@ -1,6 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { resolveAnswer } from "@/lib/appointmentTypes";
+import {
+  QuestionInput,
+  answerLines,
+  answerTotal,
+  hasAnswer,
+  type Answers,
+  type BookingField,
+} from "./BookingQuestion";
+
+export type { BookingField } from "./BookingQuestion";
 
 /** Shared A2UI block types (mirrors lib/cards.ts). */
 export type ProjectCard = {
@@ -29,17 +40,18 @@ export type CustomElement =
   | { kind: "image"; src: string; alt?: string }
   | { kind: "quote"; text: string; by?: string }
   | { kind: "divider" };
-export type BookingField = {
-  key: string;
-  label: string;
-  type: "short_text" | "long_text" | "email" | "phone";
-  required: boolean;
+export type ServiceCard = {
+  id: string;
+  name: string;
+  description: string;
 };
+export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null };
 export type UiBlock =
   | { type: "projects"; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
   | { type: "gallery"; layout: "carousel" | "filmstrip"; items: PhotoCard[] }
   | { type: "contact" }
+  | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
   | { type: "booking"; fields: BookingField[] };
@@ -70,6 +82,12 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
     ) : (
       <Filmstrip items={block.items} />
     );
+  }
+  if (block.type === "services") {
+    if (!Array.isArray(block.items) || block.items.length === 0) {
+      return <Empty>No services listed yet.</Empty>;
+    }
+    return <ServicesCard slug={slug} items={block.items} booking={block.booking} />;
   }
   if (block.type === "contact") {
     return <ContactForm slug={slug} />;
@@ -271,17 +289,37 @@ function CustomEl({ el }: { el: CustomElement }) {
  * the end; a rejected submit shows the server's reason on the review step
  * with every answer intact. The server re-validates everything — this
  * component is convenience, not enforcement.
+ *
+ * The services card opens it with `prefill`: the service the visitor tapped
+ * is already that question's answer. A single-answer question is then not
+ * asked at all; a pick-any menu keeps its step, with the service pre-ticked.
  */
-function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] }) {
-  // 0..fields.length-1 = questions, fields.length = time, +1 = review.
+function BookingCard({
+  slug,
+  fields,
+  prefill,
+  intro,
+}: {
+  slug: string;
+  fields: BookingField[];
+  /** Answers the visitor already gave by other means (the service they tapped). */
+  prefill?: Record<string, string>;
+  /** Shown above every step — what is being booked, and the way back out. */
+  intro?: React.ReactNode;
+}) {
+  // A pre-answered question is not asked again; it still shows on the review.
+  // The exception is a pick-any menu: there the prefill is a first pick, and
+  // the question is still asked so the visitor can add to it.
+  const asked = fields.filter((f) => f.type === "multi_select" || !(prefill?.[f.key] ?? "").trim());
+  // 0..asked.length-1 = questions, asked.length = time, +1 = review.
   const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
+  const [answers, setAnswers] = useState<Answers>(prefill ?? {});
   const [when, setWhen] = useState("");
   const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
   const [error, setError] = useState("");
 
-  const timeStep = fields.length;
-  const reviewStep = fields.length + 1;
+  const timeStep = asked.length;
+  const reviewStep = asked.length + 1;
   const startsAt = when ? new Date(when) : null;
   const timeOk = !!startsAt && !Number.isNaN(startsAt.getTime()) && startsAt.getTime() > Date.now();
 
@@ -332,39 +370,43 @@ function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] })
     </button>
   );
   const progress = (
-    <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 12, margin: "0 0 10px" }}>
-      Step {Math.min(step, reviewStep) + 1} of {reviewStep + 1}
-    </p>
+    <>
+      {intro}
+      <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 12, margin: "0 0 10px" }}>
+        Step {Math.min(step, reviewStep) + 1} of {reviewStep + 1}
+      </p>
+    </>
   );
 
   if (step < timeStep) {
-    const f = fields[step];
-    const v = answers[f.key] ?? "";
-    const canNext = !f.required || v.trim().length > 0;
+    const f = asked[step];
+    const v = answers[f.key];
+    const answered = hasAnswer(f, v);
+    // The server's own rule, run early: a count outside its bounds is caught
+    // here, on its question, rather than three steps later at the confirm.
+    const verdict = resolveAnswer({ label: f.label, type: f.type, config: f.config ?? {} }, v);
+    const canNext = verdict.ok && (!f.required || answered);
     const next = () => canNext && setStep(step + 1);
-    const inputProps = {
-      value: v,
-      onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-        setAnswers({ ...answers, [f.key]: e.target.value }),
-      placeholder: f.required ? "Required" : "Optional",
-      style: cf,
-      autoFocus: true,
-    };
     return (
       <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
         {progress}
         <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>{f.label}</strong>
         <div style={{ marginTop: 10 }}>
-          {f.type === "long_text" ? (
-            <textarea {...inputProps} rows={3} style={{ ...cf, resize: "vertical" }} />
-          ) : (
-            <input
-              {...inputProps}
-              type={f.type === "email" ? "email" : f.type === "phone" ? "tel" : "text"}
-              onKeyDown={(e) => e.key === "Enter" && next()}
-            />
-          )}
+          {/* Keyed by question so one step's open "something else" box or
+              focus never carries into the next. The control drawn is chosen
+              by the field's type and config — see BookingQuestion.tsx. */}
+          <QuestionInput
+            key={f.key}
+            field={f}
+            value={v}
+            onChange={(a) => setAnswers({ ...answers, [f.key]: a })}
+            onEnter={next}
+            inputStyle={cf}
+          />
         </div>
+        {!verdict.ok && (
+          <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>{verdict.error}</p>
+        )}
         <div style={{ display: "flex", gap: 8 }}>
           {back}
           <button
@@ -372,7 +414,7 @@ function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] })
             disabled={!canNext}
             style={{ ...linkBtn, ...liveBtn, cursor: "pointer", opacity: canNext ? 1 : 0.55 }}
           >
-            {v.trim() || f.required ? "Next" : "Skip"}
+            {answered || f.required ? "Next" : "Skip"}
           </button>
         </div>
       </div>
@@ -419,13 +461,24 @@ function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] })
       <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Confirm your booking</strong>
       <dl style={{ margin: "10px 0", fontSize: 13 }}>
         {fields
-          .filter((f) => (answers[f.key] ?? "").trim())
-          .map((f) => (
-            <div key={f.key} style={{ marginBottom: 6 }}>
-              <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>{f.label}</dt>
-              <dd style={{ margin: 0 }}>{answers[f.key]}</dd>
-            </div>
-          ))}
+          .filter((f) => hasAnswer(f, answers[f.key]))
+          .map((f) => {
+            // A menu answer lists each pick with its price, then what they
+            // add up to — the visitor confirms a figure, not just names.
+            const lines = answerLines(f, answers[f.key]);
+            const total = lines.length > 1 ? answerTotal(f, answers[f.key]) : "";
+            return (
+              <div key={f.key} style={{ marginBottom: 6 }}>
+                <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>{f.label}</dt>
+                {lines.map((line) => (
+                  <dd key={line} style={{ margin: 0 }}>
+                    {line}
+                  </dd>
+                ))}
+                {total && <dd style={{ margin: "2px 0 0", fontWeight: 600 }}>Estimated total: {total}</dd>}
+              </div>
+            );
+          })}
         <div>
           <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>Time</dt>
           <dd style={{ margin: 0 }}>
@@ -459,6 +512,142 @@ function BookingCard({ slug, fields }: { slug: string; fields: BookingField[] })
         </button>
       </div>
     </div>
+  );
+}
+
+/** Past this many the list folds: a chat bubble is not a menu page. */
+const SERVICES_SHOWN = 5;
+/** Longer than this and a description clamps to two lines behind "More". */
+const SERVICE_BLURB = 140;
+
+/**
+ * The tenant's services, with booking one tap away. Book swaps the list for
+ * the same wizard show_booking draws, opened with that service already
+ * answered, so the visitor never retypes what they just tapped. The block can
+ * come from a stored sample, which is admin-typed JSON: a booking config that
+ * isn't a field list means "no Book button", never a crash.
+ */
+function ServicesCard({
+  slug,
+  items,
+  booking,
+}: {
+  slug: string;
+  items: ServiceCard[];
+  booking: ServiceBooking | null;
+}) {
+  const [all, setAll] = useState(false);
+  const [picked, setPicked] = useState<ServiceCard | null>(null);
+  const fields =
+    booking && Array.isArray(booking.fields) && booking.fields.length > 0 ? booking.fields : null;
+
+  if (picked && fields) {
+    return (
+      <BookingCard
+        key={picked.id}
+        slug={slug}
+        fields={fields}
+        prefill={booking?.serviceKey ? { [booking.serviceKey]: picked.name } : undefined}
+        intro={
+          <p style={{ fontSize: 13, color: "var(--on-bg-soft)", margin: "0 0 10px" }}>
+            Booking <strong>{picked.name}</strong>{" "}
+            <button onClick={() => setPicked(null)} style={textBtn}>
+              Change
+            </button>
+          </p>
+        }
+      />
+    );
+  }
+
+  const shown = all ? items : items.slice(0, SERVICES_SHOWN);
+  return (
+    <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
+      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Services</strong>
+      {fields && (
+        <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 4px" }}>
+          Tap Book on any service to pick a time.
+        </p>
+      )}
+      <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
+        {shown.map((s, i) => (
+          <ServiceRow
+            key={s?.id ?? i}
+            service={s}
+            first={i === 0}
+            onBook={fields ? () => setPicked(s) : undefined}
+          />
+        ))}
+      </ul>
+      {items.length > SERVICES_SHOWN && (
+        <button
+          onClick={() => setAll((v) => !v)}
+          aria-expanded={all}
+          style={{ ...linkBtn, cursor: "pointer", marginTop: 10 }}
+        >
+          {all ? "Show fewer ▴" : `Show all ${items.length} ▾`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ServiceRow({
+  service,
+  first,
+  onBook,
+}: {
+  service: ServiceCard;
+  first: boolean;
+  onBook?: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  if (!service || typeof service.name !== "string" || !service.name) return null;
+  const blurb = typeof service.description === "string" ? service.description : "";
+  const long = blurb.length > SERVICE_BLURB;
+  return (
+    <li
+      style={{
+        display: "flex",
+        gap: 12,
+        alignItems: "flex-start",
+        padding: "10px 0",
+        borderTop: first ? "none" : "1px solid var(--border)",
+      }}
+    >
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-heading)" }}>
+          {service.name}
+        </div>
+        {blurb && (
+          <p
+            style={{
+              fontSize: 13,
+              color: "var(--on-bg-soft)",
+              lineHeight: 1.5,
+              margin: "3px 0 0",
+              ...(long && !open ? clamp2 : {}),
+            }}
+          >
+            {blurb}
+          </p>
+        )}
+        {long && (
+          <button onClick={() => setOpen((v) => !v)} aria-expanded={open} style={{ ...textBtn, marginTop: 3 }}>
+            {open ? "Less" : "More"}
+          </button>
+        )}
+      </div>
+      {onBook && (
+        <button
+          onClick={onBook}
+          aria-label={`Book ${service.name}`}
+          style={{ ...linkBtn, ...liveBtn, cursor: "pointer", flex: "0 0 auto" }}
+        >
+          Book
+        </button>
+      )}
+    </li>
   );
 }
 
@@ -764,6 +953,21 @@ const liveBtn: React.CSSProperties = {
   background: "var(--primary)",
   color: "var(--on-primary)",
   border: "none",
+};
+const textBtn: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  fontSize: 13,
+  color: "var(--accent-on-bg-soft)",
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+const clamp2: React.CSSProperties = {
+  display: "-webkit-box",
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: "vertical",
+  overflow: "hidden",
 };
 const carouselTrack: React.CSSProperties = {
   display: "flex",
