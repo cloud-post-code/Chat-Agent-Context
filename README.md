@@ -354,6 +354,19 @@ blocks:
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
 | `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
 
+**Where the booking questions come from.** Onboarding's services stage reads the
+business's own booking page — the one offsite page it may load, found from the
+homepage's booking link (`lib/onboarding/bookingPage.ts`; public `https` hosts
+only) — and `lib/bookingFormPlan.ts` builds the form that business would have
+built itself: what the site shows it asking, and where the site is silent, what
+that kind of business (salon, restaurant, trade, class, consultancy) normally
+asks. Questions onboarding writes are marked `generated`; it rebuilds a form
+nobody has edited, and one admin save, delete or reorder makes the form the
+tenant's for good. An untouched default form with services on file is shown
+with the services menu straight away, no re-onboarding needed. The rules and the
+real booking page they were checked against are in
+`docs/features/booking-form-planner/`.
+
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)
 renders it. The prompt instructs Claude to always speak a sentence *alongside* a

@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { isSafeExternalUrl } from "./bookingPage";
 import { createLimiter, onboardingConcurrency, type Limiter } from "./pool";
 
 /**
@@ -232,7 +233,22 @@ export class Crawler {
     return render;
   }
 
-  private async render(abs: string): Promise<Page | null> {
+  /**
+   * The one way off the entered site: render a single offsite page — the
+   * business's booking widget (bookingPage.ts). Public https hosts only, and
+   * a page that redirects somewhere that isn't one is discarded.
+   */
+  async loadExternal(url: string): Promise<Page | null> {
+    if (!isSafeExternalUrl(url)) return null;
+    if (this.cache.has(url)) return this.cache.get(url)!;
+    const pending = this.inflight.get(url);
+    if (pending) return pending;
+    const render = this.limit(() => this.render(url, true)).finally(() => this.inflight.delete(url));
+    this.inflight.set(url, render);
+    return render;
+  }
+
+  private async render(abs: string, external = false): Promise<Page | null> {
     // A closed crawler never relaunches: when one agent fails the job, the
     // others' queued loads must wind down, not reopen a browser nobody closes.
     if (this.closed) return null;
@@ -256,7 +272,7 @@ export class Crawler {
           | Rendered
           | undefined;
         if (rendered && ground) rendered.bg = ground;
-        html = await p.content();
+        html = external && !isSafeExternalUrl(p.url()) ? null : await p.content();
       }
     } catch {
       html = null;

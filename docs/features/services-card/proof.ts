@@ -226,7 +226,9 @@ async function main() {
     });
     await deleteAppointmentField(userR.id, "service");
     await prisma.appointmentField.create({
-      data: { userId: userR.id, key: "reason", label: "What would you like to talk about?", type: "long_text", required: false, order: 9 },
+      // Reworded, so this is a form the tenant has edited: untouched defaults with
+      // services on file are handed the menu instead (booking-form-planner).
+      data: { userId: userR.id, key: "reason", label: "What can we help you with?", type: "long_text", required: false, order: 9 },
     });
     const viaReason = (await servicesBlock(userR.id)) as ServicesBlock | null;
     check("without the picker, the generic reason question takes the service",

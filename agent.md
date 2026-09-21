@@ -32,6 +32,19 @@ Facts only from the prompt or a search. Lead with what is known; when the exact
 thing isn't listed, give the closest related facts and name the gap; asked for
 everything, give the full list. Then, and only then, hand off to the owner.
 
+## Onboarding: the booking form
+
+The services extractor (`lib/onboarding/services.ts`, `SERVICES_SYSTEM_PROMPT`)
+also reads the business's own booking page, offsite widgets included
+(`=== BOOKING PAGE <url>`), and reports the booking `kind`, `staff` a customer
+can ask for (kept only when the name is in the text read), whether `phone` /
+`email` are asked, and `notes`. It is told not to report the service choice or
+the date and time as requirements. `lib/bookingFormPlan.ts` turns those facts
+into the questions — no model call; site evidence beats the per-kind norm —
+and `rebuildUntouchedForm` writes them only over a form nobody has edited.
+Checked live against a real booking page by
+`docs/features/booking-form-planner/crosscheck.ts`.
+
 ## Testing
 
 `docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),
