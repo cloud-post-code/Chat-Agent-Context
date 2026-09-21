@@ -11,7 +11,14 @@ import type { Page } from "./crawl";
 /** Hosts that are booking products: a link to one is a booking link whatever it says. */
 const BOOKING_HOSTS =
   /(^|\.)(gocheckin\.net|vagaro\.com|squareup\.com|square\.site|booksy\.com|fresha\.com|acuityscheduling\.com|as\.me|calendly\.com|mindbodyonline\.com|schedulicity\.com|setmore\.com|simplybook\.me|glossgenius\.com|styleseat\.com|opentable\.com|resy\.com|exploretock\.com|housecallpro\.com|jobber\.com|getjobber\.com|zenoti\.com|boulevard\.io|joinblvd\.com|genbook\.com|appointy\.com|cal\.com)$/i;
-const BOOKING_WORDS = /\b(book(ing|ings)?|appointments?|schedul(e|ing)|reserv(e|ation|ations))\b/i;
+// A trade's booking is a request: "Get a Quote", "Request Estimate".
+const BOOKING_WORDS =
+  /\b(book(ing|ings)?|appointments?|schedul(e|ing)|reserv(e|ation|ations)|(get|request|free)[\w\s]{0,12}(quote|estimate)|(quote|estimate)[\s-]?(request|form)?)\b/i;
+/** Form products a business embeds its booking or quote form from. */
+const FORM_HOSTS =
+  /(^|\.)(jotform\.com|typeform\.com|cleangenie\.com|leadconnectorhq\.com|msgsndr\.com|hsforms\.com|cognitoforms\.com|wufoo\.com|paperform\.co|tally\.so)$/i;
+/** A platform selling itself — "Powered by", ambassador and referral links — not a business's page on it. */
+const PLATFORM_ADVERT = /^\/(industries|features|pricing|blog|about|partners?|lp)?(\/|$)|[?&]utm_campaign=/i;
 /** Where a business is talked about, not booked. */
 const NOT_BOOKING =
   /(^|\.)(facebook\.com|instagram\.com|tiktok\.com|twitter\.com|x\.com|youtube\.com|linkedin\.com|pinterest\.com|yelp\.com|google\.com|goo\.gl|maps\.app\.goo\.gl)$/i;
@@ -54,7 +61,8 @@ export function findBookingLink(page: Page): string | null {
     if (!/^https?:$/.test(u.protocol) || NOT_BOOKING.test(u.hostname)) return;
     const offsite = u.origin !== origin;
     if (offsite && !isSafeExternalUrl(u.href)) return;
-    const platform = BOOKING_HOSTS.test(u.hostname);
+    const platform = BOOKING_HOSTS.test(u.hostname) && !PLATFORM_ADVERT.test(u.pathname + u.search);
+    if (BOOKING_HOSTS.test(u.hostname) && !platform) return;
     const text = `${page.$(el).text()} ${page.$(el).attr("aria-label") ?? ""} ${page.$(el).attr("title") ?? ""}`;
     const says = BOOKING_WORDS.test(text) || BOOKING_WORDS.test(u.pathname.replace(/[-_/]/g, " "));
     if (!platform && !says) return;
@@ -62,6 +70,21 @@ export function findBookingLink(page: Page): string | null {
     if (!best || score > best.score) best = { url: u.href, score };
   });
   return (best as { url: string } | null)?.url ?? null;
+}
+
+/**
+ * Booking and form widgets embedded in a page. Most "Book now" pages are an
+ * empty shell around one of these, so the questions are only in the frame.
+ */
+export function findBookingFrames(page: Page): string[] {
+  const out = new Set<string>();
+  page.$("iframe[src]").each((_, el) => {
+    const src = page.$(el).attr("src") ?? "";
+    if (!isSafeExternalUrl(src)) return;
+    const host = new URL(src).hostname;
+    if (BOOKING_HOSTS.test(host) || FORM_HOSTS.test(host)) out.add(src);
+  });
+  return [...out];
 }
 
 const BOOKING_PAGE_CHARS = 9000;

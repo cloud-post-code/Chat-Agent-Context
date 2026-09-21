@@ -35,14 +35,16 @@ normally asks.** Evidence from the site always wins over a norm.
 | Kind | Examples | Asks (besides name and time) |
 |---|---|---|
 | `personal_service` | salon, spa, barber, clinic, studio | phone (required), email (optional), services menu, who they'd like to see (when staff are named), notes |
-| `table` | restaurant, bar, café | party size 1–20 (required), phone (required), email (optional), notes (allergies, occasion) |
+| `table` | restaurant, bar, café | party size 1–20 (required), phone (required), email (optional), notes (allergies, occasion). Never a services menu — its "services" are dishes |
 | `home_service` | trades, cleaning, repair, mobile | phone (required), email (optional), services menu, service address (required), what needs doing (required) |
 | `class` | classes, tours, events | how many are coming 1–30 (required), email (required), phone (optional), notes |
 | `consultation` | agencies, advisers, coaches | email (required), phone (optional), services menu, what they'd like to talk about |
 | `other` | anything else, or unknown | today's form, unchanged: email (required), services menu or "What would you like to talk about?" |
 
 Order stays who → what → the specifics → notes (the existing contract). The
-form never exceeds 8 questions; extracted requirements are dropped first.
+form never exceeds 8 questions; extracted requirements are dropped first, and
+one that repeats a planned question in other words, asks for the date, or asks
+for a file upload (the wizard has no such question) is dropped outright.
 
 ## Desired Behavior
 
@@ -53,6 +55,11 @@ form never exceeds 8 questions; extracted requirements are dropped first.
 - One offsite page may be loaded, only over `https`, only to a public hostname
   (no IP literals, `localhost`, `.local`, `.internal`), only when the link came
   from the business's own page. Social, `mailto:` and `tel:` links never count.
+- A trade's booking is a request, so "Get a Quote" and "Request Estimate"
+  count as booking links; a booking platform's own advert never does.
+- Booking and form widgets embedded as iframes in the homepage or the booking
+  page (OpenTable, Vagaro, Jotform…) are read too, at most two per business,
+  under the same host rule — most "Book now" pages are a shell around one.
 - Its text joins the extraction corpus under `=== BOOKING PAGE <url>` with a
   larger budget (9 000 chars) and repeated boilerplate sentences removed.
 - The extractor additionally reports `kind`, `staff` (names a customer can

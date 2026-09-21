@@ -19,12 +19,23 @@ scripted `llm` passed to `extractServicesAndBooking` is the one doubled boundary
 4. The booking corpus is labelled `=== BOOKING PAGE`, and a sentence the widget
    repeats forty times appears once.
 
+5. A trade's "Get a Quote" / "Request Estimate" link is its booking link.
+6. A booking platform's own advert ("Powered by", ambassador and `utm_campaign`
+   links) is never the booking page.
+7. `findBookingFrames`: embedded booking and form widgets (Jotform, OpenTable…)
+   are found once each; maps, video and `about:blank` frames are not.
+
 ### B. The plan per kind (`lib/bookingFormPlan.ts`, pure)
 1. `personal_service` with services and staff: name, phone (required), email
    (optional), services menu, staff select led by "Any available", notes.
 2. No staff named → no staff question.
 3. `table`: party size is a required number 1–20; phone required.
-4. `home_service`: address and job description required.
+3b. `table` never gets a services menu: a restaurant's "services" are dishes.
+4. `home_service`: address and job description required; the parts of an
+   address (state, city, zip) are not asked beside it; a requirement the plan
+   already asks in other words ("Where Is The Project?", "What Do You Need
+   Done?") is dropped, as is a file upload the wizard cannot ask — leaving room
+   for the business's own question (the recorded parking dropdown).
 5. `consultation` / `other` with no services keep "What would you like to talk about?".
 6. Site evidence beats the norm (site says email required → required).
 7. An extracted requirement that duplicates a planned question — or asks for
@@ -55,6 +66,13 @@ email optional, a technician preference (optional text — the page's staff
 names only render after a service is picked), notes, and nothing else.
 
 ### Z. No proof users left behind.
+
+## Secondary: any business, live and unscored
+```
+npx tsx docs/features/booking-form-planner/try.ts <site url> [more urls…]
+```
+Prints the form built for a site so it can be held up against that business's
+own booking page. `LOCAL_CHECKS.md` records three such comparisons.
 
 ## Secondary: live cross-check (not the primary proof)
 ```

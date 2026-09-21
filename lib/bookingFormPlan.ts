@@ -111,7 +111,16 @@ const REPEATS: { says: RegExp; covered: (plan: PlannedField[]) => boolean }[] = 
   { says: /phone|mobile|cell|\btel\b/i, covered: (p) => p.some((f) => f.type === "phone") },
   { says: /e-?mail/i, covered: (p) => p.some((f) => f.type === "email") },
   { says: /party|guests?|people|attend|how many|number of/i, covered: (p) => p.some((f) => f.type === "number") },
-  { says: /address|location of/i, covered: (p) => p.some((f) => f.key === "address") },
+  // The wizard has no file question; a text box labelled "Upload photos" is worse than none.
+  { says: /upload|photos?|pictures?|attach|\bfiles?\b/i, covered: () => true },
+  {
+    says: /address|location of|where is|job site|\b(city|town|state|zip|postal|postcode)\b/i,
+    covered: (p) => p.some((f) => f.key === "address"),
+  },
+  {
+    says: /need(s|ed)? (done|help)|describe|details? (of|about)|tell us (about|more)|(project|job) description/i,
+    covered: (p) => p.some((f) => f.key === "job" || f.key === "reason"),
+  },
   { says: /services?|treatments?/i, covered: (p) => p.some((f) => f.key === SERVICE_PICKER_KEY) },
   { says: /staff|stylist|technician|therapist|barber|provider|artist/i, covered: (p) => p.some((f) => f.key === "staff") },
   { says: /notes?|comments?|requests?|anything else|message/i, covered: (p) => p.some((f) => f.key === "notes" || f.type === "long_text") },
@@ -132,7 +141,8 @@ function staffQuestion(staff: string[]): PlannedField | null {
 /** The ordered questions: who → what → who with → the specifics → notes. */
 export function planBookingForm(facts: BookingFacts): PlannedField[] {
   const norm = NORMS[facts.kind] ?? NORMS.other;
-  const picker = servicePickerField(facts.services);
+  // A restaurant's "services" are its dishes, and nobody books a table by the plate.
+  const picker = facts.kind === "table" ? null : servicePickerField(facts.services);
   const staff = facts.kind === "personal_service" ? staffQuestion(facts.staff) : null;
 
   const plan: PlannedField[] = [NAME, ...contacts(facts, norm)];

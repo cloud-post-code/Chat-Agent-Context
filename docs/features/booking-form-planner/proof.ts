@@ -67,6 +67,21 @@ async function main() {
     const onsite = page("https://salon.example/", `<a href="/appointments">Make an appointment</a>`);
     check("A2 an on-site booking link is found when it is all there is", B.findBookingLink(onsite) === "https://salon.example/appointments", String(B.findBookingLink(onsite)));
 
+    // Seen on three more local businesses (try.ts, 2026-09-21).
+    const quote = page("https://cleaner.example/", `<a href="https://link.cleangenie.com/widget/form/abc?notrack=true">Get a Quote</a>`);
+    check("A5 a trade's 'Get a Quote' is its booking link", B.findBookingLink(quote) === "https://link.cleangenie.com/widget/form/abc?notrack=true", String(B.findBookingLink(quote)));
+    const estimate = page("https://handy.example/", `<a href="/request-estimate/">Request Estimate</a><a href="https://getjobber.com/industries/general-contracting/?utm_source=handy.example&utm_medium=referral&utm_campaign=jobber_ambassador"><img alt=""></a>`);
+    check("A5 …and so is 'Request Estimate'; a platform's own advert is not", B.findBookingLink(estimate) === "https://handy.example/request-estimate/", String(B.findBookingLink(estimate)));
+    const advert = page("https://handy.example/", `<a href="https://getjobber.com/industries/general-contracting/?utm_campaign=jobber_ambassador">Powered by Jobber</a>`);
+    check("A6 a booking platform's marketing link alone is no booking page", B.findBookingLink(advert) === null, String(B.findBookingLink(advert)));
+    const framed = page(
+      "https://handy.example/request-estimate/",
+      `<iframe src="https://form.jotform.com/261095441352049?parentURL=x"></iframe><iframe src="https://www.youtube.com/embed/abc"></iframe>
+       <iframe src="https://www.google.com/maps/embed?pb=1"></iframe><iframe src="https://www.opentable.com/widget/reservation/mural?restaurantIds=1"></iframe>
+       <iframe src="https://form.jotform.com/261095441352049?parentURL=x"></iframe><iframe src="about:blank"></iframe>`,
+    );
+    check("A7 embedded booking and form widgets are found; maps and video are not", B.findBookingFrames(framed).join(" ") === "https://form.jotform.com/261095441352049?parentURL=x https://www.opentable.com/widget/reservation/mural?restaurantIds=1", B.findBookingFrames(framed).join(" "));
+
     const safe = ["https://booking.gocheckin.net/v2/1", "https://squareup.com/appointments/book/x"];
     const unsafe = ["http://booking.gocheckin.net/v2/1", "https://127.0.0.1/x", "https://10.0.0.8/x", "https://[::1]/x", "https://localhost/x", "https://printer.local/x", "https://db.internal/x", "ftp://a.example/x", "nonsense"];
     check("A3 https public hostnames are loadable", safe.every(B.isSafeExternalUrl));
@@ -103,8 +118,24 @@ async function main() {
     check("B3 a restaurant asks party size, a required count 1–20", party?.type === "number" && party.required && party.config?.min === 1 && party.config?.max === 20, JSON.stringify(party));
     check("B3 …and a required phone", table.find((f) => f.key === "phone")?.required === true);
 
+    check("B3 …and never which dishes: a menu is not what a table books", !plan({ kind: "table", services }).some((f) => f.key === "service"), keys(plan({ kind: "table", services })));
+
     const trade = plan({ kind: "home_service", services });
+    const parts = ["State", "City", "Zip code"].map((label) => ({ label, type: "short_text", required: true, options: [] }));
+    check("B4 the parts of an address aren't asked again beside it", keys(plan({ kind: "home_service", services, requirements: parts })) === keys(trade), keys(plan({ kind: "home_service", services, requirements: parts })));
     check("B4 a home service needs the address and the job", trade.find((f) => f.key === "address")?.required === true && trade.find((f) => f.key === "job")?.required === true && trade.find((f) => f.key === "job")?.type === "long_text", keys(trade));
+
+    // What Best Handyman Boston's own Jotform asks, as the extractor reported it.
+    const jotform = [
+      { label: "Where Is The Project?", type: "short_text", required: true, options: [] },
+      { label: "What Do You Need Done?", type: "long_text", required: true, options: [] },
+      { label: "Upload Photos", type: "short_text", required: true, options: [] },
+      { label: "What Type of Parking Will You Be Able to Provide For Our Team?", type: "select", required: true, options: ["Driveway", "Street parking", "None"] },
+    ];
+    const handy = plan({ kind: "home_service", services, email: "required", requirements: jotform });
+    check("B4 a question the plan already asks in other words is not asked twice", handy.filter((f) => f.type === "long_text").length === 1 && handy.filter((f) => /where|address/i.test(f.label)).length === 1, handy.map((f) => f.label).join(" | "));
+    check("B4 a file upload is not a question this wizard can ask", !handy.some((f) => /photo|upload/i.test(f.label)), handy.map((f) => f.label).join(" | "));
+    check("B4 …which leaves room for the question that is theirs alone", handy.some((f) => /parking/i.test(f.label) && f.type === "select" && f.required), handy.map((f) => f.label).join(" | "));
 
     check("B5 a consultation keeps 'What would you like to talk about?'", plan({ kind: "consultation" }).find((f) => f.key === "reason")?.label === "What would you like to talk about?");
     check("B5 'other' with no services is today's form", keys(plan({ kind: "other" })) === "name,email,reason", keys(plan({ kind: "other" })));

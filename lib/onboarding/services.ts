@@ -6,7 +6,7 @@ import type { MenuService } from "@/lib/bookingMenu";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import { SERVICES_SOURCE_TITLE, formatServiceCatalog } from "@/lib/serviceCatalog";
 import type { Crawler, Page } from "./crawl";
-import { bookingCorpus, findBookingLink } from "./bookingPage";
+import { bookingCorpus, findBookingFrames, findBookingLink } from "./bookingPage";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
 
@@ -148,7 +148,7 @@ export async function discoverServicePages(
 
   const candidates = crawler
     .navLinks(home)
-    .filter((l) => /services?|treatments?|pricing|prices|menu|packages?|book|appointments?|schedule|reservations?/i.test(l.text))
+    .filter((l) => /services?|treatments?|pricing|prices|menu|packages?|book|appointments?|schedule|reservations?|quote|estimate/i.test(l.text))
     .map((l) => l.url);
   for (const p of ["/services", "/service", "/pricing", "/menu", "/book", "/booking", "/appointments"]) {
     const abs = crawler.resolve(p);
@@ -160,14 +160,19 @@ export async function discoverServicePages(
   for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (page) pages.push(page);
   }
-  // The one offsite read: the booking link on the business's own homepage.
-  const booking = findBookingLink(home);
-  if (booking && !crawler.resolve(booking)) {
-    const page = await crawler.loadExternal(booking);
-    if (page) pages.push(page);
+  // The booking page itself — the homepage's booking link, offsite included —
+  // and the widgets embedded in it or in the homepage, where the questions are.
+  const link = findBookingLink(home);
+  const booking = link ? await (crawler.resolve(link) ? crawler.load(link) : crawler.loadExternal(link)) : null;
+  const frames = [...new Set([home, booking].flatMap((p) => (p ? findBookingFrames(p) : [])))].slice(0, MAX_FRAMES);
+  for (const page of [booking, ...(await Promise.all(frames.map((f) => crawler.loadExternal(f))))]) {
+    if (page && !pages.some((p) => p.url === page.url)) pages.push(page);
   }
   return pages;
 }
+
+/** Widgets read per business: the booking form, and one more for a second form on the page. */
+const MAX_FRAMES = 2;
 
 /** On-site pages as usual; an offsite booking page labelled, with room for its menu. */
 function servicesCorpus(pages: Page[]): string {
@@ -185,6 +190,8 @@ const namedInText = (names: string[], corpus: string) => {
 export type ServicesReport = {
   services: number;
   takesAppointments: boolean;
+  /** What kind of booking the form was planned for. */
+  kind: BookingKind;
   seededFields: number;
   pagesChecked: string[];
 };
@@ -207,6 +214,7 @@ export async function extractServicesAndBooking(
   const report: ServicesReport = {
     services: 0,
     takesAppointments: false,
+    kind: "other",
     seededFields: 0,
     pagesChecked: pages.map((p) => p.url),
   };
@@ -218,6 +226,7 @@ export async function extractServicesAndBooking(
   clean.staff = namedInText(clean.staff, corpus);
   report.services = clean.services.length;
   report.takesAppointments = clean.takesAppointments;
+  report.kind = clean.kind;
 
   let chunks = 0;
   if (clean.services.length) {
