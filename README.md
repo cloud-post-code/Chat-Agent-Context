@@ -23,6 +23,7 @@ it about Blake without a human in the loop.
 - [The knowledge pipeline](#the-knowledge-pipeline)
 - [The admin portal](#the-admin-portal)
 - [A2A — agent-to-agent](#a2a--agent-to-agent)
+- [llms.txt — ChatGPT and Claude](#llmstxt--chatgpt-and-claude)
 - [A2UI — agent-to-UI](#a2ui--agent-to-ui)
 - [Data model](#data-model)
 - [Repository map](#repository-map)
@@ -64,6 +65,7 @@ Anthropic Claude API. Three ideas hold it together:
 | **Agent page** | `/agent` | Humans evaluating the agent — a readable description of the A2A interface, linked from the homepage. |
 | **Admin control room** | `/admin` → `/admin/dashboard` | Blake. Password-gated. Ten tabs that own every word the bot can say and every color the site wears. |
 | **Agent interfaces** | `/.well-known/*`, `/api/a2a*` | Other AI agents. Discovery + protocol. |
+| **LLM-readable files** | `/llms.txt`, `/a/<slug>/llms.txt`, `/a/<slug>/llms-full.txt` | ChatGPT, Claude and their crawlers. Everything the agent knows, as Markdown. |
 
 ---
 
@@ -260,6 +262,16 @@ branches: old shapes live only in the bootstrap migrations.
 
 Every save that changes content re-indexes its origin inline.
 
+**Operators** (gated by `OPERATOR_EMAILS`, or the founding account when that's
+unset) get extra Settings tabs ordinary tenants never see: **Users**
+(`lib/accountAdmin.ts`) to search, edit, disable, reset the password of, or
+delete any tenant account, and **Bulk builder** to paste many business links
+at once — each one gets a username-only account (no email address; login
+accepts a username or an email) and runs the full onboarding pipeline
+unattended, auto-approving every stage's extracted result so the operator
+comes back to finished tenant pages instead of empty review forms. See
+"Bulk site builder" in [`agent.md`](agent.md) for how it's wired.
+
 ---
 
 ## A2A — agent-to-agent
@@ -336,6 +348,34 @@ Notable properties:
 > `a2aApiKey` that `app/agent/page.tsx` and `lib/a2a/facts.ts` import, and
 > `.env.example` still documents the old "blank key = public" behavior.
 > `npx tsc --noEmit` currently fails on those four call sites.
+
+---
+
+## llms.txt — ChatGPT and Claude
+
+The chat page renders nothing without JavaScript, so an assistant fetching it
+for a user, or a crawler indexing ahead of time, would learn nothing. The site
+therefore publishes what those assistants have converged on
+([llmstxt.org](https://llmstxt.org)), built in [`lib/llms.ts`](lib/llms.ts):
+
+| File | What it holds |
+|---|---|
+| `/a/<slug>/llms.txt` | The index an LLM reads first: name, one-line summary, links to the full document, the chat page, the chat API and (founding tenant) the A2A card. |
+| `/a/<slug>/llms-full.txt` | Everything the agent knows, in Markdown: About, Contact and hours, Services, Menu with prices, Projects, FAQ (enabled approved answers), Sources (title, link, summary), Booking questions, How to talk to this agent. |
+| `/llms.txt`, `/llms-full.txt` | The directory: every agent's index links, and every full document concatenated. |
+
+Only what the chatbot would say is published: nothing admin-only (directives,
+corrections, activity, orders, contacts) and no raw source text. Files are
+served as `text/markdown`, cacheable with an ETag, CORS-open.
+
+Discovery: `robots.txt` names GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot,
+Claude-User, Claude-SearchBot and anthropic-ai with `Allow: /` (and blocks
+`/admin`, `/api/admin`, `/signup` for everyone); `sitemap.xml` lists every
+agent page and llms file; the agent page's `<head>` carries
+`<link rel="alternate" type="text/markdown">`. A request for `/a/<slug>` with
+`Accept: text/markdown`, or for `/a/<slug>.md`, is rewritten by
+[`middleware.ts`](middleware.ts) to the full document; `/` with the same header
+becomes `/llms.txt`.
 
 ---
 

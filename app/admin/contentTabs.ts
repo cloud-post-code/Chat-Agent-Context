@@ -81,6 +81,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: "booking", label: "Booking" },
       { key: "contacts", label: "Contacts" },
       { key: "users", label: "Users", operator: true },
+      { key: "bulk", label: "Bulk builder", operator: true },
     ],
   },
 ];

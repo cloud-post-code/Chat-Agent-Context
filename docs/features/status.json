@@ -646,6 +646,16 @@
       "priority": 1,
       "status": "passing",
       "notes": "Requested 2026-09-23: the dashboard had grown messy (7 tabs, Contacts and A2UI under Agent Behavior, Calendar bundling appointments+orders+booking settings). NAV_GROUPS in app/admin/contentTabs.ts is the single source for the dashboard strips, resolveAdminTab deep links (TAB_ALIASES keeps calendar/content/me working) and the copilot's show_panel enum (fixedPanelEntries). CalendarPanel split into AppointmentsPanel + OrdersPanel; BookingSettings lives under Settings › Booking and stays present when booking is off. HomePanel renders attentionItems/checklistItems (app/admin/homeItems.ts) from data buildAdminPanels already loads, each row a ?tab= link; Tabs/SubTabs are keyed on the resolved tab so same-route links switch sections. Six sibling proofs updated (booking-on-by-default C17-C20 now assert Settings › Booking). Proof green, gate PASS. Pre-existing unrelated failures remain in appointment-booking ('booking defaults off') and admin-chat-a2ui (ingestPlanFor links checks)."
+    },
+    {
+      "id": "bulk-site-builder",
+      "title": "Bulk site builder: operator pastes many links, one username/password account per site, full unattended onboarding with every stage auto-approved",
+      "feature_dir": "docs/features/bulk-site-builder",
+      "proof": "docs/features/bulk-site-builder/PROOF.md",
+      "priority": 1,
+      "status": "passing",
+      "notes": "Requested 2026-09-23; planned by Fable, built by three Sonnet subagents (backend, panel, proof). Settings › Bulk builder (operator-only, app/admin/BulkBuilderPanel.tsx) posts a pasted link list to POST /api/admin/bulk-build and polls GET ?buildId=. lib/bulkBuild.ts: parseLinks (normalize/dedupe/drop), startBulkBuild fans out BULK_BUILD_CONCURRENCY (default 2, max 4) sites via mapPool; per site createBulkAccount (lib/bulkAccounts.ts: username <host-slug>-xxxx, email <username>@bulk.invalid, 16-char password, slug from host) then runUnattendedJob (lib/onboarding/jobs.ts) runs core→locations→social→images→theme→knowledge with no review; each stage is auto-saved through saveOnboardingReview (lib/onboarding/save.ts, extracted from the save route; DAYS/serializeHours moved to lib/onboarding/hours.ts so it loads without next/font). Core failure = site failed + account deleted; later failures = warning, run continues; end = onboardedAt stamped. Login accepts email or username (authenticate in lib/bulkAccounts.ts; login page copy updated). Proof: npx tsx docs/features/bulk-site-builder/proof.ts (red: module missing; green: 38 PASS). Gate PASS. Live crosscheck through the real route on the dev server: tartinebakery.com built end to end (32 sources, 376 chunks, 22 photos, 5 menu items, 4 cards, 3 answers, 4 goals, onboarded, /a/tartinebakery-com 200); bluebottlecoffee.com failed at load (site blocks headless Chromium) with no leftover account. Panel verified in the browser with a minted operator session.",
+      "next": "Not deployed. The kept live tenant tartinebakery-com (username tartinebakery-com-6k1c) is still in the local DB — delete it from Users when no longer useful. Builds live in process memory only. Extraction found no company name for that site, so the account name stayed the hostname (never invented)."
     }
   ]
 }

@@ -155,6 +155,84 @@ function cardsOutcome(c: CardsReport): string {
   return "Nothing on your site called for a card yet — you can build them under A2UI";
 }
 
+export type UnattendedStage =
+  | "core" | "locations" | "social" | "images" | "theme" | "knowledge";
+
+export type UnattendedHooks = {
+  onStage: (stage: UnattendedStage, job: Job) => Promise<void>;
+  onStageError: (stage: UnattendedStage, err: unknown) => void;
+  onEvent?: (line: string) => void;
+};
+
+/** Runs one stage, resolving true on success and false if it threw (the
+ *  error already reported through hooks.onStageError). */
+async function runStage(
+  job: Job, stage: UnattendedStage, run: (job: Job) => Promise<void>, hooks: UnattendedHooks,
+): Promise<boolean> {
+  try {
+    await run(job);
+    await hooks.onStage(stage, job);
+    return true;
+  } catch (err) {
+    hooks.onStageError(stage, err);
+    return false;
+  }
+}
+
+/**
+ * The unattended runner the bulk site builder drives: every stage in order,
+ * with no human review between them. Unlike the guided flow's advanceJob,
+ * this awaits each stage directly rather than going through the job's busy
+ * flag, since nothing else can be polling the same job concurrently.
+ *
+ * runCore failing means the site itself couldn't be read — that fails the
+ * whole job (rethrown) so the caller can drop the half-made account. A later
+ * stage failing is isolated: it's logged, its hook still doesn't fire, and
+ * the run continues so the stages that DID succeed still get saved.
+ */
+export async function runUnattendedJob(
+  userId: string, url: string, hooks: UnattendedHooks,
+): Promise<Job> {
+  const job: Job = { id: randomUUID(), userId, url, phase: "core", progress: 0, log: [] };
+  jobs.set(job.id, job);
+  if (hooks.onEvent) {
+    const onEvent = hooks.onEvent;
+    const origPush = job.log.push.bind(job.log);
+    job.log.push = (...items: string[]) => {
+      for (const line of items) onEvent(line);
+      return origPush(...items);
+    };
+  }
+
+  try {
+    await runCore(job);
+  } catch (err) {
+    fail(job, err);
+    throw err;
+  }
+
+  await runStage(job, "locations", runLocations, hooks);
+  await runStage(job, "social", runSocial, hooks);
+  await runStage(job, "images", runImages, hooks);
+  await runStage(job, "theme", runTheme, hooks);
+
+  try {
+    await runKnowledge(job, EXTRACTORS);
+    await hooks.onStage("knowledge", job);
+  } catch (err) {
+    hooks.onStageError("knowledge", err);
+  } finally {
+    if (job.crawler) {
+      await job.crawler.close().catch(() => {});
+      job.crawler = undefined;
+      job.home = undefined;
+      job.extras = undefined;
+    }
+  }
+
+  return job;
+}
+
 export function startJob(userId: string, url: string): Job {
   const job: Job = { id: randomUUID(), userId, url, phase: "core", progress: 0, busy: true, log: [] };
   jobs.set(job.id, job);

@@ -42,6 +42,8 @@ import { getBookingConfig, listAppointments } from "@/lib/appointments";
 import { listOrders } from "@/lib/orders";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
+import { BulkBuilderPanel } from "./BulkBuilderPanel";
+import { listBulkBuilds, bulkBuildPayload } from "@/lib/bulkBuild";
 import { KnowledgePanel, isDocSource } from "./KnowledgePanel";
 import { GithubImport } from "./GithubImport";
 import { GraphPanel } from "./GraphPanel";
@@ -780,6 +782,7 @@ export async function buildAdminPanels(
         impersonateAction={impersonateAction}
       />
     );
+    flat.bulk = <BulkBuilderPanel builds={listBulkBuilds(user.id).map(bulkBuildPayload)} />;
   }
 
   return {

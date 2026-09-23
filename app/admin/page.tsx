@@ -54,14 +54,14 @@ export default async function AdminLogin({
         </p>
         {error && (
           <p style={{ color: "var(--danger-on-surface)", fontSize: 14, marginBottom: 12 }}>
-            Wrong email or password. Try again.
+            Wrong email/username or password. Try again.
           </p>
         )}
         <input
-          type="email"
+          type="text"
           name="email"
-          placeholder="Email"
-          autoComplete="email"
+          placeholder="Email or username"
+          autoComplete="username"
           autoFocus
           required
           style={inputStyle}
