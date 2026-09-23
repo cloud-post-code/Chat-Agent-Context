@@ -11,6 +11,7 @@ import type {
   StaffRow,
 } from "@/lib/booking/types";
 import { formatDuration, formatMoney } from "@/lib/booking/types";
+import { isUploadType } from "@/lib/appointmentTypes";
 import { priceBreakdown } from "@/lib/booking/pricing";
 import { formatInZone } from "@/lib/booking/time";
 import { createBooking, quoteBooking, type CreateBookingResult } from "./api";
@@ -162,9 +163,14 @@ export function ReviewStep({
       <ReviewSection label="Service" onEdit={() => onEdit("service")}>
         {service?.name ?? "Appointment"}
       </ReviewSection>
-      {service && (service.variants.length > 0 || service.addons.length > 0) && (
+      {service && service.variants.length > 0 && (
+        <ReviewSection label="Option" onEdit={() => onEdit("options")}>
+          {variant?.name ?? "Standard"}
+        </ReviewSection>
+      )}
+      {service && service.addons.length > 0 && (
         <ReviewSection label="Add-ons" onEdit={() => onEdit("options")}>
-          {[variant?.name, ...addons.map((a) => a.name)].filter(Boolean).join(", ") || "None"}
+          {addons.map((a) => a.name).join(", ") || "None"}
         </ReviewSection>
       )}
       <ReviewSection label="Provider" onEdit={() => onEdit("provider")}>
@@ -190,7 +196,7 @@ export function ReviewStep({
           {answered.map((f) => (
             <div key={f.key} style={{ marginBottom: 4 }}>
               <span style={{ opacity: 0.75 }}>{f.label}: </span>
-              {answerLines(f, selection.answers[f.key] as Answer | undefined).join(", ")}
+              <AnswerSummary field={f} value={selection.answers[f.key] as Answer | undefined} />
             </div>
           ))}
         </ReviewSection>
@@ -316,4 +322,37 @@ function ReviewSection({ label, onEdit, children }: { label: string; onEdit: () 
       <div style={{ fontSize: 14 }}>{children}</div>
     </div>
   );
+}
+
+/**
+ * One intake answer as the review reads it. An upload is not its storage path:
+ * a photo or signature shows as a thumbnail, a document as "Attached"; a
+ * waiver reads "Agreed". Everything else lists the way the question step did.
+ */
+function AnswerSummary({ field, value }: { field: BookingField; value: Answer | undefined }) {
+  const text = typeof value === "string" ? value : "";
+  if (field.type === "waiver") return <span>Agreed</span>;
+  if (isUploadType(field.type)) {
+    if (!text) return <span>—</span>;
+    const image = /\.(jpg|jpeg|png|webp|gif)$/i.test(text);
+    return image ? (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={text}
+        alt={field.type === "signature" ? "Your signature" : "Your photo"}
+        style={{
+          display: "block",
+          maxWidth: field.type === "signature" ? 220 : 120,
+          maxHeight: 90,
+          marginTop: 4,
+          borderRadius: "var(--radius-sm)",
+          background: "#fff",
+          border: "1px solid var(--border)",
+        }}
+      />
+    ) : (
+      <span>Attached</span>
+    );
+  }
+  return <span>{answerLines(field, value).join(", ")}</span>;
 }

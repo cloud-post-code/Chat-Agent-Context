@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { BookingFlow, BookingSelection, DayAvailability, Slot } from "@/lib/booking/types";
-import { formatInZone, shiftDays, zonedParts, zonedToUtc } from "@/lib/booking/time";
+import { formatInZone, shiftDays, ymd, zonedParts, zonedToUtc } from "@/lib/booking/time";
 import { getAvailabilityDay, getAvailabilityMonth } from "./api";
 import { Chip, chipRow, inputStyle, linkBtn, liveBtn, sectionLabel } from "./ui";
 
@@ -136,11 +136,14 @@ export function TimeStep({
     setSlots([]);
   }
 
+  // "Earliest available" is a slot, not just a day: one tap picks it, and the
+  // day's other times load underneath in case the visitor wants a later one.
   function jumpToEarliest() {
     if (!earliest) return;
-    const date = earliest.startsAt.slice(0, 10);
+    const date = ymd(new Date(earliest.startsAt), businessTz);
     setMonth(date.slice(0, 7));
     pickDay(date);
+    pickSlot(earliest);
   }
 
   const zones = useMemo(() => [...new Set([zone, businessTz, ...COMMON_ZONES])], [zone, businessTz]);

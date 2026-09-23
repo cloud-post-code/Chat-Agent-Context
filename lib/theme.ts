@@ -586,7 +586,11 @@ export function themeVarLines(opts: {
   const bgFill = bg ?? "#0B1020";
   const onBg = text ?? (bg ? contrastOn(bg) : "#E8ECFF");
   const bgSoftFill = bg ? derivedSurfaces(bg).soft : surface ?? "#12182E";
-  lines.push(`--on-bg-soft:${bg ? onBg : onSurface};`);
+  // With neither picked, bg-soft stays the stylesheet's own light default,
+  // whose paired text is already there too — emitting the surface's white
+  // here would put white text on that light fill.
+  if (bg) lines.push(`--on-bg-soft:${onBg};`);
+  else if (surface) lines.push(`--on-bg-soft:${onSurface};`);
 
   // ── Accent-colored text ── links, tags and the headline spark read as the
   // accent hue, but each fill gets its own nudged copy. Without this an accent
