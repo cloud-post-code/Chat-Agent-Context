@@ -350,9 +350,9 @@ blocks:
 | `show_project` | One project card, by id |
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
 | `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
-| `show_services` | The business's services, read live from the services knowledge onboarding saved — each with a **Book** button that opens the appointment wizard with that service already chosen (no button while booking is off; no card when no services are on file) |
+| `show_services` | The business's services — photo, price label, duration — read from the booking catalog (or the services knowledge onboarding saved), each with a **Book** button that opens the booking flow with that service already chosen (no button while booking is off; no card when no services are on file) |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
-| `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
+| `show_booking` | The full booking flow, as good as a booking site: photographed service tiles with prices, add-ons and packages → provider ("anyone available" or a person with photo, bio and their own price) → location (branch, online, or the visitor's address in a service area) → a live calendar and time slots (hours, holidays, lead time, cutoff, buffers, provider diaries, waitlist, repeats) → the tenant's customer fields → their intake questions (uploads, signature, waiver, conditions) → a review with the price breakdown, promo code, tip, deposit and policy → **Confirm booking**. Optional `service` input opens it on a named service. Offered only when the Appointments toggle is on ([docs/features/booking-flow](docs/features/booking-flow/DESIGN.md)) |
 
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)
@@ -371,8 +371,7 @@ default set. A business's cards are designed for it when onboarding finishes
 ([`lib/onboarding/cards.ts`](lib/onboarding/cards.ts)), from its site, its
 goals and its starter questions, and the card builder adds more after that.
 The one thing a row cannot do is force a
-tool past its live gate — `show_booking` stays withheld unless booking is on
-and Google is connected, `show_booking_link` unless a link is set. Canned
+tool past its live gate — `show_booking` stays withheld unless booking is on. Canned
 answers bypass the catalog on purpose: a card named on a preset is Blake's
 explicit per-answer choice.
 
@@ -427,6 +426,8 @@ app/
   Chat.tsx              Thread, starters, NDJSON stream reader, session id
   Markdown.tsx          Answer rendering
   cards/Cards.tsx       A2UI card renderers
+  cards/booking/        The booking flow card: service, provider, location,
+                        time, details, questions, review, confirmation
   agent/page.tsx        Human-readable agent page
   layout.tsx            DB-driven theme <style> injection + PostHog provider
   .well-known/          Agent Card (v1.0 + v0.3) and AgentFacts routes
@@ -435,6 +436,7 @@ app/
     a2a/route.ts        JSON-RPC + SSE binding
     a2a/rest/           HTTP+JSON binding
     contact/route.ts    Contact-form sink
+    booking/            Flow config, availability, quote, upload, book
     uploads/[name]/     Serves images off the volume
     admin/import-github Streaming GitHub profile import
   admin/
@@ -449,6 +451,8 @@ lib/
   canned.ts             Canned-answer data layer + normalizeQuestion()
   answerDrafts.ts       Self-drafting blank answers
   cards.ts              A2UI block hydration
+  booking/              types (the contract), time, availability and pricing
+                        engines (pure), hours parsing, store (Prisma)
   retrieval/
     chunking.ts  embed.ts  entities.ts
     indexer.ts   origins.ts  search.ts  graph.ts
