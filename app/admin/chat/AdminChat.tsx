@@ -27,10 +27,10 @@ type ChatItem =
 type Msg = { role: "user" | "assistant"; content: string; items: ChatItem[] };
 
 const STARTERS = [
-  "Show me my goals",
   "What are visitors asking?",
-  "Ingest a document",
-  "Show my ingestion sources",
+  "Show presets to review",
+  "Show my appointments",
+  "Show my cards",
 ];
 
 export function AdminChat({

@@ -1,20 +1,19 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { PendingButton } from "./PendingButton";
-import { BookingToggle } from "./BookingPanel";
 import { panel, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
 
 /**
- * The Calendar panel: a month grid of booked appointments with each day's
- * bookings expandable to the full appointment — service, provider, location,
- * customer, price, status and intake answers — plus Cancel, and a Confirm for
- * waitlisted rows. Below it, the booking on/off toggle (the question catalog
- * and every other setting now live in the Booking section's own sub-tabs).
+ * The Appointments panel (Inbox): a month grid of booked appointments —
+ * service, provider, location, customer, price, status and intake answers —
+ * with each day's bookings expandable to the full appointment, plus Cancel
+ * and a Confirm for waitlisted rows. One implementation for both admin
+ * surfaces: the dashboard tab and the chat's revealed panel.
  *
- * This panel is ALWAYS present, including when booking is off, because the
- * toggle that turns it back on lives here. Booking off hides the grid (there
- * is nothing to show) but never the toggle.
+ * The booking switch and question catalog live under Settings › Booking
+ * (BookingSettings); while booking is off this panel just points there.
  *
  * Client-side only for month paging and expansion; every write goes through a
  * server action passed in as a prop (the UsersPanel pattern).
@@ -37,51 +36,42 @@ export type CalendarAppointment = {
   answers: Record<string, string>;
 };
 
-/** An order placed from the cart card, as the panel lists it. */
-export type CalendarOrder = {
-  id: string;
-  createdAt: string;
-  startsAt: string | null;
-  lines: { name: string; quantity: number; choices: string; note: string; lineTotal: string }[];
-  contact: { name: string; phone: string; email: string };
-  fulfillment: string;
-  notes: string;
-  subtotal: string;
-};
-
 type Props = {
   rows: CalendarAppointment[];
-  /** Orders from the menu's cart, newest first; the menu card is on for every tenant with items. */
-  orders?: CalendarOrder[];
-  deleteOrderAction?: (formData: FormData) => Promise<void>;
   /** Question labels per field key, so answers read as asked. */
   fieldLabels: Record<string, string>;
   cancelAction: (formData: FormData) => Promise<void>;
   /** Confirms a waitlisted booking; without it the Confirm button is not drawn. */
   confirmAction?: (formData: FormData) => Promise<void>;
-  /** Whether booking is on — the toggle at the bottom always renders. */
-  enabled?: boolean;
-  /** The pre-flow prop shape (booking-on-by-default proof); `enabled` wins when both are given. */
-  config?: { enabled: boolean };
+  /** Off: nothing to show a calendar of, so point at the switch instead. */
+  bookingEnabled: boolean;
 };
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function CalendarPanel({
+export function AppointmentsPanel({
   rows,
   fieldLabels,
   cancelAction,
   confirmAction,
-  enabled: enabledProp,
-  config,
-  orders = [],
-  deleteOrderAction,
+  bookingEnabled,
 }: Props) {
-  const enabled = enabledProp ?? config?.enabled ?? false;
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
   const [openId, setOpenId] = useState<string | null>(null);
+
+  if (!bookingEnabled) {
+    return (
+      <section data-fill="surface" style={panel}>
+        <SectionTitle>Appointments</SectionTitle>
+        <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
+          Booking is off, so there is nothing to show here yet.{" "}
+          <Link href="/admin/dashboard?tab=booking">Turn it on under Settings › Booking.</Link>
+        </p>
+      </section>
+    );
+  }
 
   const move = (d: number) => {
     const next = new Date(year, month + d, 1);
@@ -113,13 +103,9 @@ export function CalendarPanel({
 
   return (
     <section>
-      {/* Nothing to show a calendar of while booking is off — but the toggle
-          below stays, because it holds the switch that turns it back on. */}
-      {enabled ? (
-        <>
       <div data-fill="surface" style={panel}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-          <SectionTitle>Calendar</SectionTitle>
+          <SectionTitle>Appointments</SectionTitle>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button onClick={() => move(-1)} style={btnGhost as React.CSSProperties} aria-label="Previous month">
               ‹
@@ -138,128 +124,91 @@ export function CalendarPanel({
             </div>
           ))}
           {cells.map((day, i) => (
-            <div
+            <DayCell
               key={i}
-              style={{
-                minHeight: 52,
-                border: "1px solid var(--border)",
-                borderRadius: "var(--radius-sm)",
-                padding: 4,
-                background: day === today ? "var(--bg-soft)" : "transparent",
-                opacity: day === null ? 0.35 : 1,
-              }}
-            >
-              {day !== null ? (
-                <>
-                  <div style={{ fontSize: 11, color: "var(--on-surface)" }}>{day}</div>
-                  {(byDay.get(day) ?? []).map((a) => (
-                    <button
-                      key={a.id}
-                      onClick={() => setOpenId(openId === a.id ? null : a.id)}
-                      title={[a.serviceName, a.customerName].filter(Boolean).join(" · ")}
-                      style={{
-                        display: "block",
-                        width: "100%",
-                        textAlign: "left",
-                        fontSize: 11,
-                        marginTop: 2,
-                        padding: "2px 4px",
-                        borderRadius: "var(--radius-sm)",
-                        border: "none",
-                        cursor: "pointer",
-                        background: a.status === "waitlisted" ? "var(--bg-soft)" : "var(--primary)",
-                        color: a.status === "waitlisted" ? "var(--on-bg-soft)" : "var(--on-primary)",
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      {[
-                        new Date(a.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
-                        a.serviceName,
-                        a.customerName.split(" ")[0],
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </button>
-                  ))}
-                </>
-              ) : null}
-            </div>
+              day={day}
+              today={today}
+              appointments={day !== null ? byDay.get(day) ?? [] : []}
+              openId={openId}
+              onToggle={(id) => setOpenId(openId === id ? null : id)}
+            />
           ))}
         </div>
       </div>
 
-      {live.length === 0 ? (
-        <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
-          No appointments booked yet.
-        </p>
-      ) : (
-        live.map((a) => (
-          <div key={a.id} data-fill="surface" style={{ ...panel, display: openId === null || openId === a.id ? "block" : "none" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
-              <div>
-                <strong style={{ fontSize: 14 }}>
-                  {new Date(a.startsAt).toLocaleString(undefined, {
-                    weekday: "short",
-                    month: "short",
-                    day: "numeric",
-                    year: "numeric",
-                    hour: "numeric",
-                    minute: "2-digit",
-                  })}
-                </strong>
-                {a.status === "waitlisted" ? <StatusBadge>Waitlist</StatusBadge> : null}
-              </div>
-              <div style={{ display: "flex", gap: 8 }}>
-                {a.status === "waitlisted" && confirmAction ? (
-                  <form action={confirmAction}>
-                    <input type="hidden" name="id" value={a.id} />
-                    <PendingButton pendingLabel="Confirming…" style={btn as React.CSSProperties}>
-                      Confirm
-                    </PendingButton>
-                  </form>
-                ) : null}
-                <form action={cancelAction}>
-                  <input type="hidden" name="id" value={a.id} />
-                  <PendingButton pendingLabel="Cancelling…" style={btnDanger as React.CSSProperties}>
-                    Cancel
-                  </PendingButton>
-                </form>
-              </div>
-            </div>
+      <AppointmentCards
+        rows={live}
+        openId={openId}
+        fieldLabels={fieldLabels}
+        cancelAction={cancelAction}
+        confirmAction={confirmAction}
+      />
+    </section>
+  );
+}
 
-            <dl style={{ margin: "10px 0 0", fontSize: 13, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
-              {a.serviceName ? <Fact label="Service" value={a.serviceName} /> : null}
-              {a.staffName ? <Fact label="Provider" value={a.staffName} /> : null}
-              {a.locationName ? <Fact label="Location" value={a.locationName} /> : null}
-              <Fact label="Duration" value={a.durationMinutes ? `${a.durationMinutes} min` : "—"} />
-              {a.priceDisplay ? <Fact label="Price" value={a.priceDisplay} /> : null}
-              {a.customerName ? <Fact label="Customer" value={a.customerName} /> : null}
-              {a.customerEmail ? <Fact label="Email" value={a.customerEmail} /> : null}
-              {a.customerPhone ? <Fact label="Phone" value={a.customerPhone} /> : null}
-            </dl>
-
-            {Object.keys(a.answers).length > 0 ? (
-              <dl style={{ margin: "10px 0 0", fontSize: 13 }}>
-                {Object.entries(a.answers).map(([k, v]) => (
-                  <div key={k} style={{ marginBottom: 6 }}>
-                    <dt style={{ color: "var(--on-surface)", fontSize: 12 }}>{fieldLabels[k] ?? k}</dt>
-                    <dd style={{ margin: 0, whiteSpace: "pre-wrap" }}>{v}</dd>
-                  </div>
-                ))}
-              </dl>
-            ) : null}
-          </div>
-        ))
-      )}
+function DayCell({
+  day,
+  today,
+  appointments,
+  openId,
+  onToggle,
+}: {
+  day: number | null;
+  today: number | null;
+  appointments: CalendarAppointment[];
+  openId: string | null;
+  onToggle: (id: string) => void;
+}) {
+  return (
+    <div
+      style={{
+        minHeight: 52,
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        padding: 4,
+        background: day === today ? "var(--bg-soft)" : "transparent",
+        opacity: day === null ? 0.35 : 1,
+      }}
+    >
+      {day !== null ? (
+        <>
+          <div style={{ fontSize: 11, color: "var(--on-surface)" }}>{day}</div>
+          {appointments.map((a) => (
+            <button
+              key={a.id}
+              onClick={() => onToggle(a.id)}
+              aria-pressed={openId === a.id}
+              title={[a.serviceName, a.customerName].filter(Boolean).join(" · ")}
+              style={{
+                display: "block",
+                width: "100%",
+                textAlign: "left",
+                fontSize: 11,
+                marginTop: 2,
+                padding: "2px 4px",
+                borderRadius: "var(--radius-sm)",
+                border: "none",
+                cursor: "pointer",
+                background: a.status === "waitlisted" ? "var(--bg-soft)" : "var(--primary)",
+                color: a.status === "waitlisted" ? "var(--on-bg-soft)" : "var(--on-primary)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {[
+                new Date(a.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+                a.serviceName,
+                a.customerName.split(" ")[0],
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </button>
+          ))}
         </>
       ) : null}
-
-      {orders.length > 0 && <Orders orders={orders} deleteAction={deleteOrderAction} />}
-
-      <BookingToggle enabled={enabled} />
-    </section>
+    </div>
   );
 }
 
@@ -290,49 +239,87 @@ function StatusBadge({ children }: { children: React.ReactNode }) {
     </span>
   );
 }
-const when = (iso: string) =>
-  new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 
-/** Orders placed from the cart card: what, for whom, how, when, and the total. */
-function Orders({ orders, deleteAction }: { orders: CalendarOrder[]; deleteAction?: (formData: FormData) => Promise<void> }) {
+/** Every booking as a card with its facts and answers; a grid click narrows to one. */
+function AppointmentCards({
+  rows,
+  openId,
+  fieldLabels,
+  cancelAction,
+  confirmAction,
+}: {
+  rows: CalendarAppointment[];
+  openId: string | null;
+  fieldLabels: Record<string, string>;
+  cancelAction: (formData: FormData) => Promise<void>;
+  confirmAction?: (formData: FormData) => Promise<void>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
+        No appointments booked yet.
+      </p>
+    );
+  }
   return (
-    <div data-fill="surface" style={panel}>
-      <SectionTitle>Orders</SectionTitle>
-      {orders.map((o) => (
-        <div key={o.id} style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
-          <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
-            <strong style={{ fontSize: 14 }}>
-              {o.contact.name || "Order"}
-              {o.subtotal ? ` · ${o.subtotal}` : ""}
-              {o.fulfillment ? ` · ${o.fulfillment.replace("_", " ")}` : ""}
-            </strong>
-            {deleteAction && (
-              <form action={deleteAction}>
-                <input type="hidden" name="id" value={o.id} />
-                <PendingButton pendingLabel="Removing…" style={btnDanger as React.CSSProperties}>
-                  Remove
+    <>
+      {rows.map((a) => (
+        <div key={a.id} data-fill="surface" style={{ ...panel, display: openId === null || openId === a.id ? "block" : "none" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <strong style={{ fontSize: 14 }}>
+                {new Date(a.startsAt).toLocaleString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </strong>
+              {a.status === "waitlisted" ? <StatusBadge>Waitlist</StatusBadge> : null}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {a.status === "waitlisted" && confirmAction ? (
+                <form action={confirmAction}>
+                  <input type="hidden" name="id" value={a.id} />
+                  <PendingButton pendingLabel="Confirming…" style={btn as React.CSSProperties}>
+                    Confirm
+                  </PendingButton>
+                </form>
+              ) : null}
+              <form action={cancelAction}>
+                <input type="hidden" name="id" value={a.id} />
+                <PendingButton pendingLabel="Cancelling…" style={btnDanger as React.CSSProperties}>
+                  Cancel
                 </PendingButton>
               </form>
-            )}
+            </div>
           </div>
-          <div style={{ fontSize: 12, color: "var(--on-surface)", marginTop: 2 }}>
-            Placed {when(o.createdAt)}
-            {o.startsAt ? ` · for ${when(o.startsAt)}` : ""}
-            {[o.contact.phone, o.contact.email].filter(Boolean).length ? ` · ${[o.contact.phone, o.contact.email].filter(Boolean).join(" · ")}` : ""}
-          </div>
-          <ul style={{ margin: "6px 0 0", paddingLeft: 18, fontSize: 13 }}>
-            {o.lines.map((l, i) => (
-              <li key={i}>
-                {l.quantity} × {l.name}
-                {l.choices ? ` (${l.choices})` : ""}
-                {l.note ? ` — ${l.note}` : ""}
-                {l.lineTotal ? ` · ${l.lineTotal}` : ""}
-              </li>
-            ))}
-          </ul>
-          {o.notes && <p style={{ fontSize: 13, margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{o.notes}</p>}
+
+          <dl style={{ margin: "10px 0 0", fontSize: 13, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+            {a.serviceName ? <Fact label="Service" value={a.serviceName} /> : null}
+            {a.staffName ? <Fact label="Provider" value={a.staffName} /> : null}
+            {a.locationName ? <Fact label="Location" value={a.locationName} /> : null}
+            <Fact label="Duration" value={a.durationMinutes ? `${a.durationMinutes} min` : "—"} />
+            {a.priceDisplay ? <Fact label="Price" value={a.priceDisplay} /> : null}
+            {a.customerName ? <Fact label="Customer" value={a.customerName} /> : null}
+            {a.customerEmail ? <Fact label="Email" value={a.customerEmail} /> : null}
+            {a.customerPhone ? <Fact label="Phone" value={a.customerPhone} /> : null}
+          </dl>
+
+          {Object.keys(a.answers).length > 0 ? (
+            <dl style={{ margin: "10px 0 0", fontSize: 13 }}>
+              {Object.entries(a.answers).map(([k, v]) => (
+                <div key={k} style={{ marginBottom: 6 }}>
+                  <dt style={{ color: "var(--on-surface)", fontSize: 12 }}>{fieldLabels[k] ?? k}</dt>
+                  <dd style={{ margin: 0, whiteSpace: "pre-wrap" }}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
         </div>
       ))}
-    </div>
+    </>
   );
 }

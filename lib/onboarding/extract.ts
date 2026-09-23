@@ -4,6 +4,11 @@ import { normalizeExtractedTheme } from "@/lib/theme";
 import { saveBytes } from "@/lib/uploads";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { themeCorpus } from "./themeCorpus";
+import { DAYS, emptyHours, serializeHours } from "./hours";
+import type { Hours } from "./hours";
+
+export { DAYS, emptyHours, serializeHours } from "./hours";
+export type { Hours } from "./hours";
 
 /**
  * Steps 1 and 2 of guided onboarding: model extraction over the crawled site.
@@ -12,11 +17,6 @@ import { themeCorpus } from "./themeCorpus";
  * prompts enforce that rule; the sanitizers below only validate the model's
  * output against the app's supported values, they never extract.
  */
-
-export const DAYS = [
-  "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-] as const;
-export type Hours = Record<(typeof DAYS)[number], string>;
 
 export type Location = { address: string; phone: string; hours: Hours };
 
@@ -40,15 +40,6 @@ export type ThemeExtract = {
   themeHeadingWeight: string;
   themeLogo: string;
 };
-
-export const emptyHours = (): Hours =>
-  Object.fromEntries(DAYS.map((d) => [d, ""])) as Hours;
-
-export function serializeHours(hours: Hours): string {
-  const parts = DAYS.flatMap((d) =>
-    hours[d] ? [`${d[0].toUpperCase()}${d.slice(1)}: ${hours[d]}`] : []);
-  return parts.join("; ");
-}
 
 export const CORE_SYSTEM_PROMPT = `You find a business's core contact details in text extracted from its website. The text contains multiple pages, each preceded by "=== <url>".
 

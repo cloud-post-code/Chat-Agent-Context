@@ -1,9 +1,11 @@
 import { notFound } from "next/navigation";
+import { headers } from "next/headers";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { starterChipsFor } from "@/lib/starterQuestions";
 import { homePhotos } from "@/lib/cards";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
 import Chat from "@/app/Chat";
+import { siteOrigin } from "@/lib/util";
 
 /**
  * One user's public agent page: their chat, their knowledge, their theme.
@@ -24,9 +26,18 @@ export async function generateMetadata({ params }: Params) {
     getPersonaConfig(user.id),
   ]);
   const name = profile.company_name || profile.owner_name || user.name;
+  // The Markdown twin of this page, for an LLM that reads <head> before
+  // deciding what to fetch (lib/llms.ts).
+  const page = `${siteOrigin(await headers())}/a/${user.slug}`;
   return {
     title: `${name} — chat`,
     description: persona.tagline || `Chat with ${name}'s AI agent.`,
+    alternates: {
+      types: {
+        "text/markdown": [{ url: `${page}/llms-full.txt`, title: `${name} — everything, in Markdown` }],
+        "text/plain": [{ url: `${page}/llms.txt`, title: `${name} — llms.txt` }],
+      },
+    },
   };
 }
 

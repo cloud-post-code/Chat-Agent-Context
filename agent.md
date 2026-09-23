@@ -114,7 +114,64 @@ A color it cannot derive gets one question or the full panel — never a guess.
 The `edit` event names its `panel` so other panels can add slices later. Proof:
 `docs/features/copilot-focused-edits/proof.ts`.
 
+## Admin copilot: panels follow the dashboard nav
+
+The dashboard's seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking,
+Settings) are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`).
+`adminPanelKeys` builds the copilot's `show_panel` enum from the same config
+(`fixedPanelEntries`), so the chat can reveal exactly the panels the dashboard
+shows — never `home`, and `users`/`bulk` for operators only. The old combined
+Calendar became `appointments` (Inbox) + `booking` (Settings, the on/off
+switch); the Booking group holds the setup panels (Services, Providers,
+Locations, Hours, Customer, Questions, Pricing —
+`BOOKING_TAB_KEYS`/`app/admin/booking/*`). `show_panel` maps retired keys
+through `TAB_ALIASES` before looking a panel up, so saved chats and canned
+answers naming `calendar` still open Appointments. Chat starter chips point at
+Chats, Presets, Appointments and Cards. Proof:
+`docs/features/admin-nav-groups/proof.ts` (nav/resolver) and
+`docs/features/booking-flow/proof.ts` (the Booking section's own panels).
+
 ## Testing
 
 `docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),
 offline proof, and `--live` answer eval.
+
+## LLM-readable files (llms.txt)
+
+Not a transport over the brain but the brain's knowledge published for
+ChatGPT, Claude and their crawlers to read directly: `lib/llms.ts` gathers one
+tenant's public facts (profile, persona, services, menu, projects, enabled
+approved answers with text, scanned non-ingest source summaries, booking
+questions) and renders `/a/<slug>/llms.txt` (index) and
+`/a/<slug>/llms-full.txt` (everything, fixed section order, empty sections
+omitted); `/llms.txt` and `/llms-full.txt` cover the directory. Directives,
+corrections, activity, orders and contacts never appear. `app/robots.ts`
+allows the named AI user agents, `app/sitemap.ts` lists the files, the agent
+page's `<head>` links its Markdown twin, and `middleware.ts` rewrites
+`Accept: text/markdown` or a `.md` suffix to the full document. Proof:
+`docs/features/llm-readable-site/proof.ts`.
+
+## Bulk site builder
+
+An operator-only Settings panel (`POST/GET /api/admin/bulk-build`) that turns a
+pasted list of business links into fully onboarded tenants with no human
+review of any stage. `lib/onboarding/jobs.ts`'s `runUnattendedJob` runs the
+guided flow's stages (core → locations → social → images → theme → knowledge)
+back to back for one job, awaiting a per-stage hook instead of the chat's poll
+loop. `lib/bulkBuild.ts`'s `startBulkBuild` fans that out over the pasted list
+(`parseLinks`: normalize, dedupe, drop malformed entries), `BULK_BUILD_CONCURRENCY`
+(default 2, max 4) sites at a time via `mapPool`, each behind its own
+`createBulkAccount` (`lib/bulkAccounts.ts`) — a username-only account with no
+real email, stored under the reserved `bulk.invalid` domain so the unique-email
+schema is untouched. Every stage's result is auto-approved: saved verbatim
+through `saveOnboardingReview` (`lib/onboarding/save.ts`, the same write path
+the chat review cards use, extracted out of the onboarding save route so both
+callers share it), mapped to match exactly what the guided flow's client sends
+(theme font fixed to `space-grotesk`, colors filtered to the seven known roles,
+gallery images passed through by `src`/`caption`). If the core stage fails the
+whole site fails and its half-made account is deleted; a later stage failing is
+logged as a warning and the run continues, so one bad site never aborts the
+batch. `authenticate` (`lib/bulkAccounts.ts`) is the one credential check used
+by both the login action and the proof: an identifier without `@` is looked up
+as a username. Proof: `docs/features/bulk-site-builder/proof.ts`; live check:
+`crosscheck.ts` beside it.

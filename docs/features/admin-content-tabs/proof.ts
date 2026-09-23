@@ -21,11 +21,11 @@ function check(name: string, ok: boolean, detail?: string) {
   }
 }
 
-// ── 1. The built-in sub-tab keys are the seven ingestion sources. ──
+// ── 1. The built-in sub-tab keys are the four starter ingestion sources. ──
 check(
-  "CONTENT_TAB_KEYS is the seven ingestion sources",
+  "CONTENT_TAB_KEYS is the four starter sources",
   JSON.stringify([...CONTENT_TAB_KEYS]) ===
-    JSON.stringify(["experience", "projects", "links", "pdfs", "text", "photos", "persona"]),
+    JSON.stringify(["blog", "testimonials", "about-team", "services"]),
   JSON.stringify(CONTENT_TAB_KEYS),
 );
 
@@ -33,16 +33,16 @@ check(
 for (const key of CONTENT_TAB_KEYS) {
   const r = resolveAdminTab(key);
   check(
-    `resolveAdminTab("${key}") opens Content on ${key}`,
-    r.nav === "content" && r.sub === key,
+    `resolveAdminTab("${key}") opens Knowledge on ${key}`,
+    r.nav === "knowledge" && r.sub === key,
     JSON.stringify(r),
   );
 }
 {
-  // The legacy knowledge→links shim was pruned (deploy-db-bootstrap).
+  // "knowledge" is the nav key itself now: opens the section on its default.
   const r = resolveAdminTab("knowledge");
   check(
-    'pruned resolveAdminTab("knowledge") passes through',
+    'resolveAdminTab("knowledge") opens the Knowledge nav',
     r.nav === "knowledge" && r.sub === undefined,
     JSON.stringify(r),
   );
@@ -102,25 +102,22 @@ const page = readFileSync(
   path.join(__dirname, "../../../app/admin/dashboard/page.tsx"),
   "utf8",
 );
+const panels = readFileSync(path.join(__dirname, "../../../app/admin/panels.tsx"), "utf8");
 check("dashboard mounts SubTabs", page.includes("SubTabs"));
-check('dashboard has a "content" nav entry', page.includes('key: "content"'));
-check('dashboard profile entry is labeled "Me"', page.includes('label: "Me"'));
+check("dashboard lays out NAV_GROUPS", page.includes("NAV_GROUPS"));
+check("dashboard splices live source keys into Knowledge", page.includes('g.key === "knowledge"'));
 check("dashboard resolves the initial tab via resolveAdminTab", page.includes("resolveAdminTab"));
+check("Knowledge tabs render from the IngestionSource mapping", panels.includes("contentTabsFromSources"));
 check(
-  "Content SubTabs render from the IngestionSource mapping",
-  page.includes("tabs={contentTabs}") && page.includes("contentTabsFromSources"),
-);
-check(
-  "all seven builtin panels are wired into the mapping",
+  "the six builtin panels are wired into the mapping",
   [
-    "experience: experienceTab",
     "projects: projectsTab",
     "links: linksTab",
     "pdfs: pdfsTab",
     "text: textTab",
     "photos: photosSection",
     "persona: personaTab",
-  ].every((s) => page.includes(s)),
+  ].every((s) => panels.includes(s)),
 );
 
 if (failures > 0) {

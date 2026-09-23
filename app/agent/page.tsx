@@ -44,6 +44,16 @@ export default async function AgentPage() {
 
   const files = [
     {
+      href: `/a/${founder.slug}/llms.txt`,
+      label: "llms.txt",
+      note: "The index ChatGPT and Claude read first — what this site is, and where its Markdown lives.",
+    },
+    {
+      href: `/a/${founder.slug}/llms-full.txt`,
+      label: "llms-full.txt",
+      note: "Everything the agent knows, in one Markdown file: services, menu, projects, answers, contact details.",
+    },
+    {
       href: "/.well-known/agent-card.json",
       label: "Agent Card",
       note: "A2A v1.0 — the file another agent fetches to learn how to call this one.",

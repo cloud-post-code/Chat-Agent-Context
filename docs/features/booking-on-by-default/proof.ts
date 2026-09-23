@@ -395,64 +395,68 @@ async function main() {
     );
     void realCount;
 
-    // ══ C. Settings live on the Calendar ══════════════════════════════════
+    // ══ C. Settings › Booking is always present ═══════════════════════════
     const onKeys = await adminPanelKeys(userDefault.id);
     const offKeys = await adminPanelKeys(userOff.id);
     check(
-      "C17 the Calendar exists when booking is on",
-      onKeys.some((k) => k.key === "calendar"),
+      "C17 the Booking settings exist when booking is on",
+      onKeys.some((k) => k.key === "booking"),
       onKeys.map((k) => k.key).join(","),
     );
     check(
-      "C17 the Calendar exists when booking is OFF (it holds the on switch)",
-      offKeys.some((k) => k.key === "calendar"),
+      "C17 the Booking settings exist when booking is OFF (they hold the on switch)",
+      offKeys.some((k) => k.key === "booking"),
       offKeys.map((k) => k.key).join(","),
     );
     check(
-      "C18 booking is retired as a standalone panel key",
-      !onKeys.some((k) => k.key === "booking") && !offKeys.some((k) => k.key === "booking"),
+      "C18 the combined calendar is retired as a panel key",
+      !onKeys.some((k) => k.key === "calendar") && !offKeys.some((k) => k.key === "calendar"),
       onKeys.map((k) => k.key).join(","),
     );
 
-    // C19/C20: the Calendar panel renders the settings, and the grid only
-    // when booking is on. Rendered to static markup — the real component.
+    // C19/C20: BookingSettings renders the toggle and catalog; the
+    // Appointments grid only shows when booking is on. Real components.
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
-    const { CalendarPanel } = await import("../../../app/admin/CalendarPanel");
+    const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
+    const { BookingSettings } = await import("../../../app/admin/BookingPanel");
     const noopAction = async () => {};
 
     const cfgOn = await getBookingConfig(userDefault.id);
+    const settingsOn = renderToStaticMarkup(React.createElement(BookingSettings, { config: cfgOn }));
+    check(
+      "C19 Booking settings render the booking toggle",
+      /booking/i.test(settingsOn) && /turn booking off/i.test(settingsOn),
+    );
+    check(
+      "C19 Booking settings render the question catalog",
+      cfgOn.fields.every((f) => settingsOn.includes(f.label)),
+      cfgOn.fields.map((f) => f.label).join(" | "),
+    );
     const htmlOn = renderToStaticMarkup(
-      React.createElement(CalendarPanel, {
+      React.createElement(AppointmentsPanel, {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
-        config: cfgOn,
-      } as never),
-    );
-    check(
-      "C19 the Calendar renders the booking toggle",
-      /booking/i.test(htmlOn) && /turn booking off/i.test(htmlOn),
-    );
-    check(
-      "C19 the Calendar renders the question catalog",
-      cfgOn.fields.every((f) => htmlOn.includes(f.label)),
-      cfgOn.fields.map((f) => f.label).join(" | "),
+        bookingEnabled: cfgOn.enabled,
+      }),
     );
     check("C20 the month grid shows when booking is on", /Mon/.test(htmlOn) && /Tue/.test(htmlOn));
 
+    const cfgOff = await getBookingConfig(userOff.id);
+    const settingsOff = renderToStaticMarkup(React.createElement(BookingSettings, { config: cfgOff }));
+    check("C20 the toggle still renders when booking is off", /turn booking on/i.test(settingsOff));
     const htmlOff = renderToStaticMarkup(
-      React.createElement(CalendarPanel, {
+      React.createElement(AppointmentsPanel, {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
-        config: await getBookingConfig(userOff.id),
-      } as never),
+        bookingEnabled: cfgOff.enabled,
+      }),
     );
-    check("C20 the toggle still renders when booking is off", /turn booking on/i.test(htmlOff));
     check(
       "C20 the month grid is hidden when booking is off",
-      !/Mon<\/div>/.test(htmlOff),
+      !/Mon<\/div>/.test(htmlOff) && htmlOff.includes("?tab=booking"),
     );
   } finally {
     for (const id of made) {

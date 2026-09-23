@@ -611,6 +611,19 @@ export async function draftUiCard(
 }
 
 /**
+ * Whether an API error is the "adaptive thinking is not supported on this
+ * model" 400. CARD_BUILDER_MODEL is an admin-set env var, not something this
+ * code chooses, so it can legitimately point at a model — Haiku, say — that
+ * never got adaptive thinking. Checked by message text rather than a model
+ * capability lookup: that would cost a network round trip on every build for
+ * a config that changes maybe once a quarter.
+ */
+function isUnsupportedAdaptiveThinking(e: unknown): boolean {
+  const err = e as { status?: number; message?: string };
+  return err?.status === 400 && /adaptive thinking is not supported/i.test(err?.message ?? "");
+}
+
+/**
  * One streamed model turn. Streaming is what makes thinking visible — the
  * deltas arrive as the model reasons, and a two-minute coded card stops
  * looking like a hang. Returns the assembled final message, so the caller's
@@ -618,8 +631,30 @@ export async function draftUiCard(
  *
  * Falls back to a plain create() for injected test clients, which implement
  * only the non-streaming surface.
+ *
+ * If the configured model rejects adaptive thinking, retries this one turn
+ * without `thinking`/`output_config` rather than failing the whole build —
+ * the admin sees a status line instead of a raw 400.
  */
 async function streamOnce(
+  client: BuilderClient,
+  req: Parameters<BuilderClient["messages"]["create"]>[0],
+  emit: (e: BuildEvent) => void,
+): Promise<{ content: unknown[]; stop_reason?: string | null }> {
+  try {
+    return await streamTurn(client, req, emit);
+  } catch (e) {
+    if (!isUnsupportedAdaptiveThinking(e)) throw e;
+    emit({
+      t: "status",
+      v: "The configured model doesn't support extended thinking — continuing without it.",
+    });
+    const { thinking: _thinking, output_config: _outputConfig, ...withoutThinking } = req;
+    return streamTurn(client, withoutThinking, emit);
+  }
+}
+
+async function streamTurn(
   client: BuilderClient,
   req: Parameters<BuilderClient["messages"]["create"]>[0],
   emit: (e: BuildEvent) => void,

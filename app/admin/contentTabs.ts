@@ -1,9 +1,14 @@
 /**
- * Keys of the sub-tabs inside the combined Content section — the starter
- * ingestion sources (STARTER_INGESTION_SOURCES in lib/ingestionSources.ts),
- * which mirror what onboarding extracts from a business's website. The live
- * keys come from the IngestionSource table; this list is the fallback for
- * callers that have no rows to hand.
+ * The admin dashboard's navigation, in one place. Import-free on purpose so
+ * the dashboard page, the copilot brain (lib/adminBrain.ts) and offline proofs
+ * can all read it without pulling server-only code.
+ */
+
+/**
+ * Keys of the starter ingestion sources (STARTER_INGESTION_SOURCES in
+ * lib/ingestionSources.ts), which mirror what onboarding extracts from a
+ * business's website. The live keys come from the IngestionSource table; this
+ * list is the fallback for callers that have no rows to hand.
  */
 export const CONTENT_TAB_KEYS = [
   "blog",
@@ -14,37 +19,26 @@ export const CONTENT_TAB_KEYS = [
 export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
 
 /**
- * Key of the Content sub-tab that hosts the new-ingestion-source builder.
+ * Key of the Knowledge sub-tab that hosts the new-ingestion-source builder.
  * Not an IngestionSource row — the dashboard appends it after the source
  * tabs — but it deep-links like one (`?tab=new-source`).
  */
 export const NEW_SOURCE_TAB_KEY = "new-source";
 
-/** Keys of the sub-tabs inside the combined Activity section. */
-export const ACTIVITY_TAB_KEYS = ["activity"] as const;
-export type ActivityTabKey = (typeof ACTIVITY_TAB_KEYS)[number];
+export type NavKey =
+  | "home"
+  | "inbox"
+  | "knowledge"
+  | "agent"
+  | "cards"
+  | "booking"
+  | "settings";
 
 /**
- * Keys of the sub-tabs inside the Agent Behavior section.
- *
- * `contacts` was listed under Activity when the address book lived there. The
- * panel moved to Agent Behavior but the key did not, so `?tab=contacts`
- * resolved to an Activity sub-tab that no longer exists — the sent-mail sync
- * redirects here, so the key has to point at the panel that is actually
- * mounted.
- */
-export const AGENT_TAB_KEYS = ["answers", "goals", "rules", "contacts", "a2ui"] as const;
-export type AgentTabKey = (typeof AGENT_TAB_KEYS)[number];
-
-/** Keys of the sub-tabs inside the combined Me section. */
-export const ME_TAB_KEYS = ["profile", "theme"] as const;
-export type MeTabKey = (typeof ME_TAB_KEYS)[number];
-
-/**
- * Keys of the sub-tabs inside the Booking section (app/admin/booking/). The
- * Calendar stays its own top-level nav entry — these are the setup panels
- * around it: what's bookable, who does it, where, when, and the questions and
- * money rules that shape the flow.
+ * Keys of the sub-tabs inside the Booking section (app/admin/booking/): what's
+ * bookable, who does it, where, when, and the questions and money rules that
+ * shape the flow. `booking` itself (Settings) holds the on/off switch and
+ * general setup.
  */
 export const BOOKING_TAB_KEYS = [
   "booking-services",
@@ -57,45 +51,133 @@ export const BOOKING_TAB_KEYS = [
 ] as const;
 export type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
 
+export type NavSub = { key: string; label: string; operator?: boolean };
+
+export type NavGroup = {
+  key: NavKey;
+  label: string;
+  /** Fixed sub-panel keys in strip order. Knowledge's live source keys are
+   *  spliced in by the dashboard ahead of these. */
+  subs: readonly NavSub[];
+};
+
 /**
- * Deep-link resolution for the dashboard. `projects` and `knowledge` used to
- * be top-level nav keys and now live inside the Content section (as does
- * `persona`), `contacts` now lives inside the Activity section, `answers`
- * (shown as "Presets") now lives inside the Agent Behavior section, and
- * `theme` now lives inside the Me section — so an old `?tab=` link resolves
- * to the combined
- * entry opened on that sub-tab; every other key passes through untouched.
+ * The six sections and the panels each holds. Panel keys are the contract
+ * shared with panels.tsx (`flat`), `?tab=` deep links and the copilot's
+ * show_panel tool, so renaming one here means renaming it there.
  */
-export function resolveAdminTab(
-  tab: string | undefined,
-  // The live Content keys come from the IngestionSource table so deep links
-  // to custom sources resolve; callers without the rows get the built-ins.
-  contentKeys: readonly string[] = CONTENT_TAB_KEYS,
-): {
-  nav: string | undefined;
-  sub: string | undefined;
-} {
-  if (tab && (tab === NEW_SOURCE_TAB_KEY || contentKeys.includes(tab))) {
-    return { nav: "content", sub: tab };
-  }
-  if (tab && (ACTIVITY_TAB_KEYS as readonly string[]).includes(tab)) {
-    return { nav: "activity", sub: tab as ActivityTabKey };
-  }
-  if (tab && (AGENT_TAB_KEYS as readonly string[]).includes(tab)) {
-    return { nav: "agent", sub: tab as AgentTabKey };
-  }
-  if (tab && (ME_TAB_KEYS as readonly string[]).includes(tab)) {
-    return { nav: "profile", sub: tab as MeTabKey };
-  }
-  if (tab && (BOOKING_TAB_KEYS as readonly string[]).includes(tab)) {
-    return { nav: "booking", sub: tab as BookingTabKey };
-  }
-  return { nav: tab, sub: undefined };
+export const NAV_GROUPS: readonly NavGroup[] = [
+  { key: "home", label: "Home", subs: [{ key: "home", label: "Home" }] },
+  {
+    key: "inbox",
+    label: "Inbox",
+    subs: [
+      { key: "activity", label: "Chats" },
+      { key: "appointments", label: "Appointments" },
+      { key: "orders", label: "Orders" },
+    ],
+  },
+  {
+    key: "knowledge",
+    label: "Knowledge",
+    subs: [
+      { key: NEW_SOURCE_TAB_KEY, label: "+ New source" },
+      { key: "graph", label: "Health" },
+    ],
+  },
+  {
+    key: "agent",
+    label: "Agent",
+    subs: [
+      { key: "answers", label: "Presets" },
+      { key: "goals", label: "Goals" },
+      { key: "rules", label: "Rules" },
+    ],
+  },
+  { key: "cards", label: "Cards", subs: [{ key: "a2ui", label: "Cards" }] },
+  {
+    key: "booking",
+    label: "Booking",
+    subs: [
+      // Always present, on or off: it holds the switch that turns booking on.
+      { key: "booking", label: "Settings" },
+      { key: "booking-services", label: "Services" },
+      { key: "booking-providers", label: "Providers" },
+      { key: "booking-locations", label: "Locations" },
+      { key: "booking-hours", label: "Hours" },
+      { key: "booking-customer", label: "Customer" },
+      { key: "booking-questions", label: "Questions" },
+      { key: "booking-pricing", label: "Pricing" },
+    ],
+  },
+  {
+    key: "settings",
+    label: "Settings",
+    subs: [
+      { key: "profile", label: "Profile" },
+      { key: "theme", label: "Theme" },
+      { key: "contacts", label: "Contacts" },
+      { key: "users", label: "Users", operator: true },
+      { key: "bulk", label: "Bulk builder", operator: true },
+    ],
+  },
+];
+
+/**
+ * Legacy `?tab=` and show_panel keys → the panel that now holds them. The
+ * combined Calendar panel became Appointments (Inbox) + Booking (Settings);
+ * "me" was the old Profile nav.
+ */
+export const TAB_ALIASES: Readonly<Record<string, string>> = {
+  calendar: "appointments",
+  me: "profile",
+};
+
+/** The fixed (non-source) panels the copilot may reveal; never Home. */
+export function fixedPanelEntries(operator: boolean): Array<{ key: string; label: string }> {
+  return NAV_GROUPS.filter((g) => g.key !== "home")
+    .flatMap((g) => g.subs)
+    .filter((s) => !s.operator || operator)
+    .map((s) => ({ key: s.key, label: s.label }));
+}
+
+/** Display label per fixed panel key, as the dashboard strips show them. */
+export function labelsFromNav(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const g of NAV_GROUPS) for (const s of g.subs) out[s.key] = s.label;
+  return out;
+}
+
+/** Which nav group holds a fixed panel key, if any. */
+export function navForPanel(key: string): NavKey | undefined {
+  return NAV_GROUPS.find((g) => g.subs.some((s) => s.key === key))?.key;
 }
 
 /**
- * The Content tab strip, computed from IngestionSource rows: enabled rows in
- * row order (DB order IS display order), each paired with its panel by key.
+ * Deep-link resolution for the dashboard: a panel key opens its group on
+ * that sub-tab. Source keys and the builder land on Knowledge; the old
+ * "content" nav key opens Knowledge on the first live source. Unknown keys
+ * pass through untouched so a stale link still lands somewhere sensible.
+ */
+export function resolveAdminTab(
+  tab: string | undefined,
+  // The live Knowledge keys come from the IngestionSource table so deep links
+  // to custom sources resolve; callers without the rows get the starters.
+  contentKeys: readonly string[] = CONTENT_TAB_KEYS,
+): { nav: string | undefined; sub: string | undefined } {
+  if (!tab) return { nav: undefined, sub: undefined };
+  if (tab === "content") return { nav: "knowledge", sub: contentKeys[0] };
+  const key = TAB_ALIASES[tab] ?? tab;
+  if (key === NEW_SOURCE_TAB_KEY || contentKeys.includes(key)) {
+    return { nav: "knowledge", sub: key };
+  }
+  const nav = navForPanel(key);
+  return nav ? { nav, sub: key } : { nav: key, sub: undefined };
+}
+
+/**
+ * The Knowledge source strip, computed from IngestionSource rows: enabled rows
+ * in row order (DB order IS display order), each paired with its panel by key.
  * Rows with no panel are dropped — a custom source must never crash the
  * dashboard before its panel exists. Pure, so it's provable offline.
  */

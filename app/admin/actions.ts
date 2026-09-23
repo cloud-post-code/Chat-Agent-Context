@@ -17,8 +17,8 @@ import {
   createSession,
   currentUser,
   destroySession,
-  verifyPassword,
 } from "@/lib/auth";
+import { authenticate } from "@/lib/bulkAccounts";
 import {
   createAccount,
   deleteAccount,
@@ -167,27 +167,15 @@ function revalidateAll() {
 }
 
 // ── Auth ──
+/** The "email" field accepts an email or a bulk-built username (no "@"). */
 export async function login(formData: FormData) {
-  const email = String(formData.get("email") ?? "").trim().toLowerCase();
+  const identifier = String(formData.get("email") ?? "").trim();
   const pw = String(formData.get("password") ?? "");
-  const user = email
-    ? await prisma.user.findUnique({ where: { email } })
-    : null;
-  // Verify against a constant dummy hash when the email is unknown, so the
-  // response time doesn't reveal which addresses have accounts.
-  const ok = user
-    ? verifyPassword(pw, user.passwordHash)
-    : (verifyPassword(pw, DUMMY_HASH), false);
-  if (!ok || !user || !accountActive(user)) redirect("/admin?error=1");
+  const user = identifier ? await authenticate(identifier, pw) : null;
+  if (!user) redirect("/admin?error=1");
   await createSession(user.id);
   redirect("/admin/chat");
 }
-
-// A real scrypt hash of a random throwaway value; never matches anything.
-const DUMMY_HASH =
-  "scrypt:16384:8:1:6c6f67696e2d74696d696e672d70616464696e67:" +
-  "0000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000";
 
 export async function signup(formData: FormData) {
   const result = await createUser({

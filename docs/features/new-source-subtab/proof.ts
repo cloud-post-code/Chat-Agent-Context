@@ -29,27 +29,27 @@ async function main() {
   );
   const { SubTabs } = await import("../../../app/admin/SubTabs");
 
-  // 1. The builder key resolves to Content regardless of live source keys.
+  // 1. The builder key resolves to Knowledge regardless of live source keys.
   check("NEW_SOURCE_TAB_KEY is the deep-link key", NEW_SOURCE_TAB_KEY === "new-source");
   const withKeys = resolveAdminTab(NEW_SOURCE_TAB_KEY, ["projects", "custom-x"]);
   check(
-    "new-source resolves to content with live keys",
-    withKeys.nav === "content" && withKeys.sub === NEW_SOURCE_TAB_KEY,
+    "new-source resolves to knowledge with live keys",
+    withKeys.nav === "knowledge" && withKeys.sub === NEW_SOURCE_TAB_KEY,
   );
   const noKeys = resolveAdminTab(NEW_SOURCE_TAB_KEY);
   check(
-    "new-source resolves to content with default keys",
-    noKeys.nav === "content" && noKeys.sub === NEW_SOURCE_TAB_KEY,
+    "new-source resolves to knowledge with default keys",
+    noKeys.nav === "knowledge" && noKeys.sub === NEW_SOURCE_TAB_KEY,
   );
 
   // 2. Existing deep links are untouched.
-  check("projects still resolves to content", resolveAdminTab("projects").nav === "content");
+  check("a source key resolves to knowledge", resolveAdminTab("projects", ["projects"]).nav === "knowledge");
   check("answers still resolves to agent", resolveAdminTab("answers").nav === "agent");
-  check("theme still resolves to profile (Me)", resolveAdminTab("theme").nav === "profile");
-  check("activity still resolves to activity", resolveAdminTab("activity").nav === "activity");
+  check("theme resolves to settings", resolveAdminTab("theme").nav === "settings");
+  check("activity resolves to inbox", resolveAdminTab("activity").nav === "inbox");
   check(
     "unknown keys still pass through",
-    resolveAdminTab("graph").nav === "graph" && resolveAdminTab("graph").sub === undefined,
+    resolveAdminTab("bogus").nav === "bogus" && resolveAdminTab("bogus").sub === undefined,
   );
 
   // 3. SubTabs opened on the builder key selects it and renders its panel
@@ -61,7 +61,7 @@ async function main() {
         { key: "projects", label: "Projects", content: h("div", null, "PROJECTS-PANEL") },
         {
           key: NEW_SOURCE_TAB_KEY,
-          label: "+ New ingestion source",
+          label: "+ New source",
           content: h("div", null, "BUILDER-PANEL"),
         },
       ],
@@ -69,7 +69,7 @@ async function main() {
   );
   check(
     "builder tab renders selected in the strip",
-    /aria-selected="true"[^>]*>\+ New ingestion source/.test(html),
+    /aria-selected="true"[^>]*>\+ New source/.test(html),
   );
   check("builder panel populates below the tab bar", html.includes("BUILDER-PANEL"));
   check("sibling panel is not rendered", !html.includes("PROJECTS-PANEL"));
@@ -83,11 +83,14 @@ async function main() {
   check("manual form posts splitMode", panelSrc.includes('name="splitMode"'));
   check("manual form renders the classification selector", panelSrc.includes("ClassificationSelect"));
 
-  // 5. The dashboard mounts the panel as a Content sub-tab.
+  // 5. The panel set mounts the builder as a Knowledge sub-tab (the
+  //    dashboard lays out what panels.tsx builds, in NAV_GROUPS order).
   const dash = readFileSync(path.join(root, "app/admin/dashboard/page.tsx"), "utf8");
-  check("dashboard renders NewSourcePanel", dash.includes("NewSourcePanel"));
-  check("dashboard keys the tab by NEW_SOURCE_TAB_KEY", dash.includes("NEW_SOURCE_TAB_KEY"));
-  check("dashboard labels the tab", dash.includes("+ New ingestion source"));
+  const panels = readFileSync(path.join(root, "app/admin/panels.tsx"), "utf8");
+  const nav = readFileSync(path.join(root, "app/admin/contentTabs.ts"), "utf8");
+  check("panel set renders NewSourcePanel", panels.includes("NewSourcePanel"));
+  check("panel set keys the tab by NEW_SOURCE_TAB_KEY", panels.includes("[NEW_SOURCE_TAB_KEY]"));
+  check("nav config labels the tab", nav.includes('label: "+ New source"'));
   check(
     "dashboard no longer links out to /admin/sources/new",
     !dash.includes('"/admin/sources/new"'),

@@ -115,7 +115,7 @@ async function main() {
 
     // ── 1. Panel keys derive from live data ──
     const keys = (await adminPanelKeys(user.id, false)).map((k) => k.key);
-    for (const k of ["goals", "rules", "answers", "theme", "activity", "graph", "field-notes"]) {
+    for (const k of ["goals", "rules", "answers", "theme", "activity", "graph", "appointments", "orders", "booking", "field-notes"]) {
       check(`panel key present: ${k}`, keys.includes(k));
     }
     check("users panel hidden from non-operators", !keys.includes("users"));
