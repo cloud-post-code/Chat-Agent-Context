@@ -395,17 +395,17 @@ async function main() {
     );
     void realCount;
 
-    // ══ C. Settings › Booking is always present ═══════════════════════════
+    // ══ C. Booking › Services (the on switch) is always present ═══════════
     const onKeys = await adminPanelKeys(userDefault.id);
     const offKeys = await adminPanelKeys(userOff.id);
     check(
-      "C17 the Booking settings exist when booking is on",
-      onKeys.some((k) => k.key === "booking"),
+      "C17 Booking › Services exists when booking is on",
+      onKeys.some((k) => k.key === "booking-services"),
       onKeys.map((k) => k.key).join(","),
     );
     check(
-      "C17 the Booking settings exist when booking is OFF (they hold the on switch)",
-      offKeys.some((k) => k.key === "booking"),
+      "C17 Booking › Services exists when booking is OFF (it holds the on switch)",
+      offKeys.some((k) => k.key === "booking-services"),
       offKeys.map((k) => k.key).join(","),
     );
     check(
@@ -414,23 +414,25 @@ async function main() {
       onKeys.map((k) => k.key).join(","),
     );
 
-    // C19/C20: BookingSettings renders the toggle and catalog; the
-    // Appointments grid only shows when booking is on. Real components.
+    // C19/C20: the toggle and the question catalog render from their own
+    // panels; the Appointments grid only shows when booking is on.
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
     const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
-    const { BookingSettings } = await import("../../../app/admin/BookingPanel");
+    const { BookingToggle } = await import("../../../app/admin/BookingPanel");
+    const { QuestionsPanel } = await import("../../../app/admin/booking/QuestionsPanel");
     const noopAction = async () => {};
 
     const cfgOn = await getBookingConfig(userDefault.id);
-    const settingsOn = renderToStaticMarkup(React.createElement(BookingSettings, { config: cfgOn }));
+    const settingsOn = renderToStaticMarkup(React.createElement(BookingToggle, { enabled: cfgOn.enabled }));
     check(
-      "C19 Booking settings render the booking toggle",
+      "C19 the toggle renders as 'turn booking off' when on",
       /booking/i.test(settingsOn) && /turn booking off/i.test(settingsOn),
     );
+    const questions = renderToStaticMarkup(React.createElement(QuestionsPanel, { config: cfgOn }));
     check(
-      "C19 Booking settings render the question catalog",
-      cfgOn.fields.every((f) => settingsOn.includes(f.label)),
+      "C19 Booking › Questions renders the question catalog",
+      cfgOn.fields.every((f) => questions.includes(f.label)),
       cfgOn.fields.map((f) => f.label).join(" | "),
     );
     const htmlOn = renderToStaticMarkup(
@@ -444,7 +446,7 @@ async function main() {
     check("C20 the month grid shows when booking is on", /Mon/.test(htmlOn) && /Tue/.test(htmlOn));
 
     const cfgOff = await getBookingConfig(userOff.id);
-    const settingsOff = renderToStaticMarkup(React.createElement(BookingSettings, { config: cfgOff }));
+    const settingsOff = renderToStaticMarkup(React.createElement(BookingToggle, { enabled: cfgOff.enabled }));
     check("C20 the toggle still renders when booking is off", /turn booking on/i.test(settingsOff));
     const htmlOff = renderToStaticMarkup(
       React.createElement(AppointmentsPanel, {
@@ -456,7 +458,7 @@ async function main() {
     );
     check(
       "C20 the month grid is hidden when booking is off",
-      !/Mon<\/div>/.test(htmlOff) && htmlOff.includes("?tab=booking"),
+      !/Mon<\/div>/.test(htmlOff) && htmlOff.includes("?tab=booking-services"),
     );
   } finally {
     for (const id of made) {

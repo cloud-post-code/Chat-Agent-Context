@@ -29,9 +29,9 @@ async function main() {
 
   // ── 1. Nav config ──
   check(
-    "six nav groups in order",
+    "seven nav groups in order",
     JSON.stringify(NAV_GROUPS.map((g) => g.key)) ===
-      JSON.stringify(["home", "inbox", "knowledge", "agent", "cards", "settings"]),
+      JSON.stringify(["home", "inbox", "knowledge", "agent", "cards", "booking", "settings"]),
     NAV_GROUPS.map((g) => g.key).join(","),
   );
   const subKeys = NAV_GROUPS.flatMap((g) => g.subs.map((s) => s.key));
@@ -43,20 +43,25 @@ async function main() {
   check("fixed panels include users for operators", fixedOp.includes("users"));
   check(
     "fixed panels cover the split calendar",
-    ["appointments", "orders", "booking", "activity", "graph", "a2ui"].every((k) => fixedOwner.includes(k)),
+    ["appointments", "orders", "booking-services", "booking-questions", "activity", "graph", "a2ui"].every((k) => fixedOwner.includes(k)),
     fixedOwner.join(","),
   );
   const labels = labelsFromNav();
   check("graph is labelled Health", labels.graph === "Health");
   check("a2ui is labelled Cards", labels.a2ui === "Cards");
-  check("booking is labelled Booking", labels.booking === "Booking");
+  check("booking-services is labelled Services", labels["booking-services"] === "Services");
+  check(
+    "copilot hints ride along",
+    fixedPanelEntries(false).some((e) => e.key === "booking-services" && /switch/.test(e.hint ?? "")),
+  );
 
   // ── 2. Deep links ──
   const table: Array<[string, string, string | undefined]> = [
     ["activity", "inbox", "activity"],
     ["calendar", "inbox", "appointments"],
     ["orders", "inbox", "orders"],
-    ["booking", "settings", "booking"],
+    ["booking", "booking", "booking-services"],
+    ["booking-questions", "booking", "booking-questions"],
     ["graph", "knowledge", "graph"],
     ["a2ui", "cards", "a2ui"],
     ["contacts", "settings", "contacts"],
@@ -134,7 +139,7 @@ async function main() {
   check("profile incomplete → profile not done", todoByTab.profile?.done === false);
   check("suggested tagline → theme not done", todoByTab.theme?.done === false);
   check("no cards → a2ui not done", todoByTab.a2ui?.done === false);
-  check("booking off → booking not done", todoByTab.booking?.done === false);
+  check("booking off → booking-services not done", todoByTab["booking-services"]?.done === false);
   check("empty source → its tab not done", todoByTab.blog?.done === false);
   check("filled source → done", todoByTab.services?.done === true);
 
@@ -150,7 +155,7 @@ async function main() {
   // ── 4. HomePanel markup ──
   const { HomePanel } = await import("../../../app/admin/HomePanel");
   const home = renderToStaticMarkup(h(HomePanel, { attention, checklist: todo }));
-  for (const t of ["answers", "appointments", "booking"]) {
+  for (const t of ["answers", "appointments", "booking-services"]) {
     check(`Home links to ?tab=${t}`, home.includes(`href="/admin/dashboard?tab=${t}"`));
   }
   check("Home shows the flagged count", />2</.test(home));
@@ -158,13 +163,13 @@ async function main() {
   // ── 5. Calendar split ──
   const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
   const { OrdersPanel } = await import("../../../app/admin/OrdersPanel");
-  const { BookingSettings } = await import("../../../app/admin/BookingPanel");
+  const { BookingToggle } = await import("../../../app/admin/BookingPanel");
   const noop = async () => {};
   const off = renderToStaticMarkup(
     h(AppointmentsPanel, { rows: [], fieldLabels: {}, cancelAction: noop, bookingEnabled: false }),
   );
   check("appointments hides the grid while booking is off", !/Mon<\/div>/.test(off));
-  check("appointments points at Settings › Booking", off.includes("?tab=booking"));
+  check("appointments points at Booking › Services", off.includes("?tab=booking-services"));
   const on = renderToStaticMarkup(
     h(AppointmentsPanel, { rows: [], fieldLabels: {}, cancelAction: noop, bookingEnabled: true }),
   );
@@ -189,24 +194,24 @@ async function main() {
     }),
   );
   check("orders lists the contact name", one.includes("Bo Diddley"));
-  const booking = renderToStaticMarkup(
-    h(BookingSettings, { config: { enabled: false, fields: [] } as never }),
-  );
-  check("booking settings render the toggle", /turn booking on/i.test(booking));
+  const booking = renderToStaticMarkup(h(BookingToggle, { enabled: false }));
+  check("booking toggle renders", /turn booking on/i.test(booking));
 
   // ── 6. Wiring ──
   const dash = src("app/admin/dashboard/page.tsx");
   check("dashboard renders from NAV_GROUPS", dash.includes("NAV_GROUPS"));
   check("dashboard has no literal calendar entry", !dash.includes('key: "calendar"'));
   const cal = src("app/admin/CalendarPanel.tsx");
-  check("CalendarPanel no longer imports BookingSettings", !cal.includes("import { BookingSettings"));
+  check("CalendarPanel no longer imports the toggle", !cal.includes("from \"./BookingPanel\""));
   const brain = src("lib/adminBrain.ts");
   check("adminBrain has no literal FIXED_PANELS", !brain.includes("FIXED_PANELS"));
   check("adminBrain aliases legacy show_panel keys", brain.includes("TAB_ALIASES"));
   const panels = src("app/admin/panels.tsx");
-  for (const k of ["home", "appointments", "orders", "booking"]) {
+  for (const k of ["home", "appointments", "orders"]) {
     check(`panels sets flat.${k}`, panels.includes(`flat.${k} =`));
   }
+  check("panels sets the Booking section panels", panels.includes('flat["booking-services"] ='));
+  check("the combined calendar panel is gone", !panels.includes("flat.calendar") && !panels.includes("flat.booking ="));
   const chat = src("app/admin/chat/AdminChat.tsx");
   check("chat starters no longer say ingestion sources", !chat.includes("ingestion sources"));
 

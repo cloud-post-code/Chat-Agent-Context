@@ -79,11 +79,14 @@ export type AdminDeps = { client?: ModelClient };
  * Every panel the chat may reveal for this user, derived the same way the
  * dashboard derives its strips: enabled IngestionSource rows in row order,
  * then the fixed sections from the nav config (Users for operators only).
+ * `hint` is a short "when to reveal this" note folded into the system prompt
+ * so the model can tell apart panels whose label alone doesn't say what
+ * they're for.
  */
 export async function adminPanelKeys(
   userId: string,
   operator = false,
-): Promise<Array<{ key: string; label: string }>> {
+): Promise<Array<{ key: string; label: string; hint?: string }>> {
   const sources = await listIngestionSources(userId);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
@@ -403,14 +406,14 @@ function adminTools(
 }
 
 function systemPrompt(
-  panels: Array<{ key: string; label: string }>,
+  panels: Array<{ key: string; label: string; hint?: string }>,
   sources: IngestionSourceRow[],
   colors: Record<string, string>,
 ): string {
   const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
     "\n",
   );
-  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}`).join("\n");
+  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}${p.hint ? ` — ${p.hint}` : ""}`).join("\n");
   const sourceLines = sources
     .map((s) => {
       const forms = ingestFormsFor(s.uploadMethod, s.storageKinds);

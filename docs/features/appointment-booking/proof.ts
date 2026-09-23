@@ -135,8 +135,8 @@ async function main() {
       check("stale show_booking call draws no card while disabled", bookingCards(events).length === 0);
     }
     check(
-      "booking settings panel key present while disabled (it holds the on switch)",
-      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking"),
+      "Booking › Services panel key present while disabled (it holds the on switch)",
+      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking-services"),
     );
 
     // ── 2. Enabling seeds default fields ──
@@ -222,7 +222,7 @@ async function main() {
     const enabledKeys = (await adminPanelKeys(user.id, false)).map((k) => k.key);
     check(
       "appointments and booking panel keys present while enabled",
-      ["appointments", "booking"].every((key) => enabledKeys.includes(key)),
+      ["appointments", "booking-services"].every((key) => enabledKeys.includes(key)),
     );
 
     // ── 9. Cancel: gone from the list, chunks dropped, slot rebookable ──
@@ -240,8 +240,8 @@ async function main() {
     const offAgain = await createAppointment(user.id, { startsAt: tomorrowAt(15), answers });
     check("submit while disabled rejected", offAgain.ok === false);
     check(
-      "booking settings panel key still present after disable",
-      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking"),
+      "Booking › Services panel key still present after disable",
+      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking-services"),
     );
   } finally {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});

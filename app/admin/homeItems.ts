@@ -90,7 +90,7 @@ export function checklistItems(input: ChecklistInput): ChecklistItem[] {
     { label: "Fill in your business profile", done: profileDone, tab: "profile" },
     { label: "Confirm your tagline", done: input.taglineSource !== "suggested", tab: "theme" },
     { label: "Build at least one card", done: input.cardCount > 0, tab: "a2ui" },
-    { label: "Turn on appointment booking", done: input.bookingEnabled, tab: "booking" },
+    { label: "Turn on appointment booking", done: input.bookingEnabled, tab: "booking-services" },
     ...input.sources.map((s) => ({
       label: `Add something to ${s.label}`,
       done: s.count > 0,

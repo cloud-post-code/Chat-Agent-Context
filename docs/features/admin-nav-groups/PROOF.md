@@ -13,12 +13,14 @@ wiring reads. No DB, no model calls.
 ## Assertions (all must pass)
 
 1. **Nav config**: `NAV_GROUPS` keys are exactly
-   `home, inbox, knowledge, agent, cards, settings`; every sub key is unique;
-   `fixedPanelEntries(false)` excludes `home` and `users`;
-   `fixedPanelEntries(true)` includes `users`; `labelsFromNav()` maps
-   `graph` → "Health", `a2ui` → "Cards", `booking` → "Booking".
+   `home, inbox, knowledge, agent, cards, booking, settings`; every sub key is
+   unique; `fixedPanelEntries(false)` excludes `home` and `users`, includes the
+   booking panels, and carries copilot hints; `fixedPanelEntries(true)`
+   includes `users`; `labelsFromNav()` maps `graph` → "Health", `a2ui` →
+   "Cards", `booking-services` → "Services".
 2. **Deep links**: `resolveAdminTab` yields `activity`→inbox,
-   `calendar`→inbox/appointments, `orders`→inbox, `booking`→settings,
+   `calendar`→inbox/appointments, `orders`→inbox,
+   `booking`→booking/booking-services, `booking-questions`→booking,
    `graph`→knowledge, `a2ui`→cards, `contacts`→settings, `answers`→agent,
    `goals`→agent, `profile`→settings, `theme`→settings, `me`→settings/profile,
    `users`→settings, `new-source`→knowledge, a live source key→knowledge,
@@ -30,17 +32,26 @@ wiring reads. No DB, no model calls.
    tagline, no cards, booking off, and empty sources as not done and links
    each to its tab. A fully set-up fixture yields all done.
 4. **HomePanel markup** contains `href="/admin/dashboard?tab=answers"`,
-   `?tab=appointments`, `?tab=booking`, and the flagged count.
+   `?tab=appointments`, `?tab=booking-services`, and the flagged count.
 5. **Calendar split**: `AppointmentsPanel` with `bookingEnabled: false`
-   renders no month grid and a link to `?tab=booking`; with `true` it renders
-   the grid. `OrdersPanel` renders "No orders yet" when empty and an order's
-   contact name when given. `BookingSettings` renders the toggle.
+   renders no month grid and a link to `?tab=booking-services`; with `true`
+   it renders the grid. `OrdersPanel` renders "No orders yet" when empty and
+   an order's contact name when given. `BookingToggle` renders the switch.
 6. **Wiring**: `dashboard/page.tsx` imports `NAV_GROUPS` and has no literal
-   `key: "calendar"`; `CalendarPanel.tsx` no longer imports `BookingSettings`;
-   `lib/adminBrain.ts` has no literal `FIXED_PANELS` array and uses
-   `TAB_ALIASES`; `panels.tsx` sets `flat.home`, `flat.appointments`,
-   `flat.orders`, `flat.booking`; `AdminChat.tsx` starters no longer say
-   "ingestion sources".
+   `key: "calendar"`; `CalendarPanel.tsx` no longer imports from
+   `BookingPanel`; `lib/adminBrain.ts` has no literal `FIXED_PANELS` array and
+   uses `TAB_ALIASES`; `panels.tsx` sets `flat.home`, `flat.appointments`,
+   `flat.orders` and the `booking-*` panels, and no longer sets
+   `flat.calendar`; `AdminChat.tsx` starters no longer say "ingestion
+   sources".
+
+## Revision note
+
+Rewritten after merging `main`, which landed the booking flow (its own
+Booking section with seven sub-tabs and a bare `BookingToggle` in place of
+`BookingSettings`). The "Settings › Booking" panel this proof first asserted
+no longer exists; the always-present on switch is Booking › Services. The
+red/green evidence was re-run on the merged tree.
 
 ## Red expectation
 
