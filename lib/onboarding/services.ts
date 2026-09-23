@@ -10,7 +10,8 @@ import type { Crawler, Page } from "./crawl";
 import { bookingCorpus, findBookingFrames, findBookingLink } from "./bookingPage";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
-import { seedServices, type ExtractedService } from "./bookingSeed";
+import { applyBookingChannels, seedServices, type ExtractedService } from "./bookingSeed";
+import { BOOKING_CHANNELS, type BookingChannel } from "@/lib/booking/types";
 
 /**
  * The services-and-booking extractor: one read of the pages most likely to
@@ -41,10 +42,11 @@ Rules:
 - "kind" is what a customer books, judged from what the business is: personal_service (a person's time at the business: salon, spa, barber, clinic, studio), table (restaurant, bar, café), home_service (the business comes to the customer: trades, cleaning, repair), class (places in a class, tour or event), consultation (a conversation: agency, adviser, coach), other (anything else, or unclear).
 - "staff" are the names of people the text says a customer can choose or ask for when booking (technicians, stylists, practitioners). Copy the names; [] when the text names nobody. Never the owner's name just because it appears.
 - "phone" and "email" say whether the text shows the booking asking for each: "required", "optional", or "unknown" when the text doesn't show it. "notes" is true when the booking takes a free-text note or special request.
+- "channels" lists every way the text says a customer can book: "online" (a booking page, widget or form), "phone" ("call to book", a number beside "book"), "email", "walk_in" ("walk-ins welcome"). [] when the text says nothing about how to book.
 - Nothing qualifying? Return empty lists, false, "other" and "unknown". Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"channels":[],"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
 
 export type { ServiceItem } from "@/lib/serviceCatalog";
 export type BookingRequirement = {
@@ -68,6 +70,8 @@ export type ServicesExtract = {
   phone: ContactNeed;
   email: ContactNeed;
   notes: boolean;
+  /** How the site says one books: online, by phone, by email, walking in. */
+  channels: BookingChannel[];
   requirements: BookingRequirement[];
 };
 
@@ -89,6 +93,7 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
     phone: "unknown",
     email: "unknown",
     notes: false,
+    channels: [],
     requirements: [],
   };
   if (!raw || typeof raw !== "object") return out;
@@ -156,6 +161,11 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
     out.phone = contactNeed(booking.phone);
     out.email = contactNeed(booking.email);
     out.notes = booking.notes === true;
+    if (Array.isArray(booking.channels)) {
+      out.channels = [...new Set(booking.channels.map((c) => String(c)))].filter((c): c is BookingChannel =>
+        (BOOKING_CHANNELS as readonly string[]).includes(c),
+      );
+    }
     if (Array.isArray(booking.requirements)) {
       for (const r of booking.requirements.slice(0, 10)) {
         if (!r || typeof r !== "object") continue;
@@ -360,6 +370,15 @@ export async function extractServicesAndBooking(
     report.seededFields = await rebuildUntouchedForm(userId, planBookingForm(clean));
   } catch {
     // Left as-is; the tenant can still build the form by hand.
+  }
+
+  // How the business takes bookings decides how the card words its own:
+  // a phone-only business gets a request the owner confirms, and a phone
+  // number is asked for. Best-effort; an owner's own choice is kept.
+  try {
+    await applyBookingChannels(userId, clean.channels, onEvent);
+  } catch {
+    // Left as-is; Hours & rules still has the switch.
   }
 
   // The Service table (lib/booking/): same empty-catalog gate, same

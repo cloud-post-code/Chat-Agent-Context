@@ -103,6 +103,15 @@ service and person to an image on the pages that describe them; the admin can
 upload; the gallery is the fallback; a themed placeholder is the last resort,
 so every tile has an image area.
 
+**There is always a way to book.** The extractor reports how the site says
+one books. A business that books by phone (or email, or walk-in) but not
+online gets request confirmation: the card asks for a phone number, calls the
+booking a request, and says the business will confirm; the owner can flip the
+switch on Hours & rules and a later site read leaves their choice alone. The
+business's number is on the service step as a tap-to-call link either way.
+The offsite booking widget most small businesses use (MoonLight's GoCheckin
+page, for one) is read for the priced menu, as onboarding reads it.
+
 ## Non-goals
 
 Charging a deposit (recorded, not taken), external calendar sync, reminder

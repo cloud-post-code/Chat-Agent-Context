@@ -51,7 +51,15 @@ export function Confirmed({
         maxWidth: 560,
       }}
     >
-      <strong style={{ fontSize: 16, fontFamily: "var(--font-heading)" }}>{waitlisted ? "You're on the waitlist." : "You're booked."}</strong>
+      <strong style={{ fontSize: 16, fontFamily: "var(--font-heading)" }}>
+        {waitlisted ? "You're on the waitlist." : flow.rules.confirmation === "request" ? "Request sent." : "You're booked."}
+      </strong>
+      {!waitlisted && flow.rules.confirmation === "request" && (
+        <p style={{ fontSize: 13, margin: "6px 0 0" }}>
+          {flow.business.name || "The business"} will confirm your appointment
+          {flow.business.phone ? ` — questions? Call ${flow.business.phone}` : ""}.
+        </p>
+      )}
       <dl style={{ margin: "10px 0", fontSize: 14 }}>
         <Row label="Service">{result.serviceName || "Appointment"}</Row>
         <Row label="Provider">{result.staffName || provider?.name || "Any available"}</Row>

@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import { SERVICES_SOURCE_TITLE } from "@/lib/serviceCatalog";
 import { Crawler } from "./crawl";
+import { isBookingHost } from "./bookingPage";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
 import { enrichServices } from "./bookingSeed";
 
@@ -26,17 +27,25 @@ export async function siteUrlFor(userId: string): Promise<string | null> {
     orderBy: { updatedAt: "desc" },
     select: { url: true },
   });
-  const any = services ?? (await prisma.source.findFirst({
+  const others = await prisma.source.findMany({
     where: { userId, kind: { startsWith: "ingest:" }, url: { startsWith: "http" } },
     orderBy: { createdAt: "asc" },
     select: { url: true },
-  }));
-  if (!any?.url) return null;
-  try {
-    return new URL(any.url).origin;
-  } catch {
-    return null;
+    take: 20,
+  });
+  // The services record may be keyed on the booking widget's page; the site
+  // is the origin the crawler is pinned to, so a booking product's host is
+  // never taken for it.
+  for (const candidate of [services, ...others]) {
+    if (!candidate?.url) continue;
+    try {
+      const u = new URL(candidate.url);
+      if (!isBookingHost(u.hostname)) return u.origin;
+    } catch {
+      // A malformed stored url is skipped, not fatal.
+    }
   }
+  return null;
 }
 
 export async function refreshServicesFromSite(

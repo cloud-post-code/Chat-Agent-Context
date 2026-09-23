@@ -31,7 +31,8 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
 6. Location config: postal codes normalized; radius and travel fee kept; an
    http meeting link refused; capacity and per-service prices kept; capacity
    defaults to one room.
-7. Tenant rules: unknown timezone falls back; an odd slot interval falls back
+7. Tenant rules: booking channels keep the known ones once and confirmation
+   is instant or request; unknown timezone falls back; an odd slot interval falls back
    to 30; lead time and advance window clamped; first name can't be turned
    off or made optional; a configurable field keeps its wording; every
    customer key present once; promo codes upper-cased and a >100% one
@@ -113,17 +114,22 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
     price, description, add-on and a photo from the pages; a service the
     site names that the owner lacks is added; a price the owner set is never
     overwritten.
+14. A phone-only site (the real services stage with a scripted model): the
+    channels are recorded, confirmation becomes a request the owner confirms,
+    a phone number is required, the card is told the business's number and
+    the mode, and an owner's own choice outlives a later site read.
 
 ### D. The card (`app/cards/Cards.tsx`), static render
 1. The service step opens with a tile per service — the imaged one draws
    its photo, the others a placeholder; prices read as the business would
    say them; durations, the deposit and mode badges; category chips; no
-   network needed; a step counter.
+   network needed; a step counter; the business's number as a tap-to-call
+   link ("Prefer to call?").
 2. An old stored block (no flow) still draws its first question at once.
 3. The services card shows thumbnails, prices and a Book button per service.
 
 ## Result
-166 assertions, all passing. `booking-menu-fields` (86), `booking-on-by-default`,
+172 assertions, all passing. `booking-menu-fields` (86), `booking-on-by-default`,
 `services-card` and `starter-tabs` still green. `tsc --noEmit` and `next lint`
 clean for the whole repo.
 
