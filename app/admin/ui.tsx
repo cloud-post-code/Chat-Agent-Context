@@ -84,3 +84,28 @@ export function Label({ children }: { children: React.ReactNode }) {
     </label>
   );
 }
+
+/** A single metric tile: big number over a small label, optional detail line. */
+export function Stat({ label, value, detail }: { label: string; value: number; detail?: string }) {
+  return (
+    <div
+      data-fill="bg-soft"
+      style={{
+        border: "1px solid var(--border)",
+        borderRadius: "var(--radius-sm)",
+        padding: "12px 14px",
+        background: "var(--bg-soft)",
+        color: "var(--on-bg-soft)",
+        height: "100%",
+      }}
+    >
+      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "var(--font-heading)", lineHeight: 1.1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 11, color: "var(--on-bg-soft)", fontStyle: "italic", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>
+        {label}
+      </div>
+      {detail ? <div style={{ fontSize: 12, marginTop: 6, color: "var(--on-bg-soft)" }}>{detail}</div> : null}
+    </div>
+  );
+}

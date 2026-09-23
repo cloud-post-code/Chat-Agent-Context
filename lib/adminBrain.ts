@@ -22,7 +22,7 @@ import { extractDocument, extractLink, extractText } from "@/lib/scrape";
 import { indexSource } from "@/lib/retrieval/indexer";
 import { getBookingConfig } from "@/lib/appointments";
 import { COLOR_ROLES, type ThemeColors } from "@/lib/theme";
-import { NEW_SOURCE_TAB_KEY } from "@/app/admin/contentTabs";
+import { fixedPanelEntries, TAB_ALIASES } from "@/app/admin/contentTabs";
 
 /**
  * The admin copilot: the chat-first surface's brain, sibling to lib/brain.ts
@@ -76,28 +76,9 @@ export type AdminInput = {
 export type AdminDeps = { client?: ModelClient };
 
 /**
- * Panels the chat can reveal that aren't ingestion-source tabs. Content tabs
- * come from the live IngestionSource rows; these are the dashboard's fixed
- * sections, labels matching the dashboard strip.
- */
-const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
-  { key: "profile", label: "Profile" },
-  { key: "theme", label: "Theme" },
-  { key: "graph", label: "Knowledge" },
-  { key: "activity", label: "Activity" },
-  { key: "answers", label: "Presets" },
-  { key: "goals", label: "Goals" },
-  { key: "rules", label: "Rules" },
-  { key: "contacts", label: "Contacts" },
-  { key: "a2ui", label: "A2UI cards" },
-  { key: "calendar", label: "Calendar" },
-  { key: NEW_SOURCE_TAB_KEY, label: "New ingestion source" },
-];
-
-/**
  * Every panel the chat may reveal for this user, derived the same way the
- * dashboard derives its strip: enabled IngestionSource rows in row order,
- * then the fixed sections, then Users for operators only.
+ * dashboard derives its strips: enabled IngestionSource rows in row order,
+ * then the fixed sections from the nav config (Users for operators only).
  */
 export async function adminPanelKeys(
   userId: string,
@@ -106,10 +87,7 @@ export async function adminPanelKeys(
   const sources = await listIngestionSources(userId);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
-    // The Calendar is fixed and unconditional: it carries the Appointments
-    // settings, so it is the one place booking can be turned back on.
-    ...FIXED_PANELS,
-    ...(operator ? [{ key: "users", label: "Users" }] : []),
+    ...fixedPanelEntries(operator),
   ];
 }
 
@@ -490,7 +468,9 @@ async function execute(
 ): Promise<{ events: AdminEvent[]; result: string }> {
   switch (name) {
     case "show_panel": {
-      const key = String(input.key ?? "");
+      // Saved chats and canned answers may still name a retired key.
+      const raw = String(input.key ?? "");
+      const key = TAB_ALIASES[raw] ?? raw;
       if (!panelKeys.has(key)) return { events: [], result: `No panel named "${key}".` };
       return { events: [{ t: "panel", v: key }], result: "Panel rendered inline for the admin." };
     }

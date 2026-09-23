@@ -627,6 +627,25 @@
       "title": "Menu card with rich items, a shared cart with quantities, and checkout orders",
       "status": "passing",
       "notes": "Requested 2026-09-23: the menu should be fully functional from what the site displays, with a cart, quantities, and an entire cart A2UI element. New `MenuItem` + `Order` tables; lib/menuTypes.ts (closed vocabulary for ~45 item factors, line/cart rules), lib/menu.ts (rows or services fallback, show_menu full/curated hydration, MENU INDEX + VISITOR'S CART prompt sections), lib/orders.ts (createOrder re-prices from rows; timed orders also book via createAppointment), /api/order, show_menu/show_cart/add_to_cart in the brain, `cart` event applied on the page, CartProvider store in localStorage, MenuCard/CartCard renderers, Orders on the Calendar panel, extractor reports `menu` facts + page images, planners gained kind `menu`. Proof: docs/features/menu-cart/proof.ts (green); gate PASS."
+    },
+    {
+      "id": "llm-readable-site",
+      "title": "LLM-readable site: llms.txt / llms-full.txt per tenant and for the directory, robots.txt welcoming ChatGPT and Claude crawlers, sitemap, head alternates, Markdown content negotiation",
+      "feature_dir": "docs/features/llm-readable-site",
+      "proof": "docs/features/llm-readable-site/PROOF.md",
+      "priority": 1,
+      "status": "passing",
+      "notes": "Requested 2026-09-23: make the site easy for ChatGPT and Claude to access, serving the file the way they want to read it. lib/llms.ts (gatherLlmsFacts, renderLlmsIndex, renderLlmsFull, platform index/full, markdownResponse), routes app/llms.txt, app/llms-full.txt, app/a/[slug]/llms.txt, app/a/[slug]/llms-full.txt (text/markdown, ETag, CORS *, 5-min cache), app/robots.ts (GPTBot, OAI-SearchBot, ChatGPT-User, ClaudeBot, Claude-User, Claude-SearchBot, anthropic-ai allowed; /admin, /api/admin, /signup disallowed), app/sitemap.ts, alternates.types on the agent page, the repo's first middleware.ts (Accept: text/markdown or /a/<slug>.md -> llms-full; / -> llms.txt), /agent lists the files. Proof: npx tsx docs/features/llm-readable-site/proof.ts (red: modules missing; green: 42 PASS). Gate PASS. Verified over HTTP on the dev server: robots, both llms files, negotiation, .md alias, <link rel=alternate>, sitemap.",
+      "next": "Not deployed. robots.txt and sitemap.xml build URLs from NEXT_PUBLIC_SITE_URL (no request headers available there), so set it on Railway. When custom domains land, canonicalOrigin(user) should replace the platform origin in these links."
+    },
+    {
+      "id": "admin-nav-groups",
+      "title": "Admin dashboard: six nav groups (Home, Inbox, Knowledge, Agent, Cards, Settings) and a Home tab with attention queue + setup checklist",
+      "feature_dir": "docs/features/admin-nav-groups",
+      "proof": "docs/features/admin-nav-groups/PROOF.md",
+      "priority": 1,
+      "status": "passing",
+      "notes": "Requested 2026-09-23: the dashboard had grown messy (7 tabs, Contacts and A2UI under Agent Behavior, Calendar bundling appointments+orders+booking settings). NAV_GROUPS in app/admin/contentTabs.ts is the single source for the dashboard strips, resolveAdminTab deep links (TAB_ALIASES keeps calendar/content/me working) and the copilot's show_panel enum (fixedPanelEntries). CalendarPanel split into AppointmentsPanel + OrdersPanel; BookingSettings lives under Settings › Booking and stays present when booking is off. HomePanel renders attentionItems/checklistItems (app/admin/homeItems.ts) from data buildAdminPanels already loads, each row a ?tab= link; Tabs/SubTabs are keyed on the resolved tab so same-route links switch sections. Six sibling proofs updated (booking-on-by-default C17-C20 now assert Settings › Booking). Proof green, gate PASS. Pre-existing unrelated failures remain in appointment-booking ('booking defaults off') and admin-chat-a2ui (ingestPlanFor links checks)."
     }
   ]
 }

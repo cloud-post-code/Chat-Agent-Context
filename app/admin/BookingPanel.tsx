@@ -9,24 +9,21 @@ import { panel, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
 import type { BookingConfig } from "@/lib/appointmentTypes";
 
 /**
- * The Appointments settings: the booking toggle and the question catalog the
- * wizard asks from. Rendered inside the Calendar panel, below the month grid,
- * so the switch and the questions live with the bookings they produce. Same
- * form-per-row idiom as DirectivesPanel.
- *
- * Exported as a fragment rather than its own <section>: the Calendar panel
- * owns the section these render into.
+ * The Booking settings (Settings › Booking): the booking toggle and the
+ * question catalog the wizard asks from. Always present, on or off, because
+ * it holds the only switch that turns booking back on. Same form-per-row
+ * idiom as DirectivesPanel.
  */
 
 export function BookingSettings({ config }: { config: BookingConfig }) {
   return (
-    <>
+    <section>
       <div data-fill="surface" style={panel}>
-        <SectionTitle>Appointments</SectionTitle>
+        <SectionTitle>Booking</SectionTitle>
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13, marginBottom: 10 }}>
           Let visitors book a time with you right in the chat. The agent draws a
           step-by-step booking flow that asks the questions below, one at a
-          time, then a date and time. Bookings land on your Calendar.
+          time, then a date and time. Bookings land in your Inbox under Appointments.
         </p>
         <form action={setBookingEnabledAction} style={{ display: "flex", alignItems: "center", gap: 10 }}>
           {/* A hidden unchecked value submits "off"; the checkbox overrides it. */}
@@ -68,7 +65,7 @@ export function BookingSettings({ config }: { config: BookingConfig }) {
           </div>
         </>
       ) : null}
-    </>
+    </section>
   );
 }
 

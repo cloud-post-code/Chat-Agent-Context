@@ -33,7 +33,11 @@ import {
   cancelAppointmentAction,
   deleteOrderAction,
 } from "./actions";
-import { CalendarPanel } from "./CalendarPanel";
+import { AppointmentsPanel } from "./CalendarPanel";
+import { OrdersPanel } from "./OrdersPanel";
+import { BookingSettings } from "./BookingPanel";
+import { HomePanel } from "./HomePanel";
+import { attentionItems, checklistItems } from "./homeItems";
 import { getBookingConfig, listAppointments } from "@/lib/appointments";
 import { listOrders } from "@/lib/orders";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
@@ -52,10 +56,10 @@ import { listUiCards } from "@/lib/uiCards";
 import { PersonaPrompt } from "./PersonaPrompt";
 import { personaExtractionPrompt } from "@/lib/personaPrompt";
 import { graphStats, listEntities, listEdges, suggestedMerges } from "@/lib/retrieval/graph";
-import { listCannedAnswers } from "@/lib/canned";
+import { listCannedAnswers, cannedStats } from "@/lib/canned";
 import { draftBlankAnswers } from "@/lib/answerDrafts";
 import { ProjectRow } from "./ProjectRow";
-import { contentTabsFromSources, NEW_SOURCE_TAB_KEY } from "./contentTabs";
+import { contentTabsFromSources, labelsFromNav, NEW_SOURCE_TAB_KEY } from "./contentTabs";
 import { NewSourcePanel } from "./NewSourcePanel";
 import { listIngestionSources } from "@/lib/ingestionSources";
 import { listIngestedItemsClassified } from "@/lib/ingestedItems";
@@ -65,7 +69,7 @@ import { SaveButton } from "./SaveButton";
 import { AutoUploadFile } from "./AutoUploadFile";
 import { ThemePicker } from "./ThemePicker";
 import type { ThemeColors } from "@/lib/theme";
-import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label, Stamp, stamp } from "./ui";
+import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label, Stamp, stamp, Stat } from "./ui";
 import { chatMetrics } from "@/lib/activity";
 
 /**
@@ -81,11 +85,11 @@ export type AdminPanelSet = {
   flat: Record<string, React.ReactNode>;
   /** Display label per key, matching the dashboard strips. */
   labels: Record<string, string>;
-  /** Ordered enabled Content tab keys (sources first, then new-source). */
+  /** Ordered enabled Knowledge source keys (sources first, then new-source). */
   contentKeys: string[];
   /** Disabled sources, for the dashboard's "hidden sources" strip. */
   hiddenSources: { id: string; label: string }[];
-  /** Whether the Calendar tab/panel exists (the Appointments toggle). */
+  /** Operators additionally get the Users panel. */
   operator: boolean;
   themeConfig: Awaited<ReturnType<typeof getThemeConfig>>;
   slug: string;
@@ -673,22 +677,22 @@ export async function buildAdminPanels(
     ),
   }));
 
-  const labels: Record<string, string> = {
-    profile: "Profile",
-    theme: "Theme",
-    graph: "Knowledge",
-    activity: "Activity",
-    answers: "Presets",
-    goals: "Goals",
-    rules: "Rules",
-    contacts: "Contacts",
-    a2ui: "A2UI",
-    booking: "Calendar",
-    calendar: "Calendar",
-    [NEW_SOURCE_TAB_KEY]: "+ New ingestion source",
-    users: "Users",
-  };
+  // Fixed labels come from the nav config; source tabs add their own.
+  const labels: Record<string, string> = labelsFromNav();
   for (const t of contentTabs) labels[t.key] = t.label;
+
+  // Items per enabled source, for the Home checklist — all already loaded.
+  const sourceCounts: Record<string, number> = {
+    projects: projects.length,
+    links: linkSources.length,
+    pdfs: docSources.length,
+    text: textSources.length,
+    photos: photos.length,
+    persona: Object.values(personaSections).filter((v) => v.trim()).length,
+  };
+  customRows.forEach((s, i) => {
+    sourceCounts[s.key] = customItems[i].length;
+  });
 
   const flat: Record<string, React.ReactNode> = {
     profile: profileTab,
@@ -711,10 +715,8 @@ export async function buildAdminPanels(
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
-  // Always present: the Calendar now carries the Appointments settings, so it
-  // is where booking gets turned back on after it has been turned off.
-  flat.calendar = (
-    <CalendarPanel
+  flat.appointments = (
+    <AppointmentsPanel
       rows={appointments.map((a) => ({
         id: a.id,
         startsAt: a.startsAt.toISOString(),
@@ -722,7 +724,11 @@ export async function buildAdminPanels(
       }))}
       fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
       cancelAction={cancelAppointmentAction}
-      config={bookingConfig}
+      bookingEnabled={bookingConfig.enabled}
+    />
+  );
+  flat.orders = (
+    <OrdersPanel
       orders={orders.map((o) => ({
         id: o.id,
         createdAt: o.createdAt.toISOString(),
@@ -733,12 +739,34 @@ export async function buildAdminPanels(
         notes: o.notes,
         subtotal: o.subtotal,
       }))}
-      deleteOrderAction={deleteOrderAction}
+      deleteAction={deleteOrderAction}
     />
   );
-  // The retired standalone Appointments panel: anything still naming "booking"
-  // (a canned answer, a saved chat request) lands on the Calendar instead.
-  flat.booking = flat.calendar;
+  // Always present, on or off: Settings › Booking holds the only switch that
+  // turns booking back on.
+  flat.booking = <BookingSettings config={bookingConfig} />;
+  flat.home = (
+    <HomePanel
+      attention={attentionItems({
+        flaggedDown: metrics.flaggedDown,
+        unreviewed: cannedStats(canned).unreviewed,
+        appointments,
+        orders,
+        topQuestions: metrics.topQuestions,
+      })}
+      checklist={checklistItems({
+        profile,
+        taglineSource: personaConfig.taglineSource,
+        cardCount: uiCards.length,
+        bookingEnabled: bookingConfig.enabled,
+        sources: contentTabs.map((t) => ({
+          key: t.key,
+          label: t.label,
+          count: sourceCounts[t.key] ?? 0,
+        })),
+      })}
+    />
+  );
   if (operator) {
     flat.users = (
       <UsersPanel
@@ -872,29 +900,6 @@ function FeedbackControls({
           Save correction
         </PendingButton>
       </form>
-    </div>
-  );
-}
-
-/** A single metric tile: big number over a small label. */
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div
-      data-fill="bg-soft"
-      style={{
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-sm)",
-        padding: "12px 14px",
-        background: "var(--bg-soft)",
-        color: "var(--on-bg-soft)",
-      }}
-    >
-      <div style={{ fontSize: 24, fontWeight: 700, fontFamily: "var(--font-heading)", lineHeight: 1.1 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 11, color: "var(--on-bg-soft)", fontStyle: "italic", textTransform: "uppercase", letterSpacing: "0.05em", marginTop: 2 }}>
-        {label}
-      </div>
     </div>
   );
 }

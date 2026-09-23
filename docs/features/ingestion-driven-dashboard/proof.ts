@@ -48,35 +48,41 @@ check("panel-less row dropped", !tabs.some((t) => t.key === "custom-notes"));
 {
   const r = resolveAdminTab("custom-notes", ["photos", "custom-notes"]);
   check(
-    "custom key resolves into Content with a live key list",
-    r.nav === "content" && r.sub === "custom-notes",
+    "custom key resolves into Knowledge with a live key list",
+    r.nav === "knowledge" && r.sub === "custom-notes",
     JSON.stringify(r),
   );
 }
-for (const key of ["experience", "projects", "links", "pdfs", "text", "photos", "persona"]) {
-  const r = resolveAdminTab(key);
-  check(`builtin "${key}" still resolves into Content`, r.nav === "content" && r.sub === key);
+const builtin = ["projects", "links", "pdfs", "text", "photos", "persona"];
+for (const key of builtin) {
+  const r = resolveAdminTab(key, builtin);
+  check(`builtin "${key}" resolves into Knowledge`, r.nav === "knowledge" && r.sub === key);
 }
 {
-  // The knowledge→links shim was pruned (deploy-db-bootstrap): unknown keys
-  // pass through and the dashboard opens on its default.
+  // "knowledge" is now the nav key itself: it opens the section on its default.
   const r = resolveAdminTab("knowledge");
-  check('pruned "knowledge" shim: key passes through', r.nav === "knowledge" && r.sub === undefined);
+  check('"knowledge" opens the Knowledge nav', r.nav === "knowledge" && r.sub === undefined);
 }
 {
   const r = resolveAdminTab("graph");
-  check("unknown key passes through", r.nav === "graph" && r.sub === undefined);
+  check("graph resolves to Knowledge › Health", r.nav === "knowledge" && r.sub === "graph");
+}
+{
+  const r = resolveAdminTab("bogus");
+  check("unknown key passes through", r.nav === "bogus" && r.sub === undefined);
 }
 
 // 5. Dashboard wiring (source-level: the page needs auth + Postgres to render).
 const page = readFileSync(path.join(__dirname, "../../../app/admin/dashboard/page.tsx"), "utf8");
+const panelsSrc = readFileSync(path.join(__dirname, "../../../app/admin/panels.tsx"), "utf8");
 // Seeding moved to server start (deploy-db-bootstrap): instrumentation.ts
 // runs bootstrapDatabase, so the dashboard is a plain reader.
 const bootstrap = readFileSync(path.join(__dirname, "../../../lib/bootstrap.ts"), "utf8");
 check("boot bootstrap seeds the starter sources", bootstrap.includes("seedStarterIngestionSources"));
-check("dashboard lists ingestion sources", page.includes("listIngestionSources"));
-check("Content SubTabs render from the mapping", page.includes("tabs={contentTabs}"));
-check('no hardcoded label: "PDFs" literal remains', !page.includes('label: "PDFs"'));
+check("panel set lists ingestion sources", panelsSrc.includes("listIngestionSources"));
+check("Knowledge tabs render from the mapping", panelsSrc.includes("contentTabsFromSources(ingestionSources"));
+check("dashboard lays panels out from NAV_GROUPS", page.includes("NAV_GROUPS"));
+check('no hardcoded label: "PDFs" literal remains', !page.includes('label: "PDFs"') && !panelsSrc.includes('label: "PDFs"'));
 
 if (failures > 0) {
   console.error(`\n${failures} assertion(s) failed.`);
