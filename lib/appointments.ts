@@ -2,9 +2,11 @@ import { prisma, getProfile } from "./db";
 import {
   FIELD_TYPES,
   isChoiceType,
+  keyFromLabel,
   parseFieldConfig,
   resolveAnswer,
   sanitizeFieldConfig,
+  type FieldConfig,
   type FieldType,
   type AppointmentFieldRow,
   type BookingConfig,
@@ -86,6 +88,37 @@ function toFieldRow(f: {
 const isLegacyPicker = (f: AppointmentFieldRow) =>
   f.key === SERVICE_PICKER_KEY && f.type === "short_text" && f.label.startsWith(LEGACY_PICKER_HEAD);
 
+const isDefaultField = (f: AppointmentFieldRow) =>
+  DEFAULT_APPOINTMENT_FIELDS.some(
+    (d) => d.key === f.key && d.label === f.label && d.type === f.type && d.required === f.required,
+  );
+
+/** Exactly the three questions the first enable writes, nothing edited. */
+const isBareDefaults = (fields: AppointmentFieldRow[]) =>
+  fields.length === DEFAULT_APPOINTMENT_FIELDS.length && fields.every(isDefaultField);
+
+/**
+ * Nobody has edited this form, so onboarding may rebuild it: it is empty, or
+ * every question is one onboarding wrote (`generated`), or it is still the
+ * defaults — with or without the legacy picker older onboardings added. One
+ * admin save, delete or reorder ends that (`claimForm`).
+ */
+export function isUntouchedForm(fields: AppointmentFieldRow[]): boolean {
+  if (fields.every((f) => f.config.generated)) return true;
+  const rest = fields.filter((f) => !isLegacyPicker(f));
+  return fields.length - rest.length <= 1 && rest.length >= 2 && rest.every(isDefaultField);
+}
+
+/** The services on file as the menu question; null when there are none. */
+async function servicesMenu(userId: string) {
+  const source = await prisma.source.findFirst({
+    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
+    orderBy: { updatedAt: "desc" },
+    select: { rawText: true },
+  });
+  return servicePickerField(parseServiceCatalog(source?.rawText));
+}
+
 /**
  * Present a legacy picker as the menu it was standing in for, built from the
  * services on file. On read, not as a data migration: the catalog is text
@@ -96,12 +129,7 @@ const isLegacyPicker = (f: AppointmentFieldRow) =>
  */
 async function upgradeLegacyPicker(userId: string, fields: AppointmentFieldRow[]): Promise<AppointmentFieldRow[]> {
   if (!fields.some(isLegacyPicker)) return fields;
-  const source = await prisma.source.findFirst({
-    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
-    orderBy: { updatedAt: "desc" },
-    select: { rawText: true },
-  });
-  const picker = servicePickerField(parseServiceCatalog(source?.rawText));
+  const picker = await servicesMenu(userId);
   // No services on file: the text box is still the best question available.
   if (!picker) return fields;
   return fields.map((f) =>
@@ -109,15 +137,49 @@ async function upgradeLegacyPicker(userId: string, fields: AppointmentFieldRow[]
   );
 }
 
-export async function getBookingConfig(userId: string): Promise<BookingConfig> {
-  const [profile, fields] = await Promise.all([
-    getProfile(userId),
-    prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } }),
-  ]);
-  return {
-    enabled: profile.bookingEnabled,
-    fields: await upgradeLegacyPicker(userId, fields.map(toFieldRow)),
+const GENERATED = JSON.stringify({ generated: true });
+
+/**
+ * Bare defaults with services on file: booking is on by default, so the three
+ * defaults were written before onboarding knew the services, and nothing ever
+ * revisited them. The menu takes the place of "What would you like to talk
+ * about?". Written down rather than presented — unlike the legacy picker, the
+ * menu's key ("service") is not the key of the row it replaces ("reason"), and
+ * an admin deleting or saving the question they are shown must be acting on a
+ * row that exists. Once, idempotently; the rows stay `generated`, so onboarding
+ * can still rebuild the form. True when it wrote.
+ */
+async function adoptServicesMenu(userId: string, fields: AppointmentFieldRow[]): Promise<boolean> {
+  if (!isBareDefaults(fields)) return false;
+  const picker = await servicesMenu(userId);
+  const reason = fields.find((f) => f.key === "reason");
+  if (!picker || !reason) return false;
+  const menu = {
+    label: picker.label,
+    type: picker.type,
+    required: picker.required,
+    order: reason.order,
+    config: JSON.stringify({ ...picker.config, generated: true }),
   };
+  await prisma.$transaction([
+    prisma.appointmentField.deleteMany({ where: { userId, key: "reason" } }),
+    prisma.appointmentField.updateMany({ where: { userId }, data: { config: GENERATED } }),
+    prisma.appointmentField.upsert({
+      where: { userId_key: { userId, key: picker.key } },
+      update: menu,
+      create: { userId, key: picker.key, ...menu },
+    }),
+  ]);
+  return true;
+}
+
+const storedFields = async (userId: string) =>
+  (await prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } })).map(toFieldRow);
+
+export async function getBookingConfig(userId: string): Promise<BookingConfig> {
+  const [profile, stored] = await Promise.all([getProfile(userId), storedFields(userId)]);
+  const fields = (await adoptServicesMenu(userId, stored)) ? await storedFields(userId) : stored;
+  return { enabled: profile.bookingEnabled, fields: await upgradeLegacyPicker(userId, fields) };
 }
 
 /** Toggle booking; the first enable seeds the default fields so the wizard
@@ -132,16 +194,12 @@ export async function setBookingEnabled(userId: string, enabled: boolean): Promi
   }
 }
 
-/** The key a label becomes. Exported because onboarding seeds several
- *  questions in a row and must detect a collision before the upsert below
- *  silently overwrites one it just wrote. */
-export const keyFromLabel = (label: string) =>
-  label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
+export { keyFromLabel };
 
 /** Create or update one field. Returns an error string, or null on success. */
 export async function saveAppointmentField(
   userId: string,
-  input: { key?: string; label: string; type: string; required: boolean; config?: unknown },
+  input: { key?: string; label: string; type: string; required: boolean; config?: unknown; generated?: boolean },
 ): Promise<string | null> {
   const label = input.label.trim().slice(0, 120);
   if (!label) return "The question needs a label.";
@@ -156,7 +214,10 @@ export async function saveAppointmentField(
   if (config && isChoiceType(type) && !config.options?.length) {
     return "A choice question needs at least one option.";
   }
-  const stored = config === undefined ? {} : { config: JSON.stringify(config) };
+  // Onboarding's own writes are marked so it can rebuild them later; any other
+  // save means a person now owns this form.
+  const kept: FieldConfig | undefined = input.generated ? { ...(config ?? {}), generated: true } : config;
+  const stored = kept === undefined ? {} : { config: JSON.stringify(kept) };
   const last = await prisma.appointmentField.findFirst({
     where: { userId },
     orderBy: { order: "desc" },
@@ -166,11 +227,44 @@ export async function saveAppointmentField(
     update: { label, type, required: input.required, ...stored },
     create: { userId, key, label, type, required: input.required, order: (last?.order ?? -1) + 1, ...stored },
   });
+  if (!input.generated) await claimForm(userId);
   return null;
+}
+
+/** The tenant has edited their form: nothing in it is onboarding's to rebuild. */
+async function claimForm(userId: string): Promise<void> {
+  const rows = await prisma.appointmentField.findMany({
+    where: { userId, config: { contains: '"generated":true' } },
+    select: { id: true, type: true, config: true },
+  });
+  for (const r of rows) {
+    const config = parseFieldConfig(r.type, r.config);
+    delete config.generated;
+    await prisma.appointmentField.update({ where: { id: r.id }, data: { config: JSON.stringify(config) } });
+  }
+}
+
+/**
+ * Replace an untouched form with the questions onboarding planned. Returns how
+ * many were written — 0 when the form is the tenant's, which is never rewritten.
+ */
+export async function rebuildUntouchedForm(
+  userId: string,
+  plan: { key: string; label: string; type: string; required: boolean; config?: FieldConfig }[],
+): Promise<number> {
+  const rows = await prisma.appointmentField.findMany({ where: { userId } });
+  if (!isUntouchedForm(rows.map(toFieldRow))) return 0;
+  await prisma.appointmentField.deleteMany({ where: { userId } });
+  let written = 0;
+  for (const f of plan) {
+    if ((await saveAppointmentField(userId, { ...f, config: f.config ?? {}, generated: true })) === null) written++;
+  }
+  return written;
 }
 
 export async function deleteAppointmentField(userId: string, key: string): Promise<void> {
   await prisma.appointmentField.deleteMany({ where: { userId, key } });
+  await claimForm(userId);
 }
 
 /** Swap a field with its neighbor so the wizard asks it earlier or later. */
@@ -190,6 +284,7 @@ export async function moveAppointmentField(
     prisma.appointmentField.update({ where: { id: fields[i].id }, data: { order: fields[j].order } }),
     prisma.appointmentField.update({ where: { id: fields[j].id }, data: { order: fields[i].order } }),
   ]);
+  await claimForm(userId);
 }
 
 export type CreateAppointmentResult = { ok: true; id: string } | { ok: false; error: string };

@@ -3,9 +3,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Markdown } from "@/app/Markdown";
-import type { IngestProposal } from "@/lib/adminBrain";
+import type { FocusedEdit, IngestProposal } from "@/lib/adminBrain";
+import { contrastOn } from "@/lib/theme";
 import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources";
-import { approveIngestionAction, logout } from "../actions";
+import { applyThemeColorAction, approveIngestionAction, logout } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { btnGhost, field } from "../ui";
 
@@ -15,11 +16,13 @@ import { btnGhost, field } from "../ui";
  * the chat stores only the key, so a router.refresh() after any write
  * re-renders every revealed panel with fresh data. Approval cards hold the
  * copilot's pre-filled ingestion draft; nothing is written until Approve.
+ * Focused edits show one slice of a panel, pre-filled; Save writes it.
  */
 
 type ChatItem =
   | { kind: "panel"; key: string }
-  | { kind: "approve"; proposal: IngestProposal };
+  | { kind: "approve"; proposal: IngestProposal }
+  | { kind: "edit"; edit: FocusedEdit };
 
 type Msg = { role: "user" | "assistant"; content: string; items: ChatItem[] };
 
@@ -33,13 +36,11 @@ const STARTERS = [
 export function AdminChat({
   name,
   slug,
-  menu,
   labels,
   panels,
 }: {
   name: string;
   slug: string;
-  menu: Array<{ key: string; label: string }>;
   labels: Record<string, string>;
   panels: Record<string, React.ReactNode>;
 }) {
@@ -47,7 +48,6 @@ export function AdminChat({
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
-  const [menuOpen, setMenuOpen] = useState(false);
   const [showStarters, setShowStarters] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +57,6 @@ export function AdminChat({
 
   /** Put a panel straight into the conversation — no model call, zero clicks wasted. */
   function reveal(key: string) {
-    setMenuOpen(false);
     setMessages((m) => [...m, { role: "assistant", content: "", items: [{ kind: "panel", key }] }]);
   }
 
@@ -106,6 +105,7 @@ export function AdminChat({
             if (obj.t === "text") acc += obj.v;
             else if (obj.t === "panel") items.push({ kind: "panel", key: String(obj.v) });
             else if (obj.t === "approve") items.push({ kind: "approve", proposal: obj.v });
+            else if (obj.t === "edit") items.push({ kind: "edit", edit: obj.v });
             else if (obj.t === "goal") wrote = true;
           } catch {
             /* partial line — ignore */
@@ -138,7 +138,7 @@ export function AdminChat({
 
   return (
     <>
-      {/* ── Header: menu (the classic pages), identity, logout ── */}
+      {/* ── Header: identity, dashboard, logout ── */}
       <header
         style={{
           display: "flex",
@@ -149,15 +149,6 @@ export function AdminChat({
           position: "relative",
         }}
       >
-        <button
-          type="button"
-          onClick={() => setMenuOpen((o) => !o)}
-          aria-expanded={menuOpen}
-          aria-haspopup="menu"
-          style={{ ...(btnGhost as React.CSSProperties), fontWeight: 600 }}
-        >
-          ☰ Menu
-        </button>
         <div style={{ minWidth: 0, flex: 1 }}>
           <strong style={{ fontSize: 16 }}>Control room</strong>
           <span style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13, marginLeft: 8 }}>
@@ -179,47 +170,6 @@ export function AdminChat({
           </PendingButton>
         </form>
 
-        {menuOpen && (
-          <nav
-            role="menu"
-            data-fill="surface"
-            style={{
-              position: "absolute",
-              top: "100%",
-              left: 0,
-              zIndex: 20,
-              marginTop: 6,
-              background: "var(--surface)",
-              border: "1px solid var(--border)",
-              borderRadius: "var(--radius-md)",
-              padding: 8,
-              display: "grid",
-              gridTemplateColumns: "repeat(2, minmax(140px, 1fr))",
-              gap: 2,
-              boxShadow: "var(--glow-primary)",
-            }}
-          >
-            {menu.map((m) => (
-              <a
-                key={m.key}
-                role="menuitem"
-                href={`/admin/dashboard?tab=${m.key}`}
-                onClick={() => setMenuOpen(false)}
-                style={{
-                  padding: "7px 10px",
-                  borderRadius: "var(--radius-sm)",
-                  fontSize: 14,
-                  textAlign: "left",
-                  color: "inherit",
-                  textDecoration: "none",
-                  display: "block",
-                }}
-              >
-                {m.label}
-              </a>
-            ))}
-          </nav>
-        )}
       </header>
 
       {/* ── Conversation ── */}
@@ -275,6 +225,8 @@ export function AdminChat({
                         </p>
                       )}
                     </PanelBubble>
+                  ) : item.kind === "edit" ? (
+                    <ThemeEditCard key={j} edit={item.edit} onDone={() => router.refresh()} />
                   ) : (
                     <ApprovalCard
                       key={j}
@@ -555,6 +507,158 @@ function ApprovalCard({
         {error && (
           <span style={{ color: "var(--danger-on-surface)", fontSize: 13 }}>{error}</span>
         )}
+      </div>
+    </div>
+  );
+}
+
+const HEX = /^#[0-9a-fA-F]{3,8}$/;
+
+/**
+ * A focused theme edit: the one color the copilot worked out, pre-filled and
+ * still adjustable, instead of the whole Theme panel. Written only on Save.
+ */
+function ThemeEditCard({ edit, onDone }: { edit: FocusedEdit; onDone: () => void }) {
+  const [value, setValue] = useState(edit.value);
+  const [state, setState] = useState<"pending" | "busy" | "done" | "error" | "dismissed">(
+    "pending",
+  );
+  const [error, setError] = useState<string | null>(null);
+
+  if (state === "dismissed") {
+    return (
+      <span style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 13 }}>
+        {edit.label} change dismissed — nothing was saved.
+      </span>
+    );
+  }
+
+  const valid = HEX.test(value.trim());
+  const done = state === "done";
+  // <input type="color"> only takes #rrggbb; other valid hex lengths keep the text field.
+  const pickable = /^#[0-9a-fA-F]{6}$/.test(value.trim());
+
+  async function save() {
+    if (state === "busy" || done || !valid) return;
+    setState("busy");
+    setError(null);
+    const fd = new FormData();
+    fd.set("role", edit.role);
+    fd.set("value", value.trim());
+    try {
+      const result = await applyThemeColorAction(fd);
+      if (result.ok) {
+        setState("done");
+        onDone();
+      } else {
+        setState("error");
+        setError(result.error ?? "The color didn't save.");
+      }
+    } catch {
+      setState("error");
+      setError("The color didn't save.");
+    }
+  }
+
+  const swatch = (hex: string, caption: string) => (
+    <div style={{ display: "grid", gap: 4, fontSize: 12 }}>
+      <div
+        style={{
+          width: 96,
+          height: 44,
+          display: "grid",
+          placeItems: "center",
+          background: hex,
+          color: contrastOn(hex),
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          fontWeight: 600,
+        }}
+      >
+        Aa
+      </div>
+      <span style={{ color: "var(--on-surface)", fontStyle: "italic" }}>
+        {caption} {hex}
+      </span>
+    </div>
+  );
+
+  return (
+    <div
+      data-fill="surface"
+      data-focused-edit={edit.role}
+      style={{
+        border: "1px solid var(--primary)",
+        borderRadius: "var(--radius-md)",
+        padding: 14,
+        background: "var(--surface)",
+        maxWidth: 420,
+      }}
+    >
+      <strong style={{ fontSize: 14, display: "block", marginBottom: 10 }}>
+        Theme · {edit.label} {done ? "saved ✓" : ""}
+      </strong>
+
+      <div style={{ display: "flex", gap: 14, alignItems: "flex-start", marginBottom: 12 }}>
+        {swatch(edit.current, "Now")}
+        <span aria-hidden style={{ alignSelf: "center", paddingBottom: 18 }}>
+          →
+        </span>
+        {swatch(valid ? value.trim() : edit.current, "New")}
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 12 }}>
+        <input
+          type="color"
+          value={pickable ? value.trim() : "#000000"}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={done}
+          aria-label={`${edit.label} color picker`}
+          style={{ width: 40, height: 36, padding: 0, border: "none", background: "none" }}
+        />
+        <input
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          disabled={done}
+          aria-label={`${edit.label} hex value`}
+          aria-invalid={!valid}
+          style={{ ...field, marginBottom: 0, width: 130, fontFamily: "monospace" }}
+        />
+      </div>
+
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <button
+          type="button"
+          onClick={save}
+          disabled={state === "busy" || done || !valid}
+          style={{
+            padding: "9px 20px",
+            background: done ? "var(--bg-soft)" : "var(--primary)",
+            color: done ? "var(--on-bg-soft)" : "var(--on-primary)",
+            border: "none",
+            borderRadius: "var(--radius-md)",
+            fontWeight: 700,
+            opacity: state === "busy" || !valid ? 0.6 : 1,
+          }}
+        >
+          {state === "busy" ? "Saving…" : done ? "Saved" : "Save"}
+        </button>
+        {!done && (
+          <button
+            type="button"
+            onClick={() => setState("dismissed")}
+            disabled={state === "busy"}
+            style={btnGhost as React.CSSProperties}
+          >
+            Dismiss
+          </button>
+        )}
+        {!valid && (
+          <span style={{ color: "var(--danger-on-surface)", fontSize: 13 }}>
+            Enter a hex color like #aabbcc.
+          </span>
+        )}
+        {error && <span style={{ color: "var(--danger-on-surface)", fontSize: 13 }}>{error}</span>}
       </div>
     </div>
   );

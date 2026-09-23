@@ -66,7 +66,7 @@ const WITH_REQS = {
     takesAppointments: true,
     requirements: [
       { label: "Your phone number", type: "phone", required: true },
-      { label: "Which treatment you want", type: "dropdown", required: false },
+      { label: "Gate code for the property", type: "dropdown", required: false },
     ],
   },
 };
@@ -264,7 +264,7 @@ async function main() {
     });
     const cfgReqs = await getBookingConfig(userReqs.id);
     const phone = cfgReqs.fields.find((f) => f.label === "Your phone number");
-    const treatment = cfgReqs.fields.find((f) => f.label === "Which treatment you want");
+    const treatment = cfgReqs.fields.find((f) => f.label === "Gate code for the property");
     check(
       "B7 an extracted requirement keeps its type and required flag",
       phone?.type === "phone" && phone?.required === true,

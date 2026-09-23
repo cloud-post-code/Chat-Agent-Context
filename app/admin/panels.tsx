@@ -32,9 +32,11 @@ import {
   impersonateAction,
   cancelBookingAction,
   confirmBookingAction,
+  deleteOrderAction,
 } from "./actions";
 import { CalendarPanel } from "./CalendarPanel";
 import { getBookingConfig } from "@/lib/appointments";
+import { listOrders } from "@/lib/orders";
 import {
   listServices,
   listStaff,
@@ -130,6 +132,7 @@ export async function buildAdminPanels(
     addressBook,
     gmail,
     bookingConfig,
+    orders,
   ] = await Promise.all([
       getProfile(user.id),
       getPersonaConfig(user.id),
@@ -172,6 +175,7 @@ export async function buildAdminPanels(
       listAddressBook(user.id),
       gmailStatus(user.id),
       getBookingConfig(user.id),
+      listOrders(user.id).catch(() => []),
     ]);
   const metrics = chatMetrics(chatSessions);
   // The Booking section's own data — a separate fetch from the big
@@ -762,6 +766,17 @@ export async function buildAdminPanels(
       cancelAction={cancelBookingAction}
       confirmAction={confirmBookingAction}
       enabled={bookingConfig.enabled}
+      orders={orders.map((o) => ({
+        id: o.id,
+        createdAt: o.createdAt.toISOString(),
+        startsAt: o.startsAt ? o.startsAt.toISOString() : null,
+        lines: o.lines.map((l) => ({ name: l.name, quantity: l.quantity, choices: l.choices.flatMap((c) => c.picks).join(", "), note: l.note, lineTotal: l.lineTotal })),
+        contact: o.contact,
+        fulfillment: o.fulfillment,
+        notes: o.notes,
+        subtotal: o.subtotal,
+      }))}
+      deleteOrderAction={deleteOrderAction}
     />
   );
   // The retired standalone Appointments panel: anything still naming "booking"

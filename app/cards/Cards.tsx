@@ -5,7 +5,14 @@ import type { BookingFlow } from "@/lib/booking/types";
 import { BookingFlowCard } from "./booking/BookingFlowCard";
 import type { BookingField } from "./BookingQuestion";
 
+import { MenuCard, type MenuBlockView } from "./MenuCard";
+import { CartCard } from "./CartCard";
+import type { CartCheckout } from "@/lib/menu";
+import { card, cf, linkBtn, liveBtn, textBtn, clamp2 } from "./styles";
+
 export type { BookingField } from "./BookingQuestion";
+// The card idiom lives in styles.ts; re-exported so existing imports still work.
+export { card, cf } from "./styles";
 
 /** Shared A2UI block types (mirrors lib/cards.ts). */
 export type ProjectCard = {
@@ -52,7 +59,9 @@ export type UiBlock =
   | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
-  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null };
+  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null }
+  | ({ type: "menu" } & MenuBlockView)
+  | { type: "cart"; checkout: CartCheckout };
 
 export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "projects") {
@@ -92,6 +101,12 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   }
   if (block.type === "booking") {
     return <BookingFlowCard slug={slug} fields={block.fields} flow={block.flow} />;
+  }
+  if (block.type === "menu") {
+    return <MenuCard block={block} slug={slug} />;
+  }
+  if (block.type === "cart") {
+    return <CartCard checkout={block.checkout} slug={slug} />;
   }
   if (block.type === "custom") {
     return <CustomCard title={block.title} elements={block.elements} />;
@@ -720,55 +735,6 @@ const grid: React.CSSProperties = {
   display: "grid",
   gap: 12,
   gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))",
-};
-// Exported: the onboarding chat renders its own entry elements in this exact
-// A2UI card idiom (same styles, not a copy).
-export const card: React.CSSProperties = {
-  background: "var(--bg-soft)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-md)",
-  color: "var(--on-bg-soft)",
-  padding: 16,
-};
-const linkBtn: React.CSSProperties = {
-  fontSize: 13,
-  padding: "7px 12px",
-  borderRadius: "var(--radius-sm)",
-  border: "1px solid var(--border)",
-  color: "var(--on-surface)",
-  background: "var(--surface)",
-  textDecoration: "none",
-};
-export const cf: React.CSSProperties = {
-  width: "100%",
-  padding: "10px 12px",
-  background: "var(--surface)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-sm)",
-  marginBottom: 10,
-  outline: "none",
-  fontSize: 14,
-  color: "var(--on-surface)",
-};
-const liveBtn: React.CSSProperties = {
-  background: "var(--primary)",
-  color: "var(--on-primary)",
-  border: "none",
-};
-const textBtn: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  fontSize: 13,
-  color: "var(--accent-on-bg-soft)",
-  textDecoration: "underline",
-  cursor: "pointer",
-};
-const clamp2: React.CSSProperties = {
-  display: "-webkit-box",
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: "vertical",
-  overflow: "hidden",
 };
 const carouselTrack: React.CSSProperties = {
   display: "flex",

@@ -17,7 +17,7 @@
   custom source keys appear, hidden sources disappear, `users` appears only for
   operators.
 - `/admin/chat` page and `/api/admin/chat` transport exist behind `currentUser()` /
-  auth, with the menu button linking to `/admin/dashboard?tab=<key>`; authed `/admin`
+  auth, with a header Dashboard link to `/admin/dashboard`; authed `/admin`
   redirects to `/admin/chat`.
 
 ## Primary Proof
@@ -63,6 +63,6 @@ $HOME/.claude/scripts/gate
 
 ## Manual Gaps
 - Visual click-through of `/admin/chat` in a browser (login required): panels render
-  inline, Approve completes an ingestion, menu button opens the classic page. The page
+  inline, Approve completes an ingestion, Dashboard link opens the classic page. The page
   is a thin composition of already-proven pieces; verified via browser preview when
   possible.

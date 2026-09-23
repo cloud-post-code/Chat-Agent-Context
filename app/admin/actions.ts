@@ -100,7 +100,7 @@ import {
   deleteIngestedItem,
 } from "@/lib/customIngest";
 import { checkEditPassword, createEditSession, isEditAuthed } from "@/lib/ingestionAuth";
-import { approveIngestion, type IngestMethod } from "@/lib/adminBrain";
+import { applyThemeColor, approveIngestion, type IngestMethod } from "@/lib/adminBrain";
 import { draftUiCard, type CardDraft } from "@/lib/cardBuilder";
 import { redraftAnswer } from "@/lib/answerDrafts";
 import { regenerateStarterQuestions } from "@/lib/starterQuestions";
@@ -1137,6 +1137,24 @@ export async function approveIngestionAction(
   return error ? { ok: false, error } : { ok: true };
 }
 
+/**
+ * The chat-first admin's focused theme edit: Save on the copilot's pre-filled
+ * color card. One role is written; lib/adminBrain.applyThemeColor leaves the
+ * rest of the theme alone.
+ */
+export async function applyThemeColorAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const error = await applyThemeColor(
+    user.id,
+    String(formData.get("role") ?? ""),
+    String(formData.get("value") ?? ""),
+  );
+  revalidateAll();
+  return error ? { ok: false, error } : { ok: true };
+}
+
 /** Ingest pasted text into a custom source's marked rows. */
 export async function ingestCustomTextAction(formData: FormData) {
   const user = await requireUser();
@@ -1415,6 +1433,13 @@ export async function moveAppointmentFieldAction(formData: FormData) {
   const user = await requireUser();
   const dir = formData.get("dir") === "up" ? "up" : "down";
   await moveAppointmentField(user.id, String(formData.get("key") ?? ""), dir);
+  revalidateAll();
+}
+
+export async function deleteOrderAction(formData: FormData) {
+  const user = await requireUser();
+  const { deleteOrder } = await import("@/lib/orders");
+  await deleteOrder(user.id, String(formData.get("id") ?? ""));
   revalidateAll();
 }
 

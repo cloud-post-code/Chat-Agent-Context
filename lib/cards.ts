@@ -5,6 +5,9 @@ import { safeTags } from "./knowledge";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 import { getBookingFlow } from "./booking/store";
 import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
+import type { CartBlock, MenuBlock } from "./menu";
+
+export type { CartBlock, MenuBlock } from "./menu";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
@@ -88,7 +91,12 @@ export type UiBlock =
   // tenant configured at the moment it was drawn. `flow` is the full booking
   // flow (services, staff, locations, rules) for the new flow-aware card;
   // null on an old stored sample, which falls back to the intake-only wizard.
-  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null };
+  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null }
+  // The menu — the whole thing grouped by section, or a curated list — and the
+  // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
+  // live with the visitor, so the cart block carries only how to check out.
+  | MenuBlock
+  | CartBlock;
 
 function toProjectCard(p: {
   id: string;
