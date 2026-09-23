@@ -76,6 +76,24 @@ export type AdminInput = {
 export type AdminDeps = { client?: ModelClient };
 
 /**
+ * Short "when to reveal this" notes folded into the system prompt so the
+ * model can tell apart panels whose label alone doesn't say what they're
+ * for. Keyed on the fixed panel keys from contentTabs.ts's NAV_GROUPS.
+ */
+const PANEL_HINTS: Readonly<Record<string, string>> = {
+  appointments: "the booked appointments themselves, and a pointer to the booking on/off switch",
+  booking: "the booking on/off switch",
+  "booking-services":
+    "what's bookable — pricing, duration, who performs it, where; asked to add/edit/price a service",
+  "booking-providers": "the staff who perform services — their hours, time off, bios, per-service overrides",
+  "booking-locations": "branches, the online option, and the mobile service area",
+  "booking-hours": "business hours, holidays, lead time, cutoff, buffers, waitlist, recurring, provider selection",
+  "booking-customer": "which customer fields the booking flow asks for and whether each is required",
+  "booking-questions": "the intake question catalog asked during booking, including conditional questions",
+  "booking-pricing": "currency, tax, service fee, tips, promo codes, memberships, cancellation/deposit policy",
+};
+
+/**
  * Every panel the chat may reveal for this user, derived the same way the
  * dashboard derives its strips: enabled IngestionSource rows in row order,
  * then the fixed sections from the nav config (Users for operators only).
@@ -83,11 +101,11 @@ export type AdminDeps = { client?: ModelClient };
 export async function adminPanelKeys(
   userId: string,
   operator = false,
-): Promise<Array<{ key: string; label: string }>> {
+): Promise<Array<{ key: string; label: string; hint?: string }>> {
   const sources = await listIngestionSources(userId);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
-    ...fixedPanelEntries(operator),
+    ...fixedPanelEntries(operator).map((p) => ({ ...p, hint: PANEL_HINTS[p.key] })),
   ];
 }
 
@@ -403,14 +421,14 @@ function adminTools(
 }
 
 function systemPrompt(
-  panels: Array<{ key: string; label: string }>,
+  panels: Array<{ key: string; label: string; hint?: string }>,
   sources: IngestionSourceRow[],
   colors: Record<string, string>,
 ): string {
   const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
     "\n",
   );
-  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}`).join("\n");
+  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}${p.hint ? ` — ${p.hint}` : ""}`).join("\n");
   const sourceLines = sources
     .map((s) => {
       const forms = ingestFormsFor(s.uploadMethod, s.storageKinds);

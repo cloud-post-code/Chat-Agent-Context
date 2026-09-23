@@ -3,13 +3,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { PendingButton } from "./PendingButton";
-import { panel, btnGhost, btnDanger, SectionTitle } from "./ui";
+import { panel, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
 
 /**
- * The Appointments panel (Inbox): a month grid of booked appointments with
- * each day's bookings expandable to their answers, plus Cancel. One
- * implementation for both admin surfaces: the dashboard tab and the chat's
- * revealed panel.
+ * The Appointments panel (Inbox): a month grid of booked appointments —
+ * service, provider, location, customer, price, status and intake answers —
+ * with each day's bookings expandable to the full appointment, plus Cancel
+ * and a Confirm for waitlisted rows. One implementation for both admin
+ * surfaces: the dashboard tab and the chat's revealed panel.
  *
  * The booking switch and question catalog live under Settings › Booking
  * (BookingSettings); while booking is off this panel just points there.
@@ -22,6 +23,16 @@ export type CalendarAppointment = {
   id: string;
   /** ISO instant; rendered in the admin's local timezone. */
   startsAt: string;
+  status: string;
+  serviceName: string;
+  staffName: string;
+  locationName: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  durationMinutes: number;
+  /** Formatted total ("$45", "From $45", "Quote"), or "" when unpriced. */
+  priceDisplay: string;
   answers: Record<string, string>;
 };
 
@@ -30,13 +41,21 @@ type Props = {
   /** Question labels per field key, so answers read as asked. */
   fieldLabels: Record<string, string>;
   cancelAction: (formData: FormData) => Promise<void>;
+  /** Confirms a waitlisted booking; without it the Confirm button is not drawn. */
+  confirmAction?: (formData: FormData) => Promise<void>;
   /** Off: nothing to show a calendar of, so point at the switch instead. */
   bookingEnabled: boolean;
 };
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function AppointmentsPanel({ rows, fieldLabels, cancelAction, bookingEnabled }: Props) {
+export function AppointmentsPanel({
+  rows,
+  fieldLabels,
+  cancelAction,
+  confirmAction,
+  bookingEnabled,
+}: Props) {
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -65,8 +84,9 @@ export function AppointmentsPanel({ rows, fieldLabels, cancelAction, bookingEnab
   // Monday-first grid: JS getDay() is Sunday-0.
   const lead = (first.getDay() + 6) % 7;
 
+  const live = rows.filter((r) => r.status !== "cancelled");
   const byDay = new Map<number, CalendarAppointment[]>();
-  for (const r of rows) {
+  for (const r of live) {
     const d = new Date(r.startsAt);
     if (d.getFullYear() !== year || d.getMonth() !== month) continue;
     const day = d.getDate();
@@ -116,7 +136,13 @@ export function AppointmentsPanel({ rows, fieldLabels, cancelAction, bookingEnab
         </div>
       </div>
 
-      <AppointmentCards rows={rows} openId={openId} fieldLabels={fieldLabels} cancelAction={cancelAction} />
+      <AppointmentCards
+        rows={live}
+        openId={openId}
+        fieldLabels={fieldLabels}
+        cancelAction={cancelAction}
+        confirmAction={confirmAction}
+      />
     </section>
   );
 }
@@ -153,6 +179,7 @@ function DayCell({
               key={a.id}
               onClick={() => onToggle(a.id)}
               aria-pressed={openId === a.id}
+              title={[a.serviceName, a.customerName].filter(Boolean).join(" · ")}
               style={{
                 display: "block",
                 width: "100%",
@@ -163,14 +190,20 @@ function DayCell({
                 borderRadius: "var(--radius-sm)",
                 border: "none",
                 cursor: "pointer",
-                background: "var(--primary)",
-                color: "var(--on-primary)",
+                background: a.status === "waitlisted" ? "var(--bg-soft)" : "var(--primary)",
+                color: a.status === "waitlisted" ? "var(--on-bg-soft)" : "var(--on-primary)",
                 overflow: "hidden",
                 textOverflow: "ellipsis",
                 whiteSpace: "nowrap",
               }}
             >
-              {new Date(a.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+              {[
+                new Date(a.startsAt).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }),
+                a.serviceName,
+                a.customerName.split(" ")[0],
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </button>
           ))}
         </>
@@ -179,17 +212,47 @@ function DayCell({
   );
 }
 
-/** Every booking as a card with its answers; a grid click narrows to one. */
+function Fact({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt style={{ color: "var(--on-surface)", fontSize: 11 }}>{label}</dt>
+      <dd style={{ margin: 0 }}>{value}</dd>
+    </div>
+  );
+}
+
+function StatusBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span
+      style={{
+        marginLeft: 8,
+        fontSize: 11,
+        fontWeight: 700,
+        padding: "1px 8px",
+        borderRadius: "var(--radius-pill)",
+        background: "var(--bg-soft)",
+        color: "var(--accent-on-bg-soft)",
+        border: "1px solid var(--border)",
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+/** Every booking as a card with its facts and answers; a grid click narrows to one. */
 function AppointmentCards({
   rows,
   openId,
   fieldLabels,
   cancelAction,
+  confirmAction,
 }: {
   rows: CalendarAppointment[];
   openId: string | null;
   fieldLabels: Record<string, string>;
   cancelAction: (formData: FormData) => Promise<void>;
+  confirmAction?: (formData: FormData) => Promise<void>;
 }) {
   if (rows.length === 0) {
     return (
@@ -202,32 +265,59 @@ function AppointmentCards({
     <>
       {rows.map((a) => (
         <div key={a.id} data-fill="surface" style={{ ...panel, display: openId === null || openId === a.id ? "block" : "none" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <strong style={{ fontSize: 14 }}>
-              {new Date(a.startsAt).toLocaleString(undefined, {
-                weekday: "short",
-                month: "short",
-                day: "numeric",
-                year: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              })}
-            </strong>
-            <form action={cancelAction}>
-              <input type="hidden" name="id" value={a.id} />
-              <PendingButton pendingLabel="Cancelling…" style={btnDanger as React.CSSProperties}>
-                Cancel
-              </PendingButton>
-            </form>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+            <div>
+              <strong style={{ fontSize: 14 }}>
+                {new Date(a.startsAt).toLocaleString(undefined, {
+                  weekday: "short",
+                  month: "short",
+                  day: "numeric",
+                  year: "numeric",
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </strong>
+              {a.status === "waitlisted" ? <StatusBadge>Waitlist</StatusBadge> : null}
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              {a.status === "waitlisted" && confirmAction ? (
+                <form action={confirmAction}>
+                  <input type="hidden" name="id" value={a.id} />
+                  <PendingButton pendingLabel="Confirming…" style={btn as React.CSSProperties}>
+                    Confirm
+                  </PendingButton>
+                </form>
+              ) : null}
+              <form action={cancelAction}>
+                <input type="hidden" name="id" value={a.id} />
+                <PendingButton pendingLabel="Cancelling…" style={btnDanger as React.CSSProperties}>
+                  Cancel
+                </PendingButton>
+              </form>
+            </div>
           </div>
-          <dl style={{ margin: "8px 0 0", fontSize: 13 }}>
-            {Object.entries(a.answers).map(([k, v]) => (
-              <div key={k} style={{ marginBottom: 6 }}>
-                <dt style={{ color: "var(--on-surface)", fontSize: 12 }}>{fieldLabels[k] ?? k}</dt>
-                <dd style={{ margin: 0, whiteSpace: "pre-wrap" }}>{v}</dd>
-              </div>
-            ))}
+
+          <dl style={{ margin: "10px 0 0", fontSize: 13, display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 16px" }}>
+            {a.serviceName ? <Fact label="Service" value={a.serviceName} /> : null}
+            {a.staffName ? <Fact label="Provider" value={a.staffName} /> : null}
+            {a.locationName ? <Fact label="Location" value={a.locationName} /> : null}
+            <Fact label="Duration" value={a.durationMinutes ? `${a.durationMinutes} min` : "—"} />
+            {a.priceDisplay ? <Fact label="Price" value={a.priceDisplay} /> : null}
+            {a.customerName ? <Fact label="Customer" value={a.customerName} /> : null}
+            {a.customerEmail ? <Fact label="Email" value={a.customerEmail} /> : null}
+            {a.customerPhone ? <Fact label="Phone" value={a.customerPhone} /> : null}
           </dl>
+
+          {Object.keys(a.answers).length > 0 ? (
+            <dl style={{ margin: "10px 0 0", fontSize: 13 }}>
+              {Object.entries(a.answers).map(([k, v]) => (
+                <div key={k} style={{ marginBottom: 6 }}>
+                  <dt style={{ color: "var(--on-surface)", fontSize: 12 }}>{fieldLabels[k] ?? k}</dt>
+                  <dd style={{ margin: 0, whiteSpace: "pre-wrap" }}>{v}</dd>
+                </div>
+              ))}
+            </dl>
+          ) : null}
         </div>
       ))}
     </>

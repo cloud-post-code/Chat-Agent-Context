@@ -27,11 +27,36 @@ export const FIELD_TYPES = [
   // A count: party size, number of guests, how many rooms.
   "number",
   "yes_no",
+  // A calendar date ("YYYY-MM-DD").
+  "date",
+  // A street address, one line.
+  "address",
+  // An uploaded document or photo: the answer is the stored upload's path.
+  "file",
+  "photo",
+  // A drawn signature, stored as an uploaded PNG.
+  "signature",
+  // A waiver or consent: the question's own text, agreed to with one tap.
+  "waiver",
 ] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
 export const isChoiceType = (t: string): t is "select" | "multi_select" =>
   t === "select" || t === "multi_select";
+
+/** Answered by uploading something: the stored value is an /api/uploads path. */
+export const isUploadType = (t: string): t is "file" | "photo" | "signature" =>
+  t === "file" || t === "photo" || t === "signature";
+
+/** What an upload-typed answer must look like: one of this site's own uploads. */
+export const UPLOAD_PATH_RE = /^\/api\/uploads\/[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i;
+
+/**
+ * When a question is asked: only after another question was answered a
+ * certain way. `values` empty means "whenever that question has any answer".
+ * Matching is case-insensitive against a pick's label, a yes/no, or text.
+ */
+export type ShowIf = { key: string; values: string[] };
 
 /**
  * One thing a visitor can pick. Price and duration are the business's own
@@ -56,6 +81,10 @@ export type FieldConfig = {
   /** number only; whole numbers. */
   min?: number;
   max?: number;
+  /** waiver only: the text the visitor agrees to. */
+  text?: string;
+  /** Any type: ask only when another answer matches (conditional question). */
+  showIf?: ShowIf;
   /** Onboarding wrote this question and nobody has edited the form since —
    *  so onboarding may rebuild it. Stored only; never accepted from a caller. */
   generated?: boolean;
@@ -92,6 +121,53 @@ const flat = (v: unknown, max: number): string =>
  */
 export function sanitizeFieldConfig(type: string, raw: unknown): FieldConfig {
   const src = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const out = sanitizeTypedConfig(type, src);
+  const showIf = sanitizeShowIf(src.showIf);
+  if (showIf) out.showIf = showIf;
+  return out;
+}
+
+function sanitizeShowIf(raw: unknown): ShowIf | undefined {
+  const src = raw && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : null;
+  if (!src) return undefined;
+  const key = flat(src.key, 60);
+  if (!key || !/^[a-z0-9_]+$/.test(key)) return undefined;
+  const values = (Array.isArray(src.values) ? src.values : [])
+    .map((v) => flat(v, 120))
+    .filter(Boolean)
+    .slice(0, 20);
+  return { key, values };
+}
+
+/**
+ * Whether a question is asked given the answers so far. A question that
+ * depends on itself, or on a question that isn't in the catalog, is asked —
+ * a broken condition must never hide a required question from the server's
+ * own check.
+ */
+export function isFieldShown(
+  field: Pick<AppointmentFieldRow, "key" | "config">,
+  answers: Record<string, unknown>,
+  catalogKeys?: string[],
+): boolean {
+  const cond = field.config?.showIf;
+  if (!cond || cond.key === field.key) return true;
+  if (catalogKeys && !catalogKeys.includes(cond.key)) return true;
+  const raw = answers[cond.key];
+  const given = (Array.isArray(raw) ? raw : raw === undefined || raw === null ? [] : [raw])
+    .map((v) => (typeof v === "boolean" ? (v ? "yes" : "no") : String(v)).trim().toLowerCase())
+    .filter(Boolean);
+  if (!given.length) return false;
+  if (!cond.values.length) return true;
+  const wanted = cond.values.map((v) => v.toLowerCase());
+  return given.some((g) => wanted.includes(g));
+}
+
+function sanitizeTypedConfig(type: string, src: Record<string, unknown>): FieldConfig {
+  if (type === "waiver") {
+    const waiver = typeof src.text === "string" ? src.text.replace(/\r\n?/g, "\n").trim().slice(0, 4000) : "";
+    return waiver ? { text: waiver } : {};
+  }
 
   if (isChoiceType(type)) {
     const options: FieldOption[] = [];
@@ -355,6 +431,30 @@ export function resolveAnswer(
     if (text !== "yes" && text !== "no") return { ok: false, error: `Answer yes or no to "${field.label}".` };
     return { ok: true, value: text === "yes" ? "Yes" : "No" };
   }
+
+  if (type === "date") {
+    const text = flat(raw, 20);
+    if (!text) return { ok: true, value: "" };
+    if (!/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/.test(text) || Number.isNaN(Date.parse(text))) {
+      return { ok: false, error: `"${field.label}" needs a date.` };
+    }
+    return { ok: true, value: text };
+  }
+
+  if (isUploadType(type)) {
+    const text = flat(raw, 200);
+    if (!text) return { ok: true, value: "" };
+    if (!UPLOAD_PATH_RE.test(text)) return { ok: false, error: `"${field.label}" needs an upload.` };
+    return { ok: true, value: text };
+  }
+
+  if (type === "waiver") {
+    const agreed = raw === true || /^(yes|agreed?|true|on)$/i.test(flat(raw, 10));
+    if (!agreed) return { ok: true, value: "" };
+    return { ok: true, value: "Agreed" };
+  }
+
+  if (type === "address") return { ok: true, value: flat(raw, 300) };
 
   return { ok: true, value: String(raw ?? "").trim().slice(0, 2000) };
 }

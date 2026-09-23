@@ -29,9 +29,9 @@ async function main() {
 
   // ── 1. Nav config ──
   check(
-    "six nav groups in order",
+    "seven nav groups in order",
     JSON.stringify(NAV_GROUPS.map((g) => g.key)) ===
-      JSON.stringify(["home", "inbox", "knowledge", "agent", "cards", "settings"]),
+      JSON.stringify(["home", "inbox", "knowledge", "agent", "cards", "booking", "settings"]),
     NAV_GROUPS.map((g) => g.key).join(","),
   );
   const subKeys = NAV_GROUPS.flatMap((g) => g.subs.map((s) => s.key));
@@ -46,17 +46,33 @@ async function main() {
     ["appointments", "orders", "booking", "activity", "graph", "a2ui"].every((k) => fixedOwner.includes(k)),
     fixedOwner.join(","),
   );
+  check(
+    "fixed panels cover the booking section",
+    [
+      "booking-services",
+      "booking-providers",
+      "booking-locations",
+      "booking-hours",
+      "booking-customer",
+      "booking-questions",
+      "booking-pricing",
+    ].every((k) => fixedOwner.includes(k)),
+    fixedOwner.join(","),
+  );
   const labels = labelsFromNav();
   check("graph is labelled Health", labels.graph === "Health");
   check("a2ui is labelled Cards", labels.a2ui === "Cards");
-  check("booking is labelled Booking", labels.booking === "Booking");
+  check("booking is labelled Settings", labels.booking === "Settings");
+  check("booking-services is labelled Services", labels["booking-services"] === "Services");
 
   // ── 2. Deep links ──
   const table: Array<[string, string, string | undefined]> = [
     ["activity", "inbox", "activity"],
     ["calendar", "inbox", "appointments"],
     ["orders", "inbox", "orders"],
-    ["booking", "settings", "booking"],
+    ["booking", "booking", "booking"],
+    ["booking-services", "booking", "booking-services"],
+    ["booking-pricing", "booking", "booking-pricing"],
     ["graph", "knowledge", "graph"],
     ["a2ui", "cards", "a2ui"],
     ["contacts", "settings", "contacts"],

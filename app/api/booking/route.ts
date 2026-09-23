@@ -1,13 +1,15 @@
 import { prisma } from "@/lib/db";
-import { createAppointment, getBookingConfig } from "@/lib/appointments";
+import { createAppointment } from "@/lib/appointments";
+import { getBookingFlow, createBooking } from "@/lib/booking/store";
+import { sanitizeSelection } from "@/lib/booking/types";
 
 export const runtime = "nodejs";
 
 /**
- * The booking wizard's transport. `slug` names whose agent page the card was
- * on, exactly like /api/contact. All real validation — enabled, required
- * fields, future time, the slot race — lives in lib/appointments.ts; this
- * route only translates it onto HTTP.
+ * The booking flow's transport. `slug` names whose agent page the card was
+ * on, exactly like /api/contact. All real validation lives in
+ * lib/booking/store.ts (or, for the legacy intake-only shape, in
+ * lib/appointments.ts); this route only translates it onto HTTP.
  */
 
 async function userFromSlug(slug: unknown) {
@@ -15,19 +17,26 @@ async function userFromSlug(slug: unknown) {
   return s ? prisma.user.findUnique({ where: { slug: s } }) : null;
 }
 
-/** The live flow config, for a card that wants to re-check before submitting. */
+/** The live flow, for a card that wants to (re)fetch before drawing itself —
+ *  an old stored sample with no `flow`, or one that wants a fresh quote. */
 export async function GET(req: Request) {
-  const slug = new URL(req.url).searchParams.get("slug");
-  const user = await userFromSlug(slug);
+  const url = new URL(req.url);
+  const user = await userFromSlug(url.searchParams.get("slug"));
   if (!user) {
     return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
   }
-  const { enabled, fields } = await getBookingConfig(user.id);
-  return Response.json({ ok: true, enabled, fields });
+  const preselect = url.searchParams.get("service");
+  const flowResult = await getBookingFlow(user.id, { preselectServiceId: preselect });
+  return Response.json({
+    ok: true,
+    enabled: flowResult !== null,
+    fields: flowResult?.intake ?? [],
+    flow: flowResult?.flow ?? null,
+  });
 }
 
 export async function POST(req: Request) {
-  let body: { slug?: string; startsAt?: string; answers?: Record<string, unknown> };
+  let body: Record<string, unknown>;
   try {
     body = await req.json();
   } catch {
@@ -39,12 +48,20 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
   }
 
-  const result = await createAppointment(user.id, {
-    startsAt: String(body.startsAt ?? ""),
-    answers: body.answers && typeof body.answers === "object" ? body.answers : {},
-  });
-  if (!result.ok) {
-    return Response.json(result, { status: 400 });
+  // The legacy intake-only wizard posts { slug, startsAt, answers } with no
+  // customer/service shape at all; anything carrying either is the new flow.
+  const isLegacyShape = !("customer" in body) && !("serviceId" in body);
+  if (isLegacyShape) {
+    const result = await createAppointment(user.id, {
+      startsAt: String(body.startsAt ?? ""),
+      answers: body.answers && typeof body.answers === "object" ? (body.answers as Record<string, unknown>) : {},
+    });
+    if (!result.ok) return Response.json(result, { status: 400 });
+    return Response.json({ ok: true });
   }
-  return Response.json({ ok: true });
+
+  const selection = sanitizeSelection(body);
+  const result = await createBooking(user.id, selection);
+  if (!result.ok) return Response.json(result, { status: 400 });
+  return Response.json(result);
 }

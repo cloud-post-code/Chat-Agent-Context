@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import { getProfile } from "@/lib/db";
 import { Crawler, type Page } from "./crawl";
 import {
-  extractCoreInfo, extractTheme, type CoreInfo, type Location, type ThemeExtract,
+  extractCoreInfo, extractTheme, emptyHours, type CoreInfo, type Location, type ThemeExtract,
 } from "./extract";
 import { discoverLocationPages, extractLocations } from "./locations";
 import { discoverOwnerPages, extractOwners, ownersToOwnerName } from "./owners";
@@ -11,6 +12,7 @@ import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
 import { discoverServicePages, extractServicesAndBooking } from "./services";
+import { seedLocations, seedSettings, seedStaff } from "./bookingSeed";
 import {
   finishOnboardingIndex, estimateFilingWork, filingSeconds,
   type GraphIndexReport,
@@ -386,6 +388,33 @@ async function runLocations(job: Job): Promise<void> {
   job.stepLoc = { locations };
   job.phase = "locations-done";
   job.progress = 100;
+
+  // Booking seeding: BookingLocation rows and (from the first one) the
+  // tenant's timezone and hours. Best-effort — a failure here never costs
+  // the locations review the chat shows next.
+  try {
+    let seedLocs = locations;
+    if (seedLocs.length === 0) {
+      // A re-onboard of a tenant who already has an address on file (but no
+      // location the crawl could find this time, e.g. an online-only page
+      // now) still gets one bookable location instead of none.
+      const profile = await getProfile(job.userId).catch(() => null);
+      if (profile?.company_address) {
+        seedLocs = [{ address: profile.company_address, phone: job.step1?.company_phone_number ?? "", hours: emptyHours() }];
+      }
+    }
+    if (seedLocs.length) {
+      const businessName = job.step1?.company_name || "Business";
+      const locResult = await seedLocations(job.userId, seedLocs, businessName, (m) => log(job, m));
+      if (locResult.seeded) {
+        log(job, `Booking: added ${locResult.seeded} location${locResult.seeded === 1 ? "" : "s"} with hours`);
+      }
+    }
+    const primary = seedLocs[0];
+    await seedSettings(job.userId, { address: primary?.address ?? "", hours: primary?.hours }, (m) => log(job, m));
+  } catch {
+    // Left as-is; Locations and Hours & rules stay open under Booking.
+  }
 }
 
 /**
@@ -517,6 +546,17 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, team.report.blocks
         ? `Team: saved ${team.report.blocks} bio${team.report.blocks === 1 ? "" : "s"}`
         : "No team bios found");
+
+      // StaffMember rows from the same bios, best-effort — a failure here
+      // never costs the team knowledge saved above.
+      try {
+        const staff = await seedStaff(job.userId, team.people, team.loaded, onEvent);
+        if (staff.seeded) {
+          log(job, `Booking: added ${staff.seeded} staff member${staff.seeded === 1 ? "" : "s"}${staff.imaged ? `, ${staff.imaged} with photos` : ""}`);
+        }
+      } catch {
+        // Left as-is; Providers stays open under Booking.
+      }
     },
     services: async () => {
       log(job, "Reading your services and how you take bookings");
@@ -530,8 +570,11 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
         ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
         : "No services described on this site");
       log(job, svc.report.seededFields
-        ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}, editable on the Calendar`
+        ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}, editable under Booking › Questions`
         : "Booking is on — your existing booking questions were left as they are");
+      if (svc.report.seededServices) {
+        log(job, `Booking: added ${svc.report.seededServices} service${svc.report.seededServices === 1 ? "" : "s"}${svc.report.imagedServices ? `, ${svc.report.imagedServices} with photos` : ""}`);
+      }
     },
   };
 

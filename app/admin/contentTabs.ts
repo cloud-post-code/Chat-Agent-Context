@@ -25,7 +25,31 @@ export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
  */
 export const NEW_SOURCE_TAB_KEY = "new-source";
 
-export type NavKey = "home" | "inbox" | "knowledge" | "agent" | "cards" | "settings";
+export type NavKey =
+  | "home"
+  | "inbox"
+  | "knowledge"
+  | "agent"
+  | "cards"
+  | "booking"
+  | "settings";
+
+/**
+ * Keys of the sub-tabs inside the Booking section (app/admin/booking/): what's
+ * bookable, who does it, where, when, and the questions and money rules that
+ * shape the flow. `booking` itself (Settings) holds the on/off switch and
+ * general setup.
+ */
+export const BOOKING_TAB_KEYS = [
+  "booking-services",
+  "booking-providers",
+  "booking-locations",
+  "booking-hours",
+  "booking-customer",
+  "booking-questions",
+  "booking-pricing",
+] as const;
+export type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
 
 export type NavSub = { key: string; label: string; operator?: boolean };
 
@@ -72,13 +96,26 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   { key: "cards", label: "Cards", subs: [{ key: "a2ui", label: "Cards" }] },
   {
+    key: "booking",
+    label: "Booking",
+    subs: [
+      // Always present, on or off: it holds the switch that turns booking on.
+      { key: "booking", label: "Settings" },
+      { key: "booking-services", label: "Services" },
+      { key: "booking-providers", label: "Providers" },
+      { key: "booking-locations", label: "Locations" },
+      { key: "booking-hours", label: "Hours" },
+      { key: "booking-customer", label: "Customer" },
+      { key: "booking-questions", label: "Questions" },
+      { key: "booking-pricing", label: "Pricing" },
+    ],
+  },
+  {
     key: "settings",
     label: "Settings",
     subs: [
       { key: "profile", label: "Profile" },
       { key: "theme", label: "Theme" },
-      // Always present, on or off: it holds the switch that turns booking on.
-      { key: "booking", label: "Booking" },
       { key: "contacts", label: "Contacts" },
       { key: "users", label: "Users", operator: true },
       { key: "bulk", label: "Bulk builder", operator: true },

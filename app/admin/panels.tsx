@@ -30,7 +30,8 @@ import {
   createAccountAction,
   deleteAccountAction,
   impersonateAction,
-  cancelAppointmentAction,
+  cancelBookingAction,
+  confirmBookingAction,
   deleteOrderAction,
 } from "./actions";
 import { AppointmentsPanel } from "./CalendarPanel";
@@ -38,8 +39,24 @@ import { OrdersPanel } from "./OrdersPanel";
 import { BookingSettings } from "./BookingPanel";
 import { HomePanel } from "./HomePanel";
 import { attentionItems, checklistItems } from "./homeItems";
-import { getBookingConfig, listAppointments } from "@/lib/appointments";
+import { getBookingConfig } from "@/lib/appointments";
 import { listOrders } from "@/lib/orders";
+import { siteUrlFor } from "@/lib/onboarding/refreshServices";
+import {
+  listServices,
+  listStaff,
+  listLocations,
+  getBookingSettings,
+  listBookings,
+} from "@/lib/booking/store";
+import { formatMoney } from "@/lib/booking/types";
+import { ServicesPanel } from "./booking/ServicesPanel";
+import { ProvidersPanel } from "./booking/ProvidersPanel";
+import { LocationsPanel } from "./booking/LocationsPanel";
+import { HoursPanel } from "./booking/HoursPanel";
+import { CustomerPanel } from "./booking/CustomerPanel";
+import { QuestionsPanel } from "./booking/QuestionsPanel";
+import { PricingPanel } from "./booking/PricingPanel";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
 import { BulkBuilderPanel } from "./BulkBuilderPanel";
@@ -99,7 +116,7 @@ export type AdminPanelSet = {
 
 export async function buildAdminPanels(
   user: User,
-  query: { error?: string; gmail?: string } = {},
+  query: { error?: string; gmail?: string; booking?: string } = {},
 ): Promise<AdminPanelSet> {
   const [
     profile,
@@ -122,7 +139,6 @@ export async function buildAdminPanels(
     addressBook,
     gmail,
     bookingConfig,
-    appointments,
     orders,
   ] = await Promise.all([
       getProfile(user.id),
@@ -166,10 +182,19 @@ export async function buildAdminPanels(
       listAddressBook(user.id),
       gmailStatus(user.id),
       getBookingConfig(user.id),
-      listAppointments(user.id),
       listOrders(user.id).catch(() => []),
     ]);
   const metrics = chatMetrics(chatSessions);
+  // The Booking section's own data — a separate fetch from the big
+  // Promise.all above because lib/booking/store.ts is a sibling feature's
+  // module, kept apart so this block reads as one unit.
+  const [services, staffList, locationList, bookingSettings, bookings] = await Promise.all([
+    listServices(user.id),
+    listStaff(user.id),
+    listLocations(user.id),
+    getBookingSettings(user.id),
+    listBookings(user.id),
+  ]);
   // Operator-only: account rows are fetched (and the Users tab rendered) for
   // operators alone; the actions re-check the gate on every call.
   const operator = await isOperator(user);
@@ -717,15 +742,31 @@ export async function buildAdminPanels(
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
+
+  // Rows for Appointments/Home come from the richer booking store
+  // (service/staff/location/customer/pricing/status) rather than the old
+  // intake-only listAppointments.
+  const appointmentRows = bookings.map((a) => ({
+    id: a.id,
+    startsAt: a.startsAt,
+    status: a.status,
+    serviceName: a.serviceName,
+    staffName: a.staffName,
+    locationName: a.locationName,
+    customerName: [a.customer.firstName, a.customer.lastName].filter(Boolean).join(" "),
+    customerEmail: a.customer.email ?? "",
+    customerPhone: a.customer.phone ?? "",
+    durationMinutes: a.durationMinutes,
+    priceDisplay: a.pricing?.total !== undefined ? formatMoney(a.pricing.total, a.pricing.currency) : "",
+    answers: a.answers,
+  }));
+
   flat.appointments = (
     <AppointmentsPanel
-      rows={appointments.map((a) => ({
-        id: a.id,
-        startsAt: a.startsAt.toISOString(),
-        answers: a.answers,
-      }))}
+      rows={appointmentRows}
       fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
-      cancelAction={cancelAppointmentAction}
+      cancelAction={cancelBookingAction}
+      confirmAction={confirmBookingAction}
       bookingEnabled={bookingConfig.enabled}
     />
   );
@@ -752,7 +793,11 @@ export async function buildAdminPanels(
       attention={attentionItems({
         flaggedDown: metrics.flaggedDown,
         unreviewed: cannedStats(canned).unreviewed,
-        appointments,
+        appointments: appointmentRows.map((a) => ({
+          id: a.id,
+          startsAt: new Date(a.startsAt),
+          answers: a.answers,
+        })),
         orders,
         topQuestions: metrics.topQuestions,
       })}
@@ -769,6 +814,25 @@ export async function buildAdminPanels(
       })}
     />
   );
+
+  // ── Booking section (app/admin/booking/) ──
+  flat["booking-services"] = (
+    <ServicesPanel
+      services={services}
+      staff={staffList}
+      locations={locationList}
+      currency={bookingSettings.currency}
+      bookingEnabled={bookingConfig.enabled}
+      siteUrl={await siteUrlFor(user.id).catch(() => null)}
+      notice={query.booking}
+    />
+  );
+  flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;
+  flat["booking-locations"] = <LocationsPanel locations={locationList} services={services} />;
+  flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
+  flat["booking-customer"] = <CustomerPanel settings={bookingSettings} />;
+  flat["booking-questions"] = <QuestionsPanel config={bookingConfig} />;
+  flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
   if (operator) {
     flat.users = (
       <UsersPanel

@@ -15,10 +15,22 @@ file whenever prompts, tools or routing change.
    are served whole.
 3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
    `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
-   `show_card`), `show_booking` when booking is on, `add_to_cart` whenever the
-   menu is in the catalog, and `search_knowledge` on every unscripted turn.
+   `show_card`), `show_booking` when booking is on (with an optional
+   `service` to open the flow on the service the visitor named),
+   `add_to_cart` whenever the menu is in the catalog, and `search_knowledge`
+   on every unscripted turn.
 4. **Loop**: up to 4 model turns; tool results are fed back so the model can
    close.
+
+## Booking
+
+`show_booking` draws the whole flow (`lib/booking/store.ts` → `getBookingFlow`):
+services with photos and prices, providers, locations, live availability,
+customer details, intake questions, review, confirm. The `BOOKING` prompt
+section tells the model to draw it rather than collect details in
+conversation, and never to promise a time the card has not shown. The server
+recomputes duration, price, provider and slot from ids on submit; the card's
+figures are convenience.
 
 ## The menu and the cart
 
@@ -104,16 +116,20 @@ The `edit` event names its `panel` so other panels can add slices later. Proof:
 
 ## Admin copilot: panels follow the dashboard nav
 
-The dashboard's six groups (Home, Inbox, Knowledge, Agent, Cards, Settings) are
-declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`). `adminPanelKeys`
-builds the copilot's `show_panel` enum from the same config
+The dashboard's seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking,
+Settings) are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`).
+`adminPanelKeys` builds the copilot's `show_panel` enum from the same config
 (`fixedPanelEntries`), so the chat can reveal exactly the panels the dashboard
-shows — never `home`, and `users` for operators only. The old combined Calendar
-became `appointments` (Inbox) + `booking` (Settings); `show_panel` maps retired
-keys through `TAB_ALIASES` before looking a panel up, so saved chats and canned
+shows — never `home`, and `users`/`bulk` for operators only. The old combined
+Calendar became `appointments` (Inbox) + `booking` (Settings, the on/off
+switch); the Booking group holds the setup panels (Services, Providers,
+Locations, Hours, Customer, Questions, Pricing —
+`BOOKING_TAB_KEYS`/`app/admin/booking/*`). `show_panel` maps retired keys
+through `TAB_ALIASES` before looking a panel up, so saved chats and canned
 answers naming `calendar` still open Appointments. Chat starter chips point at
 Chats, Presets, Appointments and Cards. Proof:
-`docs/features/admin-nav-groups/proof.ts`.
+`docs/features/admin-nav-groups/proof.ts` (nav/resolver) and
+`docs/features/booking-flow/proof.ts` (the Booking section's own panels).
 
 ## Testing
 
