@@ -6,12 +6,13 @@ import {
   saveAppointmentField,
 } from "@/lib/appointments";
 import { isChoiceType, type FieldConfig } from "@/lib/appointmentTypes";
-import { servicePickerField, type MenuService } from "@/lib/bookingMenu";
+import { servicePickerField } from "@/lib/bookingMenu";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import { SERVICES_SOURCE_TITLE, formatServiceCatalog } from "@/lib/serviceCatalog";
 import type { Crawler, Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
+import { seedServices, type ExtractedService } from "./bookingSeed";
 
 /**
  * The services-and-booking extractor: one read of the pages most likely to
@@ -30,13 +31,16 @@ export const SERVICES_SYSTEM_PROMPT = `You read text from a business's website a
 Rules:
 - A service is something the business actually offers customers: a treatment, a package, a job type, a menu category. "name" is the site's own name for it; "description" is what the text says about it (what's included, price, duration). Copy from the text; never invent or embellish.
 - "price" and "duration" are that service's own price and length exactly as the text writes them ("$35", "$40+", "from £25", "45 min"); "category" is the menu heading the text lists it under ("Manicures", "Add-ons"). Each is "" when the text does not state it. Never estimate, convert, or fill one in from a similar service.
+- "addons" are extra items or upsells the text lists FOR THIS SERVICE specifically (e.g. "add gel top coat +$10"): one entry per add-on with its own "name" and "price" exactly as stated, [] when the text lists none for this service.
+- "deposit" is what the text says THIS SERVICE requires as a deposit or prepayment, copied as written ("$20 deposit", "50% deposit due at booking"); "" when not stated for it.
+- "cancellationPolicy" and "preparation" are this service's own cancellation/rescheduling rule and any prep or eligibility instructions the text states for it, copied as written; "" when not stated. Never copy the business's general policy onto a specific service unless the text itself ties it there.
 - "takesAppointments" is true ONLY if the text says customers can book, schedule, or make an appointment/reservation with this business.
 - "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, party size, a preferred stylist). One entry per piece. Do NOT list the choice of service itself — services are already reported above. "required" is true when the text presents it as needed.
 - A requirement's "type" is one of: short_text, long_text, email, phone, number (a count: party size, guests, pets), yes_no, select (the customer picks ONE of choices the text lists), multi_select (picks ANY of them). "options" holds those listed choices, copied from the text, and is [] for every other type. Use select/multi_select only when the text itself lists at least two choices; otherwise short_text.
 - Nothing qualifying? Return empty lists and false. Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":"","price":"","duration":"","category":""}],"booking":{"takesAppointments":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":""}],"booking":{"takesAppointments":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
 
 export type { ServiceItem } from "@/lib/serviceCatalog";
 export type BookingRequirement = {
@@ -47,8 +51,10 @@ export type BookingRequirement = {
   options: string[];
 };
 export type ServicesExtract = {
-  /** A ServiceItem plus the menu facts (price, duration, category) the form's picker shows. */
-  services: MenuService[];
+  /** A ServiceItem plus the menu facts (price, duration, category) the form's
+   *  picker shows, and the long tail (addons, deposit, policy) the booking
+   *  seeder (lib/onboarding/bookingSeed.ts) reads. */
+  services: ExtractedService[];
   takesAppointments: boolean;
   requirements: BookingRequirement[];
 };
@@ -66,13 +72,34 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
       const item = (s ?? {}) as Record<string, unknown>;
       const name = str(item.name, 200);
       if (!name) continue;
-      const service: MenuService = { name, description: str(item.description) };
+      const service: ExtractedService = { name, description: str(item.description) };
       const price = str(item.price, 40);
       const duration = str(item.duration, 40);
       const category = str(item.category, 60);
       if (price) service.price = price;
       if (duration) service.duration = duration;
       if (category) service.category = category;
+
+      const addons = Array.isArray(item.addons)
+        ? item.addons
+            .slice(0, 20)
+            .map((a) => {
+              const ai = (a ?? {}) as Record<string, unknown>;
+              const aName = str(ai.name, 80);
+              if (!aName) return null;
+              const aPrice = str(ai.price, 40);
+              return aPrice ? { name: aName, price: aPrice } : { name: aName };
+            })
+            .filter((a): a is { name: string; price?: string } => a !== null)
+        : [];
+      if (addons.length) service.addons = addons;
+      const deposit = str(item.deposit, 60);
+      if (deposit) service.deposit = deposit;
+      const cancellationPolicy = str(item.cancellationPolicy, 300);
+      if (cancellationPolicy) service.cancellationPolicy = cancellationPolicy;
+      const preparation = str(item.preparation, 300);
+      if (preparation) service.preparation = preparation;
+
       out.services.push(service);
     }
   }
@@ -140,6 +167,11 @@ export type ServicesReport = {
   takesAppointments: boolean;
   seededFields: number;
   pagesChecked: string[];
+  /** How many Service rows the booking seeder wrote (0 when the tenant
+   *  already had services, or nothing was extracted). */
+  seededServices: number;
+  /** Of those, how many got a photo matched from the site's own pages. */
+  imagedServices: number;
 };
 
 type LlmFn = typeof llmExtract;
@@ -162,6 +194,8 @@ export async function extractServicesAndBooking(
     takesAppointments: false,
     seededFields: 0,
     pagesChecked: pages.map((p) => p.url),
+    seededServices: 0,
+    imagedServices: 0,
   };
   if (!pages.length) return { report, chunks: 0 };
 
@@ -200,6 +234,17 @@ export async function extractServicesAndBooking(
     report.seededFields = await seedBookingForm(userId, clean);
   } catch {
     // Left as-is; the tenant can still build the form by hand.
+  }
+
+  // The Service table (lib/booking/): same empty-catalog gate, same
+  // best-effort rule — a failure here must never cost the knowledge or the
+  // intake form seeded above.
+  try {
+    const seeded = await seedServices(userId, clean.services, pages, onEvent);
+    report.seededServices = seeded.seeded;
+    report.imagedServices = seeded.imaged;
+  } catch {
+    // Left as-is; the tenant can still build the booking menu by hand.
   }
   return { report, chunks };
 }

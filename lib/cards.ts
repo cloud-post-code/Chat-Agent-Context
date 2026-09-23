@@ -3,6 +3,8 @@ import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
+import { getBookingFlow } from "./booking/store";
+import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
@@ -32,14 +34,22 @@ export type ServiceCard = {
   id: string;
   name: string;
   description: string;
+  /** Present when the service comes from the live booking flow (a Service
+   *  row, or a legacy-derived one) rather than the plain knowledge catalog. */
+  imageUrl?: string | null;
+  priceLabel?: string;
+  duration?: string;
+  category?: string;
 };
 
 /**
  * What a services card needs to book from: the live wizard fields, and which
  * of them the chosen service pre-answers (null when the tenant asks no such
- * question, so the wizard opens with nothing filled in).
+ * question, so the wizard opens with nothing filled in). `flow` carries the
+ * full booking flow (services, staff, locations, rules) when one exists, so
+ * the new flow-aware card can book straight through it.
  */
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null };
+export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow: BookingFlow | null };
 
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
@@ -75,8 +85,10 @@ export type UiBlock =
   | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   // The booking wizard: one question per configured field, then a time, then
   // a confirm. The fields ride in the block so the card asks exactly what the
-  // tenant configured at the moment it was drawn.
-  | { type: "booking"; fields: BookingField[] };
+  // tenant configured at the moment it was drawn. `flow` is the full booking
+  // flow (services, staff, locations, rules) for the new flow-aware card;
+  // null on an old stored sample, which falls back to the intake-only wizard.
+  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null };
 
 function toProjectCard(p: {
   id: string;
@@ -135,11 +147,17 @@ export type BookingField = {
  * The booking wizard, hydrated from the live config. Null when booking is
  * disabled or has no questions — the guard that keeps a stale canned answer
  * (or a model that saw the tool a moment ago) from drawing a broken booker.
+ *
+ * `preselect` is a service id (or legacy service id) the visitor already
+ * named — show_booking's `service` input, resolved by brain.ts — carried
+ * into the flow's `preselect.serviceId` so the card can skip straight past
+ * the service step.
  */
-export async function bookingBlock(userId: string): Promise<UiBlock | null> {
+export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
   const { getBookingConfig } = await import("./appointments");
   const { enabled, fields } = await getBookingConfig(userId);
   if (!enabled || fields.length === 0) return null;
+  const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
   return {
     type: "booking",
     fields: fields.map((f) => ({
@@ -149,6 +167,7 @@ export async function bookingBlock(userId: string): Promise<UiBlock | null> {
       required: f.required,
       config: f.config,
     })),
+    flow: flowResult?.flow ?? null,
   };
 }
 
@@ -180,18 +199,33 @@ function serviceQuestionKey(fields: BookingField[]): string | null {
 }
 
 /**
- * The services card, hydrated from saved knowledge plus the live booking
- * config. Null when no services are on file: nothing is drawn and the model
- * answers in words, rather than a visitor being shown an empty price list.
+ * The services card, hydrated from the live booking flow when it has any
+ * services (real Service rows, or the legacy bridge's derived ones — either
+ * way richer: image, price label, duration, category), else the plain
+ * knowledge catalog as before. Null when neither has anything on file:
+ * nothing is drawn and the model answers in words, rather than a visitor
+ * being shown an empty price list.
  */
 export async function servicesBlock(userId: string): Promise<UiBlock | null> {
-  const [items, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
+  const [catalogItems, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
+  const flow = booking?.type === "booking" ? booking.flow : null;
+  const items: ServiceCard[] = flow?.services.length
+    ? flow.services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description,
+        imageUrl: s.imageUrl,
+        priceLabel: pricingLabel(s.pricing, flow.business.currency),
+        duration: formatDuration(s.durationMinutes),
+        category: s.category,
+      }))
+    : catalogItems;
   if (!items.length) return null;
   const fields = booking?.type === "booking" ? booking.fields : null;
   return {
     type: "services",
     items,
-    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields) } : null,
+    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow } : null,
   };
 }
 

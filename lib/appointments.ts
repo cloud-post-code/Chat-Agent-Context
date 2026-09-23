@@ -14,6 +14,8 @@ import { onboardingIngestKind } from "./ingestionSources";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 import { indexAppointment } from "./retrieval/origins";
 import { dropOrigin } from "./retrieval/indexer";
+import { sanitizeBookingSettings } from "./booking/types";
+import { addMinutes } from "./booking/time";
 
 /**
  * The appointment store: the per-tenant booking toggle, the field catalog the
@@ -192,9 +194,29 @@ export async function moveAppointmentField(
 
 export type CreateAppointmentResult = { ok: true; id: string } | { ok: false; error: string };
 
+/** The tenant's default appointment length — the one BookingSettings field
+ *  this intake-only path needs, read without pulling in lib/booking/store.ts
+ *  (which imports back into this module for the legacy bridge). */
+async function defaultDurationMinutes(userId: string): Promise<number> {
+  const row = await prisma.bookingSettings.findUnique({ where: { userId } });
+  let raw: unknown = {};
+  try {
+    raw = row ? JSON.parse(row.config) : {};
+  } catch {
+    raw = {};
+  }
+  return sanitizeBookingSettings(raw).defaultDurationMinutes;
+}
+
 /**
  * The one write path for a booking, shared by the API route and anything
  * later. Fail closed: every uncertain state is a rejection with a reason.
+ *
+ * Two appointments may legitimately share an instant once services, staff
+ * and locations exist (lib/booking/store.ts's createBooking), so the race
+ * guard is no longer a unique (userId, startsAt) index — this path books with
+ * no provider, so "the same instant is already booked" is still exactly one
+ * taken slot, decided under a per-tenant advisory lock instead.
  */
 export async function createAppointment(
   userId: string,
@@ -218,18 +240,23 @@ export async function createAppointment(
     if (resolved.value) answers[f.key] = resolved.value;
   }
 
+  const duration = await defaultDurationMinutes(userId);
+
   try {
-    const row = await prisma.appointment.create({
-      data: { userId, startsAt, answers: JSON.stringify(answers) },
+    const result = await prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      const clash = await tx.appointment.findFirst({ where: { userId, startsAt, status: "confirmed" } });
+      if (clash) return { ok: false as const, error: "That time was just taken — pick another." };
+      const row = await tx.appointment.create({
+        data: { userId, startsAt, endsAt: addMinutes(startsAt, duration), durationMinutes: duration, answers: JSON.stringify(answers) },
+      });
+      return { ok: true as const, id: row.id };
     });
+    if (!result.ok) return result;
     // Best-effort: an indexing failure must never lose the booking.
-    await indexAppointment(userId, row.id).catch(() => {});
-    return { ok: true, id: row.id };
-  } catch (e) {
-    // The unique (userId, startsAt) constraint is the race guard.
-    if (e && typeof e === "object" && (e as { code?: string }).code === "P2002") {
-      return { ok: false, error: "That time was just taken — pick another." };
-    }
+    await indexAppointment(userId, result.id).catch(() => {});
+    return result;
+  } catch {
     return { ok: false, error: "Could not save the booking. Try again." };
   }
 }

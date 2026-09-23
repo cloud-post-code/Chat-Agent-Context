@@ -21,6 +21,9 @@ import {
  * A menu is typed the way a price list reads — one option per line, parts
  * split by "|", a "# Section" line above a group — because the people editing
  * this are salon and shop owners, not form builders.
+ *
+ * `catalog` is the full question list (this one included), so the "Only ask
+ * when…" picker can offer every OTHER question as the condition.
  */
 
 const TYPE_LABELS: Record<string, string> = {
@@ -32,6 +35,12 @@ const TYPE_LABELS: Record<string, string> = {
   multi_select: "Pick any (menu)",
   number: "Number",
   yes_no: "Yes / No",
+  date: "Date",
+  address: "Address",
+  file: "File upload",
+  photo: "Photo upload",
+  signature: "Signature",
+  waiver: "Waiver / consent",
 };
 
 const OPTIONS_PLACEHOLDER = `# Manicures
@@ -40,10 +49,17 @@ Gel Manicure | $35 | 45 min | Includes removal
 # Add-ons
 French tips | $5`;
 
-export function BookingFieldForm({ field }: { field?: AppointmentFieldRow }) {
+export function BookingFieldForm({
+  field,
+  catalog = [],
+}: {
+  field?: AppointmentFieldRow;
+  catalog?: AppointmentFieldRow[];
+}) {
   const [type, setType] = useState<string>(field?.type ?? "short_text");
   const config = field?.config ?? {};
   const small: React.CSSProperties = { ...fieldStyle, width: 110 };
+  const others = catalog.filter((f) => f.key !== field?.key);
 
   return (
     <form action={saveAppointmentFieldAction}>
@@ -113,6 +129,45 @@ export function BookingFieldForm({ field }: { field?: AppointmentFieldRow }) {
           <div>
             <Label>Largest</Label>
             <input name="max" type="number" step={1} defaultValue={config.max} placeholder="No limit" style={small} />
+          </div>
+        </div>
+      ) : null}
+
+      {type === "waiver" ? (
+        <div>
+          <Label>Waiver text (what the visitor agrees to)</Label>
+          <textarea
+            name="waiverText"
+            defaultValue={config.text}
+            rows={5}
+            placeholder="I understand and agree to…"
+            style={{ ...fieldStyle, resize: "vertical" }}
+          />
+        </div>
+      ) : null}
+
+      {others.length > 0 ? (
+        <div style={{ marginTop: 4 }}>
+          <Label>Only ask when…</Label>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <select
+              name="showIfKey"
+              defaultValue={config.showIf?.key ?? ""}
+              style={{ ...fieldStyle, width: "auto", flex: "0 0 auto" }}
+            >
+              <option value="">Always ask</option>
+              {others.map((f) => (
+                <option key={f.key} value={f.key}>
+                  {f.label || f.key}
+                </option>
+              ))}
+            </select>
+            <input
+              name="showIfValues"
+              defaultValue={(config.showIf?.values ?? []).join(", ")}
+              placeholder="comma-separated; leave empty for &quot;when answered at all&quot;"
+              style={{ ...fieldStyle, flex: "1 1 240px" }}
+            />
           </div>
         </div>
       ) : null}

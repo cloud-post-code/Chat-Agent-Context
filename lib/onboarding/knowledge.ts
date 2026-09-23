@@ -334,7 +334,15 @@ export async function extractTestimonials(
 
 export async function extractTeam(
   crawler: Crawler, home: Page, userId: string, log: (m: string) => void = () => {},
-): Promise<{ report: KnowledgeReport["team"]; chunks: number; covered: Set<string> }> {
+): Promise<{
+  report: KnowledgeReport["team"]; chunks: number; covered: Set<string>;
+  /** The people the prompt found — name and bio — for the booking seeder
+   *  (lib/onboarding/bookingSeed.ts seedStaff) to write as StaffMember rows. */
+  people: { name: string; bio: string }[];
+  /** The team/about pages actually loaded, so the seeder can match a photo
+   *  against the same pages the bios came from. */
+  loaded: Page[];
+}> {
   const candidates = linksMatching(crawler, home,
     /team|about( us)?|our people|leadership/i,
     ["/team", "/about", "/about-us", "/people", "/leadership"]);
@@ -375,7 +383,7 @@ export async function extractTeam(
   }
   return {
     report: { existed: pagesChecked.length > 0 && blocks.length > 0, blocks: blocks.length, embeddingDim, pagesChecked },
-    chunks, covered,
+    chunks, covered, people: blocks, loaded,
   };
 }
 
