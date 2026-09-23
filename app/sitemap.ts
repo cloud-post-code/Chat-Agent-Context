@@ -3,6 +3,12 @@ import { prisma } from "@/lib/db";
 import { siteOrigin } from "@/lib/util";
 
 /** The directory, every agent page, and every LLM-readable file. */
+
+// The entries come from the database, which isn't reachable during `next
+// build` (Railway builds without DATABASE_URL). Render per request instead of
+// prerendering at build time, like the other DB-backed routes.
+export const dynamic = "force-dynamic";
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const origin = siteOrigin();
   const users = await prisma.user.findMany({
