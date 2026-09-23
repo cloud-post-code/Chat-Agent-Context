@@ -1676,6 +1676,9 @@ export async function saveBookingSettingsAction(formData: FormData) {
     patch.recurring = formData.get("recurring") === "on";
     patch.staffSelection = String(formData.get("staffSelection") ?? "optional");
     patch.genderPreference = formData.get("genderPreference") === "on";
+    // The owner's word on confirmation outlives any later site read.
+    patch.confirmation = formData.get("confirmation") === "request" ? "request" : "instant";
+    patch.confirmationOwner = true;
   } else if (section === "customer") {
     patch.customerFields = CUSTOMER_FIELD_KEYS.map((key) => ({
       key,

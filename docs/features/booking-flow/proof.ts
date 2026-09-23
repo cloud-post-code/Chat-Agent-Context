@@ -138,6 +138,8 @@ async function main() {
     check("A7 tip presets past 100% are dropped", s.tips.presets.join(",") === "10,20");
     check("A7 the public rules carry no promo codes", !("promoCodes" in T.publicRules(s)) && T.publicRules(s).hasPromoCodes === true);
     check("A7 defaults are weekday nine to five", T.sanitizeBookingSettings({}).hours.mon[0].start === "09:00" && T.sanitizeBookingSettings({}).hours.sat.length === 0);
+    const ch = T.sanitizeBookingSettings({ channels: ["phone", "fax", "phone", "walk_in"], confirmation: "request", confirmationOwner: "yes" });
+    check("A7 booking channels keep the known ones, once; confirmation is instant or request", ch.channels.join() === "phone,walk_in" && ch.confirmation === "request" && ch.confirmationOwner === false && T.sanitizeBookingSettings({}).confirmation === "instant");
 
     const sel = T.sanitizeSelection({
       serviceId: "svc", addonIds: ["a", "a", "b"], quantity: "3", staffId: "", mode: "mobile",

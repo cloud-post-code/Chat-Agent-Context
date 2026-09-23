@@ -288,6 +288,21 @@ back to the knowledge catalog as today. `lib/knowledge.ts`'s BOOKING section
 describes the flow in one paragraph (services with prices, providers,
 locations, live times) so the model draws the card instead of asking.
 
+## How the business takes bookings
+
+The services extractor also reports the site's booking `channels` (online,
+phone, email, walk-in). `applyBookingChannels` records them on the settings
+and, unless the owner has set the switch by hand (`confirmationOwner`), sets
+`confirmation`: `instant` when the site books online, `request` otherwise —
+then the card asks for a phone number, labels the button **Request booking**,
+and the confirmation says the business will confirm. The business's phone
+number rides in `flow.business.phone`, and the service step always shows
+"Prefer to call?" with a tap-to-call link, so there is a way to book even
+when the card's own booking is a request. The offsite booking page (a
+GoCheckin, Vagaro or Square widget linked from the homepage) is read by
+`discoverServicePages` as onboarding does, with a 16k-character corpus so a
+sixty-row menu fits.
+
 ## Non-goals
 Payments (a deposit is recorded, not charged), external calendar sync,
 notifications, visitor-side reschedule, and any new dependency.

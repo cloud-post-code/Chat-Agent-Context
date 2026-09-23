@@ -12,6 +12,7 @@ import {
   sanitizeAddons,
   DEFAULT_TIMEZONE,
   defaultWeeklyHours,
+  type BookingChannel,
   type Pricing,
   type Deposit,
   type ServiceRow,
@@ -412,6 +413,40 @@ export async function enrichServices(
     }
   }
   return result;
+}
+
+/**
+ * Record how the site says one books, and shape the card to match: a business
+ * that books by phone (or email, or walk-in) but not online gets `request`
+ * confirmation — the card asks for a phone number, calls the booking a
+ * request and says the business will confirm — while one that books online
+ * keeps instant confirmation. An owner who set the switch by hand is never
+ * overruled; a site that says nothing changes nothing. Never throws.
+ */
+export async function applyBookingChannels(
+  userId: string,
+  channels: BookingChannel[],
+  log: (m: string) => void,
+): Promise<{ confirmation: "instant" | "request" | null }> {
+  if (!channels.length) return { confirmation: null };
+  try {
+    const settings = await getBookingSettings(userId);
+    const patch: Record<string, unknown> = { channels };
+    if (!settings.confirmationOwner) {
+      const online = channels.includes("online");
+      patch.confirmation = online ? "instant" : "request";
+      if (!online && channels.includes("phone")) {
+        patch.customerFields = settings.customerFields.map((f) => (f.key === "phone" ? { ...f, required: true } : f));
+      }
+    }
+    await saveBookingSettings(userId, patch);
+    const how = channels.join(", ").replace("walk_in", "walk-in");
+    log(`Booking: the site takes bookings by ${how}${patch.confirmation === "request" ? " — bookings from the chat are requests you confirm" : ""}`);
+    return { confirmation: (patch.confirmation as "instant" | "request" | undefined) ?? settings.confirmation };
+  } catch (err) {
+    log(`Booking: couldn't record how the site takes bookings — ${errMsg(err)}`);
+    return { confirmation: null };
+  }
 }
 
 // ── Staff ─────────────────────────────────────────────────────────────────

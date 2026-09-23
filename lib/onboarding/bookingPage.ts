@@ -87,7 +87,14 @@ export function findBookingFrames(page: Page): string[] {
   return [...out];
 }
 
-const BOOKING_PAGE_CHARS = 9000;
+/** A widget's whole menu: sixty priced rows with their headings fit in this
+ *  with room to spare once repeated boilerplate is dropped. */
+const BOOKING_PAGE_CHARS = 16000;
+
+/** Whether a hostname is a booking product's, not the business's own site. */
+export function isBookingHost(hostname: string): boolean {
+  return BOOKING_HOSTS.test(hostname);
+}
 
 const GRAM = 6;
 

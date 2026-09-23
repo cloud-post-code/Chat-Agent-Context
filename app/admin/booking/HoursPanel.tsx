@@ -124,6 +124,10 @@ export function HoursPanel({ settings }: { settings: BookingSettings }) {
           </div>
 
           <Label>Provider selection</Label>
+          <select name="confirmation" defaultValue={settings.confirmation} aria-label="How bookings are confirmed" style={{ ...fieldStyle, width: 320 }}>
+            <option value="instant">Booked on the spot — the card confirms it</option>
+            <option value="request">A request — you confirm it (phone-only booking)</option>
+          </select>
           <select name="staffSelection" defaultValue={settings.staffSelection} style={{ ...fieldStyle, width: 220 }}>
             <option value="hidden">Hidden — never asked</option>
             <option value="optional">Optional — &ldquo;Anyone available&rdquo; first</option>

@@ -43,6 +43,16 @@ export function ServiceStep({
 
   return (
     <div>
+      {flow.business.phone && (
+        // The other way to book, always in view: some visitors would rather
+        // call, and a phone-only business needs its number where the menu is.
+        <p style={{ fontSize: 13, margin: "0 0 10px" }}>
+          Prefer to call? Book by phone:{" "}
+          <a href={`tel:${flow.business.phone.replace(/[^\d+]/g, "")}`} style={{ color: "inherit", fontWeight: 600 }}>
+            {flow.business.phone}
+          </a>
+        </p>
+      )}
       {categories.length > 1 && (
         <div aria-label="Categories" style={chipRow}>
           {categories.map((c) => (

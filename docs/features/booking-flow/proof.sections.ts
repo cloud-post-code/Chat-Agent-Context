@@ -165,6 +165,9 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
   const menuUser = await prisma.user.create({
     data: { email: `${SLUG}-menu@example.invalid`, name: "Proof Menu", slug: `${SLUG}-menu`, passwordHash: "x" },
   });
+  const phoneUser = await prisma.user.create({
+    data: { email: `${SLUG}-phone@example.invalid`, name: "Proof Phone", slug: `${SLUG}-phone`, passwordHash: "x" },
+  });
   try {
     await prisma.profile.upsert({ where: { userId: user.id }, update: { company_name: "Proof Salon", bookingEnabled: true }, create: { userId: user.id, company_name: "Proof Salon", bookingEnabled: true } });
     await S.saveBookingSettings(user.id, {
@@ -340,10 +343,33 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     check("C13 the refresh fills the blanks: price, description, add-on, photo", enriched.updated === 1 && b?.pricing.amount === 40 && b?.description === "Wash and blow-dry." && b?.addons[0]?.price === 15 && b?.imageUrl === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg" && enriched.imaged === 1, JSON.stringify(enriched));
     check("C13 …adds a service the site names that the owner lacks", enriched.added === 1 && kids?.pricing.amount === 20 && kids?.durationMinutes === 20);
     check("C13 …and never overwrites a price the owner set", cut?.pricing.amount === 45);
+
+    // A business whose site says "call to book" and nothing about booking
+    // online: the stage records the channels, turns the card into a request
+    // the owner confirms, and asks for a phone number. The scripted model is
+    // the one doubled boundary; everything else is the real stage.
+    const { extractServicesAndBooking } = await import("../../../lib/onboarding/services");
+    await prisma.profile.upsert({ where: { userId: phoneUser.id }, update: { bookingEnabled: true, company_phone_number: "(512) 555-0199" }, create: { userId: phoneUser.id, bookingEnabled: true, company_phone_number: "(512) 555-0199" } });
+    const phoneHtml = "<html><body><h1>Services</h1><p>Basic Manicure $22. Call (512) 555-0199 to book.</p></body></html>";
+    const phonePages = [{ url: "https://phone-only.invalid/services", html: phoneHtml, $: cheerioLib.load(phoneHtml) }];
+    const scripted = async () => ({
+      services: [{ name: "Basic Manicure", description: "", price: "$22", duration: "", category: "Manicure" }],
+      booking: { takesAppointments: true, kind: "personal_service", staff: [], phone: "required", email: "unknown", notes: false, channels: ["phone"], requirements: [] },
+    });
+    const staged = await extractServicesAndBooking(phonePages, phoneUser.id, () => {}, { llm: scripted });
+    const phoneSettings = await S.getBookingSettings(phoneUser.id);
+    check("C14 the stage reports how the site takes bookings", staged.extract.channels.join() === "phone");
+    check("C14 phone-only means requests the owner confirms, with a phone number asked", phoneSettings.channels.join() === "phone" && phoneSettings.confirmation === "request" && phoneSettings.customerFields.find((f) => f.key === "phone")?.required === true);
+    const phoneFlow = await S.getBookingFlow(phoneUser.id);
+    check("C14 the card is told the number and that bookings are requests", phoneFlow?.flow.business.phone === "(512) 555-0199" && phoneFlow?.flow.rules.confirmation === "request" && phoneFlow?.flow.services[0]?.pricing.amount === 22);
+    await S.saveBookingSettings(phoneUser.id, { confirmation: "instant", confirmationOwner: true });
+    await extractServicesAndBooking(phonePages, phoneUser.id, () => {}, { llm: scripted });
+    check("C14 an owner's own choice outlives a later site read", (await S.getBookingSettings(phoneUser.id)).confirmation === "instant");
   } finally {
     await prisma.user.delete({ where: { id: user.id } });
     await prisma.user.delete({ where: { id: legacyUser.id } });
     await prisma.user.delete({ where: { id: menuUser.id } });
+    await prisma.user.delete({ where: { id: phoneUser.id } });
     check("Z no proof users left behind", (await prisma.user.count({ where: { slug: { startsWith: SLUG } } })) === 0);
   }
 }
@@ -361,7 +387,7 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
     bufferBeforeMinutes: 0, bufferAfterMinutes: 0, order: 0, enabled: true, ...over,
   });
   const flow: BookingFlow = {
-    business: { name: "Proof Salon", timezone: "America/New_York", currency: "USD" },
+    business: { name: "Proof Salon", timezone: "America/New_York", currency: "USD", phone: "(512) 555-0100" },
     services: [
       svc({ id: "cut", name: "Haircut", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", deposit: { kind: "percent", amount: 20 } }),
       svc({ id: "color", name: "Color", category: "Color", pricing: { kind: "starting_at", amount: 80 }, durationMinutes: 90, modes: ["in_person", "mobile"] }),
@@ -384,6 +410,7 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   check("D1 category chips", ["All", "Hair", "Color", "Advice"].every((c) => $("button").filter((_, b) => $(b).text().trim() === c).length > 0));
   check("D1 no network was needed to draw it", !html.includes("Loading"));
   check("D1 the step counter", /Step 1 of \d+/.test(html));
+  check("D1 the other way to book is one tap away", $('a[href="tel:+15125550100"], a[href="tel:5125550100"]').length === 1 && html.includes("Prefer to call?"));
 
   const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields }, slug: "proof" }));
   check("D2 an old stored block still draws the first question at once", noFlow.includes("Anything else?") && !noFlow.includes("Loading"));

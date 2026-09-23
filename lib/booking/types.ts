@@ -238,6 +238,10 @@ export type Membership = { id: string; name: string; discountPercent: number };
 
 export type ServiceFee = { kind: "none" | "fixed" | "percent"; amount?: number; label?: string };
 
+/** How the business says it takes bookings, in its own site's words. */
+export const BOOKING_CHANNELS = ["online", "phone", "email", "walk_in"] as const;
+export type BookingChannel = (typeof BOOKING_CHANNELS)[number];
+
 export type BookingSettings = {
   /** IANA zone the business keeps its hours in. */
   timezone: string;
@@ -273,6 +277,16 @@ export type BookingSettings = {
   depositPolicy: string;
   /** Shown on the confirmation. */
   confirmationNote: string;
+  /** The ways the site says a customer can book; empty when it doesn't say. */
+  channels: BookingChannel[];
+  /**
+   * instant: the card's booking is the booking. request: the business
+   * confirms it afterwards (a phone-only business, say) — the card says so,
+   * asks for a phone number, and calls it a request.
+   */
+  confirmation: "instant" | "request";
+  /** True once the owner chose `confirmation` by hand; a site read then leaves it alone. */
+  confirmationOwner: boolean;
 };
 
 // ── What the visitor sends ─────────────────────────────────────────────────
@@ -368,7 +382,8 @@ export type Slot = {
 export type BookingRules = Omit<BookingSettings, "promoCodes"> & { hasPromoCodes: boolean };
 
 export type BookingFlow = {
-  business: { name: string; timezone: string; currency: string };
+  /** `phone` is the business's own number — the way to book when the card isn't. */
+  business: { name: string; timezone: string; currency: string; phone: string };
   services: ServiceRow[];
   categories: string[];
   staff: StaffRow[];
@@ -790,6 +805,11 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
     cancellationPolicy: text(src.cancellationPolicy, 1000),
     depositPolicy: text(src.depositPolicy, 600),
     confirmationNote: text(src.confirmationNote, 600),
+    channels: strings(src.channels, 4, 20).filter((c): c is BookingChannel =>
+      (BOOKING_CHANNELS as readonly string[]).includes(c),
+    ),
+    confirmation: src.confirmation === "request" ? "request" : "instant",
+    confirmationOwner: bool(src.confirmationOwner, false),
   };
 }
 

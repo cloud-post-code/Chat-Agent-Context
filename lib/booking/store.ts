@@ -623,7 +623,12 @@ export async function getBookingFlow(
 
   return {
     flow: {
-      business: { name: profile.company_name || profile.owner_name || "", timezone: settings.timezone, currency: settings.currency },
+      business: {
+        name: profile.company_name || profile.owner_name || "",
+        timezone: settings.timezone,
+        currency: settings.currency,
+        phone: profile.company_phone_number.trim(),
+      },
       services,
       categories,
       staff,

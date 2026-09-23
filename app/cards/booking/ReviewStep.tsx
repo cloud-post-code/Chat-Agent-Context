@@ -299,8 +299,14 @@ export function ReviewStep({
           opacity: sending ? 0.55 : 1,
         }}
       >
-        {sending ? "Booking…" : "Confirm booking"}
+        {sending ? "Sending…" : flow.rules.confirmation === "request" ? "Request booking" : "Confirm booking"}
       </button>
+      {flow.rules.confirmation === "request" && (
+        <p style={{ fontSize: 12, fontStyle: "italic", margin: "8px 0 0" }}>
+          {flow.business.name || "The business"} confirms requests
+          {flow.business.phone ? ` — or call ${flow.business.phone} to book now` : ""}.
+        </p>
+      )}
       {full && flow.rules.waitlist && (
         <button type="button" onClick={() => submit(true)} disabled={sending} style={{ ...linkBtn, width: "100%", marginTop: 8, textAlign: "center" }}>
           Join waitlist instead
