@@ -289,7 +289,7 @@ export async function extractServicesAndBooking(
   userId: string,
   onEvent: (m: string) => void,
   deps: { llm?: LlmFn } = {},
-): Promise<{ report: ServicesReport; chunks: number }> {
+): Promise<{ report: ServicesReport; chunks: number; extract: ServicesExtract }> {
   const llm = deps.llm ?? llmExtract;
   const report: ServicesReport = {
     services: 0,
@@ -301,7 +301,7 @@ export async function extractServicesAndBooking(
     seededServices: 0,
     imagedServices: 0,
   };
-  if (!pages.length) return { report, chunks: 0 };
+  if (!pages.length) return { report, chunks: 0, extract: sanitizeServices(null) };
 
   const corpus = servicesCorpus(pages);
   const raw = await llm(SERVICES_SYSTEM_PROMPT, corpus, 16000, onEvent);
@@ -372,5 +372,5 @@ export async function extractServicesAndBooking(
   } catch {
     // Left as-is; the tenant can still build the booking menu by hand.
   }
-  return { report, chunks };
+  return { report, chunks, extract: clean };
 }

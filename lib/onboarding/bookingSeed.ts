@@ -27,6 +27,7 @@ import {
   getBookingSettings,
 } from "@/lib/booking/store";
 import { bestImageFor } from "@/lib/booking/matchImages";
+import type { MenuItemData } from "@/lib/menuTypes";
 import { weeklyHoursFrom, timezoneFromAddress } from "@/lib/booking/hours";
 
 /**
@@ -321,6 +322,93 @@ export async function seedServices(
       else log(`Booking: couldn't save service "${s.name}" — ${saved.error}`);
     } catch (err) {
       log(`Booking: couldn't seed service "${s.name}" — ${errMsg(err)}`);
+    }
+  }
+  return result;
+}
+
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Fill the blanks in a tenant's EXISTING services from a fresh read of the
+ * site: a service still priced "varies" gets the stated price, one at the
+ * default length gets the stated duration, an empty description, missing
+ * add-ons, deposit, preparation or policy get the site's words, and a service
+ * with no picture gets one — the model's own image match from the menu read
+ * first, then a photo on the pages whose alt or heading names the service.
+ * A service the site names that the tenant doesn't have yet is added. Nothing
+ * the owner has already set is ever overwritten. Never throws.
+ */
+export async function enrichServices(
+  userId: string,
+  services: ExtractedService[],
+  menu: MenuItemData[],
+  pages: Page[],
+  log: (m: string) => void,
+  deps: { download?: Downloader } = {},
+): Promise<{ updated: number; added: number; imaged: number }> {
+  const download = deps.download ?? downloadImage;
+  const result = { updated: 0, added: 0, imaged: 0 };
+  if (!services.length) return result;
+
+  let existing: ServiceRow[] = [];
+  let fallbackDuration = 60;
+  try {
+    existing = await listServices(userId);
+    fallbackDuration = (await getBookingSettings(userId)).defaultDurationMinutes;
+  } catch (err) {
+    log(`Booking: couldn't read the services on file — ${errMsg(err)}`);
+    return result;
+  }
+  const byName = new Map(existing.map((r) => [nameKey(r.name), r]));
+  const menuByName = new Map(menu.map((m) => [nameKey(m.name), m]));
+
+  // The menu read's own image matches come first in the candidate list, under
+  // the service's name, so bestImageFor prefers them over a page-wide guess.
+  const candidates = [
+    ...menu.filter((m) => /^https?:\/\//i.test(m.image)).map((m) => ({ src: m.image, text: m.name })),
+    ...serviceImageCandidates(pages),
+  ];
+  const cache = new Map<string, string | null>();
+  const downloads = { count: 0 };
+
+  for (const s of services) {
+    try {
+      const row = byName.get(nameKey(s.name));
+      const item = menuByName.get(nameKey(s.name));
+      const pricing = pricingFromService(s);
+      const stated = s.duration || item?.estimatedTime || "";
+      const duration = durationFromService({ ...s, duration: stated }, fallbackDuration);
+      const patch: Partial<ServiceRow> & { name: string; id?: string; imageFilename?: string | null } = { name: row?.name ?? s.name };
+      let changed = false;
+
+      if (!row) {
+        Object.assign(patch, { category: s.category ?? "", description: s.description ?? "", pricing, durationMinutes: duration });
+        changed = true;
+      } else {
+        patch.id = row.id;
+        if (row.pricing.kind === "variable" && pricing.kind !== "variable") { patch.pricing = pricing; changed = true; }
+        if (row.durationMinutes === fallbackDuration && stated && duration !== fallbackDuration) { patch.durationMinutes = duration; changed = true; }
+        if (!row.description && s.description) { patch.description = s.description; changed = true; }
+        if (!row.category && s.category) { patch.category = s.category; changed = true; }
+      }
+      const addons = s.addons?.length ? sanitizeAddons(s.addons.map((a) => ({ name: a.name, price: amountFromText(a.price) }))) : [];
+      if (addons.length && !(row?.addons.length)) { patch.addons = addons; changed = true; }
+      const deposit = depositFromText(s.deposit);
+      if (deposit && (!row || row.deposit.kind === "none")) { patch.deposit = deposit; changed = true; }
+      if (s.preparation && !(row?.preparation)) { patch.preparation = s.preparation; changed = true; }
+      if (s.cancellationPolicy && !(row?.cancellationPolicy)) { patch.cancellationPolicy = s.cancellationPolicy; changed = true; }
+
+      if (!row?.imageUrl) {
+        const imageFilename = await resolveImage(s.name, candidates, cache, downloads, download);
+        if (imageFilename) { patch.imageFilename = imageFilename; changed = true; result.imaged++; }
+      }
+      if (!changed) continue;
+      const saved = await saveService(userId, patch);
+      if (!saved.ok) { log(`Booking: couldn't update service "${s.name}" — ${saved.error}`); continue; }
+      if (row) result.updated++; else result.added++;
+    } catch (err) {
+      log(`Booking: couldn't refresh service "${s.name}" — ${errMsg(err)}`);
     }
   }
   return result;

@@ -74,11 +74,16 @@ buffers and who-can-do-what are computed with, not merely quoted. The
 knowledge catalog that the services card and the agent read stays as it was;
 `show_services` prefers the rows when they exist.
 
-**Existing tenants are upgraded on read.** A tenant with no `Service` rows is
-handed services derived from their intake service picker (already upgraded
-from the old text box), priced by `pricingFromText`, with an image matched
-from their gallery. Their name/email/phone questions fold into the customer
-step. Nothing is migrated as data and nothing they configured is touched.
+**Existing tenants are upgraded on read, once, into real rows.** A tenant
+with no `Service` rows gets them written from what is already on file — the
+menu items the services extractor writes (the site's prices and its own image
+matches), the intake service picker, and the services knowledge with prices
+read out of each description — so the owner can edit them and photos can
+attach. Nothing is invented: a service the site never priced reads "Varies"
+until the owner types a price or presses **Refresh from my site** on Booking →
+Services, which re-reads the site with the onboarding extractor and fills only
+the blanks. Their name/email/phone questions fold into the customer step;
+nothing they configured is touched.
 
 **Two providers may share an instant.** The `(userId, startsAt)` unique index
 is gone; the write path takes a per-tenant advisory lock, checks overlap
