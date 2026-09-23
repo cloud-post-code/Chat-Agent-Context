@@ -13,12 +13,13 @@ export function uploadDir(): string {
   return process.env.UPLOAD_DIR || path.join(process.cwd(), "data", "uploads");
 }
 
-const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
+const ALLOWED = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "application/pdf"]);
 const EXT: Record<string, string> = {
   "image/jpeg": ".jpg",
   "image/png": ".png",
   "image/webp": ".webp",
   "image/gif": ".gif",
+  "application/pdf": ".pdf",
 };
 
 export async function saveUpload(file: File): Promise<string> {
@@ -44,7 +45,7 @@ export async function readUpload(
   filename: string,
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
   // Only allow a bare filename — no slashes or dot segments.
-  if (!/^[a-f0-9-]+\.(jpg|png|webp|gif)$/i.test(filename)) return null;
+  if (!/^[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i.test(filename)) return null;
   const full = path.join(uploadDir(), filename);
   if (!existsSync(full)) return null;
   const bytes = await readFile(full);
@@ -56,6 +57,8 @@ export async function readUpload(
         ? "image/webp"
         : ext === ".gif"
           ? "image/gif"
-          : "image/jpeg";
+          : ext === ".pdf"
+            ? "application/pdf"
+            : "image/jpeg";
   return { bytes, contentType };
 }

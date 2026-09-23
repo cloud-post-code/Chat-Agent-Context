@@ -173,8 +173,33 @@ const BOOKING_TOOL: Anthropic.Tool = {
   name: "show_booking",
   description:
     "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to book, schedule, or set up an appointment, call, or meeting.",
-  input_schema: { type: "object", properties: {} },
+  input_schema: {
+    type: "object",
+    properties: {
+      service: {
+        type: "string",
+        description: "The service the visitor wants, by name, when they named one.",
+      },
+    },
+  },
 };
+
+/**
+ * The `service` name/id a show_booking call named → a real flow service id,
+ * or null when nothing matches. Exact id first (the card round-tripping its
+ * own id), then an exact name, then a loose substring — a visitor's or the
+ * model's wording is rarely the service's exact stored name.
+ */
+function resolvePreselect(services: { id: string; name: string }[], wanted: string): string | null {
+  const w = wanted.trim().toLowerCase();
+  if (!w) return null;
+  return (
+    services.find((s) => s.id === wanted)?.id ??
+    services.find((s) => s.name.toLowerCase() === w)?.id ??
+    services.find((s) => s.name.toLowerCase().includes(w))?.id ??
+    null
+  );
+}
 
 /**
  * The tool for cards designed in the admin card builder. One tool for all of
@@ -259,10 +284,18 @@ async function hydrate(
       return cartBlock(userId);
     case "show_contact_form":
       return contactBlock();
-    case "show_booking":
+    case "show_booking": {
       // Null when booking was disabled after the tool was seen (or a stale
       // canned answer names it) — nothing is drawn rather than a dead booker.
-      return bookingBlock(userId);
+      const wanted = typeof input.service === "string" ? input.service : "";
+      let preselect: string | null = null;
+      if (wanted) {
+        const { getBookingFlow } = await import("./booking/store");
+        const flowResult = await getBookingFlow(userId);
+        preselect = flowResult ? resolvePreselect(flowResult.flow.services, wanted) : null;
+      }
+      return bookingBlock(userId, preselect);
+    }
     case "show_card":
       // Null when the key doesn't name a custom card any more — a canned
       // answer can outlive the card it pointed at.

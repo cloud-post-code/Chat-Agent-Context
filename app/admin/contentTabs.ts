@@ -41,6 +41,23 @@ export const ME_TAB_KEYS = ["profile", "theme"] as const;
 export type MeTabKey = (typeof ME_TAB_KEYS)[number];
 
 /**
+ * Keys of the sub-tabs inside the Booking section (app/admin/booking/). The
+ * Calendar stays its own top-level nav entry — these are the setup panels
+ * around it: what's bookable, who does it, where, when, and the questions and
+ * money rules that shape the flow.
+ */
+export const BOOKING_TAB_KEYS = [
+  "booking-services",
+  "booking-providers",
+  "booking-locations",
+  "booking-hours",
+  "booking-customer",
+  "booking-questions",
+  "booking-pricing",
+] as const;
+export type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
+
+/**
  * Deep-link resolution for the dashboard. `projects` and `knowledge` used to
  * be top-level nav keys and now live inside the Content section (as does
  * `persona`), `contacts` now lives inside the Activity section, `answers`
@@ -69,6 +86,9 @@ export function resolveAdminTab(
   }
   if (tab && (ME_TAB_KEYS as readonly string[]).includes(tab)) {
     return { nav: "profile", sub: tab as MeTabKey };
+  }
+  if (tab && (BOOKING_TAB_KEYS as readonly string[]).includes(tab)) {
+    return { nav: "booking", sub: tab as BookingTabKey };
   }
   return { nav: tab, sub: undefined };
 }

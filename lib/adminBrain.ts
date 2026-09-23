@@ -78,9 +78,11 @@ export type AdminDeps = { client?: ModelClient };
 /**
  * Panels the chat can reveal that aren't ingestion-source tabs. Content tabs
  * come from the live IngestionSource rows; these are the dashboard's fixed
- * sections, labels matching the dashboard strip.
+ * sections, labels matching the dashboard strip. `hint` is an optional short
+ * "when to reveal this" note folded into the system prompt so the model can
+ * tell apart panels whose label alone doesn't say what they're for.
  */
-const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
+const FIXED_PANELS: ReadonlyArray<{ key: string; label: string; hint?: string }> = [
   { key: "profile", label: "Profile" },
   { key: "theme", label: "Theme" },
   { key: "graph", label: "Knowledge" },
@@ -90,7 +92,42 @@ const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
   { key: "rules", label: "Rules" },
   { key: "contacts", label: "Contacts" },
   { key: "a2ui", label: "A2UI cards" },
-  { key: "calendar", label: "Calendar" },
+  { key: "calendar", label: "Calendar", hint: "the booked appointments themselves, and the booking on/off switch" },
+  {
+    key: "booking-services",
+    label: "Services",
+    hint: "what's bookable — pricing, duration, who performs it, where; asked to add/edit/price a service",
+  },
+  {
+    key: "booking-providers",
+    label: "Providers",
+    hint: "the staff who perform services — their hours, time off, bios, per-service overrides",
+  },
+  {
+    key: "booking-locations",
+    label: "Locations",
+    hint: "branches, the online option, and the mobile service area",
+  },
+  {
+    key: "booking-hours",
+    label: "Hours & rules",
+    hint: "business hours, holidays, lead time, cutoff, buffers, waitlist, recurring, provider selection",
+  },
+  {
+    key: "booking-customer",
+    label: "Customer details",
+    hint: "which customer fields the booking flow asks for and whether each is required",
+  },
+  {
+    key: "booking-questions",
+    label: "Questions",
+    hint: "the intake question catalog asked during booking, including conditional questions",
+  },
+  {
+    key: "booking-pricing",
+    label: "Pricing & policies",
+    hint: "currency, tax, service fee, tips, promo codes, memberships, cancellation/deposit policy",
+  },
   { key: NEW_SOURCE_TAB_KEY, label: "New ingestion source" },
 ];
 
@@ -102,12 +139,12 @@ const FIXED_PANELS: ReadonlyArray<{ key: string; label: string }> = [
 export async function adminPanelKeys(
   userId: string,
   operator = false,
-): Promise<Array<{ key: string; label: string }>> {
+): Promise<Array<{ key: string; label: string; hint?: string }>> {
   const sources = await listIngestionSources(userId);
   return [
     ...sources.filter((s) => s.enabled).map((s) => ({ key: s.key, label: s.label })),
-    // The Calendar is fixed and unconditional: it carries the Appointments
-    // settings, so it is the one place booking can be turned back on.
+    // The Calendar is fixed and unconditional: it carries the booking on/off
+    // switch, so it is the one place booking can be turned back on.
     ...FIXED_PANELS,
     ...(operator ? [{ key: "users", label: "Users" }] : []),
   ];
@@ -425,14 +462,14 @@ function adminTools(
 }
 
 function systemPrompt(
-  panels: Array<{ key: string; label: string }>,
+  panels: Array<{ key: string; label: string; hint?: string }>,
   sources: IngestionSourceRow[],
   colors: Record<string, string>,
 ): string {
   const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
     "\n",
   );
-  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}`).join("\n");
+  const panelLines = panels.map((p) => `- ${p.key}: ${p.label}${p.hint ? ` — ${p.hint}` : ""}`).join("\n");
   const sourceLines = sources
     .map((s) => {
       const forms = ingestFormsFor(s.uploadMethod, s.storageKinds);

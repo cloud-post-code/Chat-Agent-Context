@@ -1,15 +1,9 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { resolveAnswer } from "@/lib/appointmentTypes";
-import {
-  QuestionInput,
-  answerLines,
-  answerTotal,
-  hasAnswer,
-  type Answers,
-  type BookingField,
-} from "./BookingQuestion";
+import type { BookingFlow } from "@/lib/booking/types";
+import { BookingFlowCard } from "./booking/BookingFlowCard";
+import type { BookingField } from "./BookingQuestion";
 
 import { MenuCard, type MenuBlockView } from "./MenuCard";
 import { CartCard } from "./CartCard";
@@ -51,8 +45,12 @@ export type ServiceCard = {
   id: string;
   name: string;
   description: string;
+  imageUrl?: string | null;
+  priceLabel?: string;
+  duration?: string;
+  category?: string;
 };
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null };
+export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow?: BookingFlow | null };
 export type UiBlock =
   | { type: "projects"; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
@@ -61,7 +59,7 @@ export type UiBlock =
   | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
-  | { type: "booking"; fields: BookingField[] }
+  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null }
   | ({ type: "menu" } & MenuBlockView)
   | { type: "cart"; checkout: CartCheckout };
 
@@ -102,7 +100,7 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
     return <ContactForm slug={slug} />;
   }
   if (block.type === "booking") {
-    return <BookingCard slug={slug} fields={block.fields} />;
+    return <BookingFlowCard slug={slug} fields={block.fields} flow={block.flow} />;
   }
   if (block.type === "menu") {
     return <MenuCard block={block} slug={slug} />;
@@ -298,238 +296,6 @@ function CustomEl({ el }: { el: CustomElement }) {
   }
 }
 
-/**
- * The booking wizard: one question per configured field, then a date-and-time
- * step, then review + confirm. All state is local until the single POST at
- * the end; a rejected submit shows the server's reason on the review step
- * with every answer intact. The server re-validates everything — this
- * component is convenience, not enforcement.
- *
- * The services card opens it with `prefill`: the service the visitor tapped
- * is already that question's answer. A single-answer question is then not
- * asked at all; a pick-any menu keeps its step, with the service pre-ticked.
- */
-function BookingCard({
-  slug,
-  fields,
-  prefill,
-  intro,
-}: {
-  slug: string;
-  fields: BookingField[];
-  /** Answers the visitor already gave by other means (the service they tapped). */
-  prefill?: Record<string, string>;
-  /** Shown above every step — what is being booked, and the way back out. */
-  intro?: React.ReactNode;
-}) {
-  // A pre-answered question is not asked again; it still shows on the review.
-  // The exception is a pick-any menu: there the prefill is a first pick, and
-  // the question is still asked so the visitor can add to it.
-  const asked = fields.filter((f) => f.type === "multi_select" || !(prefill?.[f.key] ?? "").trim());
-  // 0..asked.length-1 = questions, asked.length = time, +1 = review.
-  const [step, setStep] = useState(0);
-  const [answers, setAnswers] = useState<Answers>(prefill ?? {});
-  const [when, setWhen] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
-  const [error, setError] = useState("");
-
-  const timeStep = asked.length;
-  const reviewStep = asked.length + 1;
-  const startsAt = when ? new Date(when) : null;
-  const timeOk = !!startsAt && !Number.isNaN(startsAt.getTime()) && startsAt.getTime() > Date.now();
-
-  async function submit() {
-    if (state === "sending" || !startsAt) return;
-    setState("sending");
-    setError("");
-    try {
-      const res = await fetch("/api/booking", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ slug, startsAt: startsAt.toISOString(), answers }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error || "Something went wrong.");
-        setState("error");
-        return;
-      }
-      setState("done");
-    } catch {
-      setError("Network error. Try again.");
-      setState("error");
-    }
-  }
-
-  if (state === "done" && startsAt) {
-    return (
-      <div data-fill="bg-soft" style={{ ...card, borderColor: "var(--success-on-bg-soft)" }}>
-        <strong style={{ fontSize: 15 }}>You&apos;re booked.</strong>
-        <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 14, marginTop: 6 }}>
-          {startsAt.toLocaleString(undefined, {
-            weekday: "long",
-            month: "long",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-          })}{" "}
-          — your local time.
-        </p>
-      </div>
-    );
-  }
-
-  const back = step > 0 && (
-    <button onClick={() => setStep(step - 1)} style={{ ...linkBtn, cursor: "pointer" }}>
-      Back
-    </button>
-  );
-  const progress = (
-    <>
-      {intro}
-      <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 12, margin: "0 0 10px" }}>
-        Step {Math.min(step, reviewStep) + 1} of {reviewStep + 1}
-      </p>
-    </>
-  );
-
-  if (step < timeStep) {
-    const f = asked[step];
-    const v = answers[f.key];
-    const answered = hasAnswer(f, v);
-    // The server's own rule, run early: a count outside its bounds is caught
-    // here, on its question, rather than three steps later at the confirm.
-    const verdict = resolveAnswer({ label: f.label, type: f.type, config: f.config ?? {} }, v);
-    const canNext = verdict.ok && (!f.required || answered);
-    const next = () => canNext && setStep(step + 1);
-    return (
-      <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
-        {progress}
-        <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>{f.label}</strong>
-        <div style={{ marginTop: 10 }}>
-          {/* Keyed by question so one step's open "something else" box or
-              focus never carries into the next. The control drawn is chosen
-              by the field's type and config — see BookingQuestion.tsx. */}
-          <QuestionInput
-            key={f.key}
-            field={f}
-            value={v}
-            onChange={(a) => setAnswers({ ...answers, [f.key]: a })}
-            onEnter={next}
-            inputStyle={cf}
-          />
-        </div>
-        {!verdict.ok && (
-          <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>{verdict.error}</p>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          {back}
-          <button
-            onClick={next}
-            disabled={!canNext}
-            style={{ ...linkBtn, ...liveBtn, cursor: "pointer", opacity: canNext ? 1 : 0.55 }}
-          >
-            {answered || f.required ? "Next" : "Skip"}
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  if (step === timeStep) {
-    return (
-      <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
-        {progress}
-        <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
-          When works for you?
-        </strong>
-        <div style={{ marginTop: 10 }}>
-          <input
-            type="datetime-local"
-            value={when}
-            onChange={(e) => setWhen(e.target.value)}
-            style={cf}
-          />
-        </div>
-        {when && !timeOk && (
-          <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>
-            Pick a time in the future.
-          </p>
-        )}
-        <div style={{ display: "flex", gap: 8 }}>
-          {back}
-          <button
-            onClick={() => timeOk && setStep(reviewStep)}
-            disabled={!timeOk}
-            style={{ ...linkBtn, ...liveBtn, cursor: "pointer", opacity: timeOk ? 1 : 0.55 }}
-          >
-            Next
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
-      {progress}
-      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Confirm your booking</strong>
-      <dl style={{ margin: "10px 0", fontSize: 13 }}>
-        {fields
-          .filter((f) => hasAnswer(f, answers[f.key]))
-          .map((f) => {
-            // A menu answer lists each pick with its price, then what they
-            // add up to — the visitor confirms a figure, not just names.
-            const lines = answerLines(f, answers[f.key]);
-            const total = lines.length > 1 ? answerTotal(f, answers[f.key]) : "";
-            return (
-              <div key={f.key} style={{ marginBottom: 6 }}>
-                <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>{f.label}</dt>
-                {lines.map((line) => (
-                  <dd key={line} style={{ margin: 0 }}>
-                    {line}
-                  </dd>
-                ))}
-                {total && <dd style={{ margin: "2px 0 0", fontWeight: 600 }}>Estimated total: {total}</dd>}
-              </div>
-            );
-          })}
-        <div>
-          <dt style={{ color: "var(--on-bg-soft)", fontSize: 12 }}>Time</dt>
-          <dd style={{ margin: 0 }}>
-            {startsAt?.toLocaleString(undefined, {
-              weekday: "long",
-              month: "long",
-              day: "numeric",
-              hour: "numeric",
-              minute: "2-digit",
-            })}
-          </dd>
-        </div>
-      </dl>
-      {state === "error" && (
-        <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>{error}</p>
-      )}
-      <div style={{ display: "flex", gap: 8 }}>
-        {back}
-        <button
-          onClick={submit}
-          disabled={state === "sending"}
-          style={{
-            ...linkBtn,
-            ...liveBtn,
-            padding: "10px 18px",
-            cursor: "pointer",
-            opacity: state === "sending" ? 0.55 : 1,
-          }}
-        >
-          {state === "sending" ? "Booking…" : "Confirm booking"}
-        </button>
-      </div>
-    </div>
-  );
-}
-
 /** Past this many the list folds: a chat bubble is not a menu page. */
 const SERVICES_SHOWN = 5;
 /** Longer than this and a description clamps to two lines behind "More". */
@@ -555,23 +321,28 @@ function ServicesCard({
   const [picked, setPicked] = useState<ServiceCard | null>(null);
   const fields =
     booking && Array.isArray(booking.fields) && booking.fields.length > 0 ? booking.fields : null;
+  const flow = booking?.flow ?? null;
+  const canBook = !!(fields || flow);
 
-  if (picked && fields) {
+  if (picked && canBook) {
+    const flowService = flow?.services.find((s) => s.id === picked.id) ?? null;
     return (
-      <BookingCard
-        key={picked.id}
-        slug={slug}
-        fields={fields}
-        prefill={booking?.serviceKey ? { [booking.serviceKey]: picked.name } : undefined}
-        intro={
-          <p style={{ fontSize: 13, color: "var(--on-bg-soft)", margin: "0 0 10px" }}>
-            Booking <strong>{picked.name}</strong>{" "}
-            <button onClick={() => setPicked(null)} style={textBtn}>
-              Change
-            </button>
-          </p>
-        }
-      />
+      <div>
+        <p style={{ fontSize: 13, color: "var(--on-bg-soft)", margin: "0 0 10px" }}>
+          Booking <strong>{picked.name}</strong>{" "}
+          <button onClick={() => setPicked(null)} style={textBtn}>
+            Change
+          </button>
+        </p>
+        <BookingFlowCard
+          key={picked.id}
+          slug={slug}
+          fields={fields ?? []}
+          flow={flow}
+          preselectServiceId={flowService ? flowService.id : undefined}
+          prefill={!flowService && booking?.serviceKey ? { [booking.serviceKey]: picked.name } : undefined}
+        />
+      </div>
     );
   }
 
@@ -579,7 +350,7 @@ function ServicesCard({
   return (
     <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
       <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Services</strong>
-      {fields && (
+      {canBook && (
         <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 4px" }}>
           Tap Book on any service to pick a time.
         </p>
@@ -590,7 +361,7 @@ function ServicesCard({
             key={s?.id ?? i}
             service={s}
             first={i === 0}
-            onBook={fields ? () => setPicked(s) : undefined}
+            onBook={canBook ? () => setPicked(s) : undefined}
           />
         ))}
       </ul>
@@ -630,10 +401,40 @@ function ServiceRow({
         borderTop: first ? "none" : "1px solid var(--border)",
       }}
     >
+      <div style={{ width: 56, height: 56, flex: "0 0 auto", borderRadius: "var(--radius-sm)", overflow: "hidden", background: "var(--bg)" }}>
+        {service.imageUrl ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={service.imageUrl} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        ) : (
+          <div
+            aria-hidden
+            data-testid="placeholder-image"
+            style={{
+              width: "100%",
+              height: "100%",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              background: "linear-gradient(135deg, var(--primary), var(--bg-soft))",
+              color: "var(--on-primary)",
+              fontSize: 20,
+              fontWeight: 700,
+              fontFamily: "var(--font-heading)",
+            }}
+          >
+            {service.name[0]?.toUpperCase() ?? "?"}
+          </div>
+        )}
+      </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-heading)" }}>
           {service.name}
         </div>
+        {(service.priceLabel || service.duration) && (
+          <div style={{ fontSize: 12, color: "var(--on-bg-soft)", marginTop: 1 }}>
+            {[service.priceLabel, service.duration].filter(Boolean).join(" · ")}
+          </div>
+        )}
         {blurb && (
           <p
             style={{

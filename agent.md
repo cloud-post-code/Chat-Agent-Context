@@ -15,10 +15,22 @@ file whenever prompts, tools or routing change.
    are served whole.
 3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
    `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
-   `show_card`), `show_booking` when booking is on, `add_to_cart` whenever the
-   menu is in the catalog, and `search_knowledge` on every unscripted turn.
+   `show_card`), `show_booking` when booking is on (with an optional
+   `service` to open the flow on the service the visitor named),
+   `add_to_cart` whenever the menu is in the catalog, and `search_knowledge`
+   on every unscripted turn.
 4. **Loop**: up to 4 model turns; tool results are fed back so the model can
    close.
+
+## Booking
+
+`show_booking` draws the whole flow (`lib/booking/store.ts` → `getBookingFlow`):
+services with photos and prices, providers, locations, live availability,
+customer details, intake questions, review, confirm. The `BOOKING` prompt
+section tells the model to draw it rather than collect details in
+conversation, and never to promise a time the card has not shown. The server
+recomputes duration, price, provider and slot from ids on submit; the card's
+figures are convenience.
 
 ## The menu and the cart
 

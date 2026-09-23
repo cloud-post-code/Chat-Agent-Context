@@ -6,7 +6,7 @@ import { logout, setIngestionSourceHiddenAction } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { Tabs } from "../Tabs";
 import { SubTabs } from "../SubTabs";
-import { resolveAdminTab, NEW_SOURCE_TAB_KEY } from "../contentTabs";
+import { resolveAdminTab, NEW_SOURCE_TAB_KEY, BOOKING_TAB_KEYS } from "../contentTabs";
 import { buildAdminPanels } from "../panels";
 import { btnGhost } from "../ui";
 
@@ -152,9 +152,16 @@ export default async function Dashboard({
               />
             ),
           },
-          // Unconditional: the Calendar carries the Appointments settings, so
+          // Unconditional: the Calendar carries the booking on/off toggle, so
           // turning booking off must not remove the way to turn it back on.
           { key: "calendar", label: "Calendar", content: flat.calendar },
+          {
+            key: "booking",
+            label: "Booking",
+            content: (
+              <SubTabs initial={initialSub} ariaLabel="Booking sections" tabs={sub([...BOOKING_TAB_KEYS])} />
+            ),
+          },
           ...(set.operator ? [{ key: "users", label: "Users", content: flat.users }] : []),
         ]}
       />

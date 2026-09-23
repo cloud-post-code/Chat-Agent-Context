@@ -201,19 +201,27 @@ Always add a short spoken sentence alongside a card — the card supplements you
 }
 
 /**
- * One instruction line when booking is live, none otherwise — telling the
- * model about a tool it doesn't have is how you get an apology instead of a
- * card. Dynamic import: knowledge is imported by half of lib/, appointments
+ * One instruction paragraph when booking is live, none otherwise — telling
+ * the model about a tool it doesn't have is how you get an apology instead of
+ * a card. Dynamic import: knowledge is imported by half of lib/, appointments
  * imports back into the retrieval stack.
  */
 async function bookingPromptSection(userId: string): Promise<string> {
   const { getBookingConfig } = await import("./appointments");
   const { enabled, fields } = await getBookingConfig(userId);
   if (!enabled || fields.length === 0) return "";
+  // Naming services in the prompt is cheap only while the list is short —
+  // past a dozen it's a wall of text the model doesn't need, since the card
+  // itself lists them with prices and photos.
+  const { getBookingFlow } = await import("./booking/store");
+  const flowResult = await getBookingFlow(userId);
+  const names = flowResult && flowResult.flow.services.length > 0 && flowResult.flow.services.length <= 12
+    ? ` The services are: ${flowResult.flow.services.map((s) => s.name).join(", ")}.`
+    : "";
   return `
 
 BOOKING:
-Visitors can book an appointment right here in the chat. When someone wants to book, schedule, or meet, draw the booking flow with show_booking — don't collect their details in conversation.`;
+Visitors can book an appointment right here in the chat: the card lets them pick a service (with prices and photos), a provider, a location, and a live open time, then confirm.${names} When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open.`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */

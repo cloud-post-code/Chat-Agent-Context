@@ -2,7 +2,6 @@ import { prisma } from "@/lib/db";
 import { FIELD_TYPES, rebuildUntouchedForm } from "@/lib/appointments";
 import { isChoiceType } from "@/lib/appointmentTypes";
 import { BOOKING_KINDS, planBookingForm, type BookingKind, type ContactNeed } from "@/lib/bookingFormPlan";
-import type { MenuService } from "@/lib/bookingMenu";
 import { replaceMenu } from "@/lib/menu";
 import { sanitizeMenuItem, type MenuItemData } from "@/lib/menuTypes";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
@@ -11,6 +10,7 @@ import type { Crawler, Page } from "./crawl";
 import { bookingCorpus, findBookingFrames, findBookingLink } from "./bookingPage";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
+import { seedServices, type ExtractedService } from "./bookingSeed";
 
 /**
  * The services-and-booking extractor: one read of the pages most likely to
@@ -31,6 +31,9 @@ export const SERVICES_SYSTEM_PROMPT = `You read text from a business's website a
 Rules:
 - A service is something the business actually offers customers: a treatment, a package, a job type, a menu category. "name" is the site's own name for it; "description" is what the text says about it (what's included, price, duration). Copy from the text; never invent or embellish.
 - "price" and "duration" are that service's own price and length exactly as the text writes them ("$35", "$40+", "from £25", "45 min"); "category" is the menu heading the text lists it under ("Manicures", "Add-ons"). Each is "" when the text does not state it. Never estimate, convert, or fill one in from a similar service.
+- "addons" are extra items or upsells the text lists FOR THIS SERVICE specifically (e.g. "add gel top coat +$10"): one entry per add-on with its own "name" and "price" exactly as stated, [] when the text lists none for this service.
+- "deposit" is what the text says THIS SERVICE requires as a deposit or prepayment, copied as written ("$20 deposit", "50% deposit due at booking"); "" when not stated for it.
+- "cancellationPolicy" and "preparation" are this service's own cancellation/rescheduling rule and any prep or eligibility instructions the text states for it, copied as written; "" when not stated. Never copy the business's general policy onto a specific service unless the text itself ties it there.
 - "menu" holds the rest of what the text states about the item, for a menu the customer can order from. Every field is optional: leave it "", [], false or omit it when the text does not state it — never fill one in from what such an item usually has. Fields: subcategory; shortDescription (one line); fullDescription (the text's longer description); image (a URL from the IMAGES list whose alt or position clearly matches this item, else ""); gallery (more matching image URLs); priceType (fixed | starting_at | market | varies | free); originalPrice and salePrice (only when the text shows a struck-through or reduced price); currency (code like USD, only when stated); unit (each | person | lb | hour …); availability (available | unavailable | limited | unknown); availabilityWindow ("breakfast only", "after 4 PM"); locations (branches it is available at); modifiers: the choices the text offers for this item — sizes, sides, temperature, add-ons — each {"name":"Size","choices":[{"label":"Large","price":"+$2"}],"required":true,"min":1,"max":1,"defaults":["Medium"]} with min/max as the text states ("choose 1–2 toppings") and price only when the text prices that choice; quantityMin/quantityMax when the text limits how many; ingredients; dietaryTags (vegan, vegetarian, gluten-free, keto …, as written); allergens; warnings ("contains raw or undercooked …"); customization (true when the text invites requests like "no onions" or "sauce on the side"); nutrition ("720 cal"); servingSize ("serves 2"); popularity (popular | bestseller | new | staff_pick, only when the text marks it); rating and reviewCount as written; estimatedTime ("15–20 min"); inventory ("4 remaining"); fulfillment (pickup | delivery | dine_in | appointment | shipping — how the text says this item is had); related, upsells, pairings (names of other listed items the text pairs or suggests with it).
 - "takesAppointments" is true ONLY if the text says customers can book, schedule, or make an appointment/reservation with this business.
 - "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, party size, a preferred stylist). One entry per piece. Do NOT list the choice of service itself — services are already reported above — nor the date and time, which every booking asks. "required" is true when the text presents it as needed.
@@ -41,7 +44,7 @@ Rules:
 - Nothing qualifying? Return empty lists, false, "other" and "unknown". Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":"","price":"","duration":"","category":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
 
 export type { ServiceItem } from "@/lib/serviceCatalog";
 export type BookingRequirement = {
@@ -52,8 +55,10 @@ export type BookingRequirement = {
   options: string[];
 };
 export type ServicesExtract = {
-  /** A ServiceItem plus the menu facts (price, duration, category) the form's picker shows. */
-  services: MenuService[];
+  /** A ServiceItem plus the menu facts (price, duration, category) the form's
+   *  picker shows, and the long tail (addons, deposit, policy) the booking
+   *  seeder (lib/onboarding/bookingSeed.ts) reads. */
+  services: ExtractedService[];
   /** The same items with everything the site states about them (lib/menuTypes.ts). */
   menu: MenuItemData[];
   takesAppointments: boolean;
@@ -93,13 +98,34 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
       const item = (s ?? {}) as Record<string, unknown>;
       const name = str(item.name, 200);
       if (!name) continue;
-      const service: MenuService = { name, description: str(item.description) };
+      const service: ExtractedService = { name, description: str(item.description) };
       const price = str(item.price, 40);
       const duration = str(item.duration, 40);
       const category = str(item.category, 60);
       if (price) service.price = price;
       if (duration) service.duration = duration;
       if (category) service.category = category;
+
+      const addons = Array.isArray(item.addons)
+        ? item.addons
+            .slice(0, 20)
+            .map((a) => {
+              const ai = (a ?? {}) as Record<string, unknown>;
+              const aName = str(ai.name, 80);
+              if (!aName) return null;
+              const aPrice = str(ai.price, 40);
+              return aPrice ? { name: aName, price: aPrice } : { name: aName };
+            })
+            .filter((a): a is { name: string; price?: string } => a !== null)
+        : [];
+      if (addons.length) service.addons = addons;
+      const deposit = str(item.deposit, 60);
+      if (deposit) service.deposit = deposit;
+      const cancellationPolicy = str(item.cancellationPolicy, 300);
+      if (cancellationPolicy) service.cancellationPolicy = cancellationPolicy;
+      const preparation = str(item.preparation, 300);
+      if (preparation) service.preparation = preparation;
+
       out.services.push(service);
       // The menu item: the service's own facts, plus whatever the model put
       // under "menu"; the sanitizer keeps only the closed vocabulary.
@@ -243,6 +269,11 @@ export type ServicesReport = {
   menuItems: number;
   seededFields: number;
   pagesChecked: string[];
+  /** How many Service rows the booking seeder wrote (0 when the tenant
+   *  already had services, or nothing was extracted). */
+  seededServices: number;
+  /** Of those, how many got a photo matched from the site's own pages. */
+  imagedServices: number;
 };
 
 type LlmFn = typeof llmExtract;
@@ -267,6 +298,8 @@ export async function extractServicesAndBooking(
     menuItems: 0,
     seededFields: 0,
     pagesChecked: pages.map((p) => p.url),
+    seededServices: 0,
+    imagedServices: 0,
   };
   if (!pages.length) return { report, chunks: 0 };
 
@@ -327,6 +360,17 @@ export async function extractServicesAndBooking(
     report.seededFields = await rebuildUntouchedForm(userId, planBookingForm(clean));
   } catch {
     // Left as-is; the tenant can still build the form by hand.
+  }
+
+  // The Service table (lib/booking/): same empty-catalog gate, same
+  // best-effort rule — a failure here must never cost the knowledge or the
+  // intake form seeded above.
+  try {
+    const seeded = await seedServices(userId, clean.services, pages, onEvent);
+    report.seededServices = seeded.seeded;
+    report.imagedServices = seeded.imaged;
+  } catch {
+    // Left as-is; the tenant can still build the booking menu by hand.
   }
   return { report, chunks };
 }

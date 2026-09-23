@@ -52,6 +52,10 @@ model User {
   contacts            Contact[]
   appointmentFields   AppointmentField[]
   appointments        Appointment[]
+  services            Service[]
+  staffMembers        StaffMember[]
+  bookingLocations    BookingLocation[]
+  bookingSettings     BookingSettings?
   menuItems           MenuItem[]
   orders              Order[]
   profile             Profile?
@@ -582,18 +586,125 @@ model AppointmentField {
 
 /// A booked appointment. `answers` is JSON {fieldKey: answer} of what the
 /// visitor typed — untrusted input, framed as quoted visitor data wherever it
-/// is indexed or prompted. The unique (userId, startsAt) is the race guard:
-/// the row is the claim on the slot, so the second booker of the same instant
-/// hits the constraint instead of double-booking.
+/// is indexed or prompted. Two appointments may share an instant (two
+/// providers, two chairs), so the race guard is no longer a unique index: the
+/// write path takes a per-tenant advisory lock, checks overlap against the
+/// booked provider and location, then inserts (lib/booking/store.ts).
 model Appointment {
+  id              String   @id @default(cuid())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  startsAt        DateTime
+  /// startsAt + the service's duration (add-ons included); equal to startsAt
+  /// for rows written before durations existed.
+  endsAt          DateTime?
+  durationMinutes Int      @default(0)
+  /// confirmed | waitlisted | cancelled
+  status          String   @default("confirmed")
+  /// What was booked, denormalized so the record survives a menu edit.
+  serviceId       String?
+  serviceName     String   @default("")
+  variantName     String   @default("")
+  /// JSON string[] of add-on names as shown to the visitor.
+  addons          String   @default("[]")
+  staffId         String?
+  staffName       String   @default("")
+  locationId      String?
+  locationName    String   @default("")
+  /// in_person | online | mobile
+  mode            String   @default("in_person")
+  /// JSON Customer (lib/booking/types.ts): the visitor's contact details.
+  customer        String   @default("{}") @db.Text
+  /// JSON PriceBreakdown as computed at booking time.
+  pricing         String   @default("{}") @db.Text
+  /// JSON {frequency, count, index, groupId} when one of a recurring series.
+  recurrence      String   @default("")
+  /// Intake answers, JSON {fieldKey: answer}.
+  answers         String   @default("{}") @db.Text
+  createdAt       DateTime @default(now())
+
+  @@index([userId, startsAt])
+  @@index([userId, staffId, startsAt])
+}
+
+/// One bookable service, per tenant. The columns the card sorts and filters
+/// by are columns; the long tail (add-ons, variants, deposit, modes, who
+/// performs it, where, eligibility, preparation, policy, buffers, images) is
+/// one JSON ServiceConfig read through sanitizeServiceConfig.
+model Service {
+  id              String   @id @default(cuid())
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId          String
+  name            String
+  category        String   @default("")
+  description     String   @default("") @db.Text
+  /// Stored upload filename of the lead image, null for a placeholder.
+  imageFilename   String?
+  /// JSON Pricing (lib/booking/types.ts).
+  pricing         String   @default("{\"kind\":\"variable\"}")
+  durationMinutes Int      @default(60)
+  config          String   @default("{}") @db.Text
+  order           Int      @default(0)
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([userId, order])
+}
+
+/// A provider a visitor can pick (or leave to "anyone available"). The long
+/// tail — specialties, languages, credentials, hours, time off, per-service
+/// price and duration overrides — is one JSON StaffConfig.
+model StaffMember {
+  id            String   @id @default(cuid())
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId        String
+  name          String
+  role          String   @default("")
+  bio           String   @default("") @db.Text
+  photoFilename String?
+  config        String   @default("{}") @db.Text
+  order         Int      @default(0)
+  enabled       Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([userId, order])
+}
+
+/// Where a booking happens: a branch, online, or the customer's own address
+/// (a service area). Hours, the service area and the meeting link are one
+/// JSON LocationConfig.
+model BookingLocation {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  startsAt  DateTime
-  answers   String   @default("{}") @db.Text
+  name      String
+  /// business | virtual | mobile
+  kind      String   @default("business")
+  address   String   @default("")
+  phone     String   @default("")
+  /// IANA zone; empty = the business's.
+  timezone  String   @default("")
+  config    String   @default("{}") @db.Text
+  order     Int      @default(0)
+  enabled   Boolean  @default(true)
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  @@unique([userId, startsAt])
+  @@index([userId, order])
+}
+
+/// The tenant's booking rules as one JSON BookingSettings — timezone, hours,
+/// holidays, lead time, cutoff, buffers, advance window, waitlist, recurring,
+/// provider selection, customer fields, taxes, fees, tips, promo codes,
+/// memberships, policies. Absent row = the defaults (sanitizeBookingSettings).
+model BookingSettings {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String   @unique
+  config    String   @default("{}") @db.Text
+  updatedAt DateTime @updatedAt
 }
 
 /// One user's editable business identity. What the chatbot states as fact
