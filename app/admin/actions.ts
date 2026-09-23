@@ -77,7 +77,7 @@ import {
   deleteIngestedItem,
 } from "@/lib/customIngest";
 import { checkEditPassword, createEditSession, isEditAuthed } from "@/lib/ingestionAuth";
-import { approveIngestion, type IngestMethod } from "@/lib/adminBrain";
+import { applyThemeColor, approveIngestion, type IngestMethod } from "@/lib/adminBrain";
 import { draftUiCard, type CardDraft } from "@/lib/cardBuilder";
 import { redraftAnswer } from "@/lib/answerDrafts";
 import { regenerateStarterQuestions } from "@/lib/starterQuestions";
@@ -1110,6 +1110,24 @@ export async function approveIngestionAction(
       ? { bytes: Buffer.from(await f.arrayBuffer()), filename: f.name, contentType: f.type }
       : undefined;
   const error = await approveIngestion(user.id, proposal, { file });
+  revalidateAll();
+  return error ? { ok: false, error } : { ok: true };
+}
+
+/**
+ * The chat-first admin's focused theme edit: Save on the copilot's pre-filled
+ * color card. One role is written; lib/adminBrain.applyThemeColor leaves the
+ * rest of the theme alone.
+ */
+export async function applyThemeColorAction(
+  formData: FormData,
+): Promise<{ ok: boolean; error?: string }> {
+  const user = await requireUser();
+  const error = await applyThemeColor(
+    user.id,
+    String(formData.get("role") ?? ""),
+    String(formData.get("value") ?? ""),
+  );
   revalidateAll();
   return error ? { ok: false, error } : { ok: true };
 }

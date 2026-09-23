@@ -45,6 +45,43 @@ and `rebuildUntouchedForm` writes them only over a form nobody has edited.
 Checked live against a real booking page by
 `docs/features/booking-form-planner/crosscheck.ts`.
 
+## Site-cards agent: A2UI cards from the imported site
+
+The A2UI tab's "Build cards from my site" button runs `buildCardsFromSite`
+(`lib/siteCards.ts`, `SITE_CARDS_SYSTEM_PROMPT`) over
+`POST /api/admin/site-cards` (NDJSON: `status` / `need` / `card`, then one
+`done` or `error`). It reads the site the business imported — the tenant's
+link `Source` rows, no crawling — beside an `EXISTING CARDS` block and the
+onboarding planner's BUSINESS / SIGNALS / STARTER QUESTIONS blocks. One
+planning call names up to 4 visitor **needs**, each with the page URL it was
+read from and the card that serves it (`gallery`, `services`, `contact`,
+`projects`, `designed`; never `booking`). `sanitizeSiteCardPlan` drops a need
+the catalog already covers (same tool for a live-data card, same label for any
+card) before the onboarding sanitizer's gates and caps. Cards are placed
+through onboarding's `placeCard`: designed ones go to the research-enabled card
+builder (`draftUiCard`) with the need and its evidence page added to the brief.
+Strictly additive — rows append after the catalog's last, existing rows are
+never touched, new cards attach only to starter questions with no card. No
+imported site means no model call. Designed cards need a builder model that
+supports adaptive thinking (`CARD_BUILDER_MODEL`). Proof:
+`docs/features/site-driven-a2ui-cards/proof.ts`; live check: `crosscheck.ts`
+beside it.
+
+## Admin copilot: focused edits
+
+The admin copilot (`lib/adminBrain.ts`, `/admin/chat`) has `show_panel`,
+`save_goal`, `propose_ingestion`, and `propose_theme_color {role, value}`. Its
+system prompt carries the account's current theme colors by role (stored value
+or fallback) and says the page name renders in the `text` role, so "make the
+accent the color of the name" resolves to a hex. Asked for a color change it can
+work out, it calls `propose_theme_color` instead of opening the Theme panel: the
+chat shows only that color's editor, pre-filled (`edit` event → `ThemeEditCard`),
+and nothing is written until the admin clicks Save (`applyThemeColorAction` →
+`applyThemeColor`, which merges one role and leaves the rest of the theme alone).
+A color it cannot derive gets one question or the full panel — never a guess.
+The `edit` event names its `panel` so other panels can add slices later. Proof:
+`docs/features/copilot-focused-edits/proof.ts`.
+
 ## Testing
 
 `docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),

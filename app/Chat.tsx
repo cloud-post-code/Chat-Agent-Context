@@ -481,6 +481,14 @@ function Bubble({
   const hasCards = !!cards && cards.length > 0;
   return (
     <div style={{ ...styles.row, flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
+      {/* A2UI cards always lead; the agent's words follow. */}
+      {hasCards && (
+        <div style={{ width: "100%", marginBottom: content ? 8 : 0 }}>
+          {cards!.map((c, i) => (
+            <Cards key={i} block={c} slug={slug} />
+          ))}
+        </div>
+      )}
       {(content || !hasCards) && (
         <div data-fill="surface" style={isUser ? styles.userBubble : styles.botBubble}>
           {content ? (
@@ -496,13 +504,6 @@ function Bubble({
               <i style={{ ...styles.tdot, animationDelay: "300ms" }} />
             </span>
           ) : null}
-        </div>
-      )}
-      {hasCards && (
-        <div style={{ width: "100%", marginTop: 8 }}>
-          {cards!.map((c, i) => (
-            <Cards key={i} block={c} slug={slug} />
-          ))}
         </div>
       )}
     </div>

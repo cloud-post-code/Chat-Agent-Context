@@ -170,10 +170,10 @@ export function sanitizeCardPlan(
   return out;
 }
 
-type Business = { name: string; text: string };
+export type Business = { name: string; text: string };
 
 /** Everything the system knows about the business, as a corpus block. */
-async function businessBlock(userId: string): Promise<Business> {
+export async function businessBlock(userId: string): Promise<Business> {
   const [profile, persona, goals, sources] = await Promise.all([
     prisma.profile.findUnique({ where: { userId } }),
     prisma.personaConfig.findUnique({ where: { userId } }),
@@ -210,7 +210,7 @@ async function businessBlock(userId: string): Promise<Business> {
 }
 
 /** What the account has, read from the tables the cards would draw from. */
-async function readSignals(userId: string, categories: string[]): Promise<CardSignals> {
+export async function readSignals(userId: string, categories: string[]): Promise<CardSignals> {
   const [photos, projects, services, booking, profile] = await Promise.all([
     // The public gallery shows the owner's curated kinds, not ingested images.
     prisma.photo.count({ where: { userId, NOT: { kind: { startsWith: "ingest:" } } } }),
@@ -244,8 +244,13 @@ export function cardsCorpus(
   const pagesBlock = pages.length
     ? llmCorpus(pages)
     : "=== (no pages: this business was set up by hand, so plan only from what follows)";
+  return `${pagesBlock}\n\n${contextBlocks(business, signals, questions)}`;
+}
+
+/** The BUSINESS, SIGNALS and STARTER QUESTIONS blocks every card planner reads. */
+export function contextBlocks(business: Business, signals: CardSignals, questions: string[]): string {
   return (
-    `${pagesBlock}\n\n=== BUSINESS\n${business.text}\n\n=== SIGNALS\n` +
+    `=== BUSINESS\n${business.text}\n\n=== SIGNALS\n` +
     `Gallery photos on file: ${signals.photos}\n` +
     `Projects on file: ${signals.projects}\n` +
     `Services on file: ${signals.services}\n` +
@@ -257,9 +262,9 @@ export function cardsCorpus(
   );
 }
 
-type LlmFn = typeof llmExtract;
+export type LlmFn = typeof llmExtract;
 /** The card builder, narrowed to the one call this module makes. */
-type DraftFn = (
+export type DraftFn = (
   userId: string,
   input: { instructions: string },
   deps?: BuilderDeps,
@@ -289,7 +294,7 @@ function attachInput(tool: string, key: string, layout: PlannedCard["layout"]): 
   return null;
 }
 
-type Placed =
+export type Placed =
   | { ok: true; card: PlannedCard; tool: string; key: string; cardInput: string | null; row: boolean }
   | { ok: false; card: PlannedCard };
 
@@ -315,7 +320,7 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
  * its own toggle, not the catalog) and only exists to be attached. Never
  * throws: a failed draft or a rejected row is that card's loss alone.
  */
-async function placeCard(
+export async function placeCard(
   userId: string,
   card: PlannedCard,
   order: number,
@@ -370,7 +375,7 @@ async function placeCard(
  * card attached are touched — the guard is in the WHERE, so an owner's own
  * attachment can never be overwritten, whatever the plan said.
  */
-async function attachToQuestions(
+export async function attachToQuestions(
   userId: string,
   placed: Placed[],
   questionIds: string[],
