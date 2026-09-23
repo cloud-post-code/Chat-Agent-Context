@@ -3,7 +3,10 @@ import { prisma, getProfile } from "../db";
 import { getBookingConfig, safeAnswers } from "../appointments";
 import type { AppointmentFieldRow } from "../appointmentTypes";
 import { isFieldShown, resolveAnswer, durationMinutes as parseDurationMinutes } from "../appointmentTypes";
-import { SERVICE_PICKER_KEY } from "../bookingMenu";
+import { SERVICE_PICKER_KEY, serviceOptions } from "../bookingMenu";
+import { onboardingIngestKind } from "../ingestionSources";
+import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "../serviceCatalog";
+import { sanitizeMenuItem, type MenuItemData } from "../menuTypes";
 import { indexAppointment } from "../retrieval/origins";
 import { dropOrigin } from "../retrieval/indexer";
 import { bestImageFor, type GalleryPhoto } from "./matchImages";
@@ -455,7 +458,116 @@ async function legacyServices(userId: string, settings: BookingSettings): Promis
 async function resolveServices(userId: string, settings: BookingSettings): Promise<ServiceRow[]> {
   const rows = await listServices(userId);
   if (rows.length) return rows.filter((r) => r.enabled);
+  // A tenant from before the Service table: write real rows once from what
+  // they already have, so the admin can edit them and photos can attach.
+  if (await materializeServices(userId, settings)) {
+    return (await listServices(userId)).filter((r) => r.enabled);
+  }
   return legacyServices(userId, settings);
+}
+
+/** A row of the tenant's gallery: what a caption says, and the file it names. */
+async function galleryPhotos(userId: string): Promise<(GalleryPhoto & { filename: string })[]> {
+  const photos = await prisma.photo.findMany({
+    where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
+    select: { filename: true, caption: true, description: true },
+  });
+  return photos.map((p) => ({
+    filename: p.filename,
+    src: `/api/uploads/${p.filename}`,
+    text: [p.caption, p.description].filter(Boolean).join(" "),
+  }));
+}
+
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * What a tenant onboarded before the Service table already knows about its
+ * services, merged by name from three places: the structured menu items the
+ * services extractor now writes (price, category, description, a matched
+ * image on the site), the intake catalog's service picker (price and duration
+ * as text), and the services knowledge record (prices and durations read out
+ * of each description). Nothing is invented: a service with no stated price
+ * is "varies" until the owner types one or refreshes from the site.
+ */
+async function knownServices(
+  userId: string,
+): Promise<{ name: string; category: string; description: string; price: string; duration: string; image: string }[]> {
+  const byName = new Map<string, { name: string; category: string; description: string; price: string; duration: string; image: string }>();
+  const take = (name: string, patch: Partial<{ category: string; description: string; price: string; duration: string; image: string }>) => {
+    const key = nameKey(name);
+    if (!key) return;
+    const cur = byName.get(key) ?? { name: name.trim(), category: "", description: "", price: "", duration: "", image: "" };
+    for (const [k, v] of Object.entries(patch) as [keyof typeof patch, string | undefined][]) {
+      if (v && !cur[k]) cur[k] = v;
+    }
+    byName.set(key, cur);
+  };
+
+  const menuRows = await prisma.menuItem.findMany({ where: { userId }, orderBy: { order: "asc" } });
+  for (const r of menuRows) {
+    let item: MenuItemData | null = null;
+    try {
+      item = sanitizeMenuItem({ ...JSON.parse(r.data), key: r.key, name: r.name, category: r.category });
+    } catch {
+      item = sanitizeMenuItem({ key: r.key, name: r.name, category: r.category });
+    }
+    if (!item) continue;
+    take(item.name, {
+      category: item.category,
+      description: item.shortDescription || item.fullDescription,
+      price: item.salePrice || item.price,
+      duration: item.estimatedTime,
+      image: /^https:\/\/\S+$/i.test(item.image) ? item.image : "",
+    });
+  }
+
+  const { fields } = await getBookingConfig(userId);
+  const picker = fields.find((f) => f.key === SERVICE_PICKER_KEY && (f.config.options?.length ?? 0) > 0);
+  for (const o of picker?.config.options ?? []) {
+    take(o.label, { category: o.group, description: o.description, price: o.price, duration: o.duration });
+  }
+
+  const source = await prisma.source.findFirst({
+    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
+    orderBy: { updatedAt: "desc" },
+    select: { rawText: true },
+  });
+  for (const o of serviceOptions(parseServiceCatalog(source?.rawText))) {
+    take(o.label, { category: o.group, description: o.description, price: o.price, duration: o.duration });
+  }
+  return [...byName.values()];
+}
+
+/**
+ * Write Service rows for a tenant who has none, from what is already on file.
+ * Once: after this the rows are the owner's. True when anything was written;
+ * false (never a throw) leaves the read-time bridge to carry on.
+ */
+async function materializeServices(userId: string, settings: BookingSettings): Promise<boolean> {
+  try {
+    const known = await knownServices(userId);
+    if (!known.length) return false;
+    const gallery = await galleryPhotos(userId);
+    let written = 0;
+    for (const k of known) {
+      const fromGallery = k.image ? null : bestImageFor(k.name, gallery);
+      const photo = fromGallery ? gallery.find((g) => g.src === fromGallery) : null;
+      const saved = await saveService(userId, {
+        name: k.name,
+        category: k.category,
+        description: k.description,
+        pricing: pricingFromText(k.price),
+        durationMinutes: parseDurationMinutes(k.duration) ?? settings.defaultDurationMinutes,
+        images: k.image ? [k.image] : [],
+        imageFilename: photo?.filename ?? null,
+      });
+      if (saved.ok) written++;
+    }
+    return written > 0;
+  } catch {
+    return false;
+  }
 }
 
 /** Folds a legacy name/email/phone question's `required` onto the matching
@@ -830,14 +942,21 @@ export async function createBooking(
   // from it, the visitor's pick is fed back in so it still validates and the
   // old Calendar readers (which key off answers.service) keep working.
   const { fields } = await getBookingConfig(userId);
-  const isLegacyService = service?.id.startsWith("legacy:") ?? false;
+  const picker = fields.find((f) => f.key === SERVICE_PICKER_KEY);
+  // The pick is written back only when the picker will accept it — its own
+  // option, or "something else" allowed — so a menu the owner has since
+  // edited can never turn a valid booking into a validation error.
+  const pickerTakes =
+    !!picker && !!service &&
+    (picker.config.allowOther === true ||
+      (picker.config.options ?? []).some((o) => o.label.toLowerCase() === service.name.toLowerCase()));
   const rawAnswers: Record<string, unknown> = { ...selection.answers };
-  if (isLegacyService && service) rawAnswers[SERVICE_PICKER_KEY] = [service.name];
+  if (pickerTakes && service) rawAnswers[SERVICE_PICKER_KEY] = [service.name];
 
   const answers: Record<string, string> = {};
   for (const f of fields) {
     if (f.key === "name" || f.key === "email" || f.key === "phone") continue;
-    if (f.key === SERVICE_PICKER_KEY && service && !isLegacyService) continue; // asked in the new Service step instead
+    if (f.key === SERVICE_PICKER_KEY && service && !pickerTakes) continue; // asked in the new Service step instead
     if (!isFieldShown(f, rawAnswers, fields.map((x) => x.key))) continue;
     const resolvedAns = resolveAnswer(f, rawAnswers[f.key]);
     if (!resolvedAns.ok) return { ok: false, error: resolvedAns.error };
@@ -905,7 +1024,8 @@ export async function createBooking(
             endsAt: occEnd,
             durationMinutes,
             status,
-            serviceId: service && !isLegacyService ? service.id : null,
+            // A virtual (bridge) service has no row to point at.
+            serviceId: service && !service.id.startsWith("legacy:") ? service.id : null,
             serviceName: service?.name ?? "",
             variantName: variant?.name ?? "",
             addons: JSON.stringify(addons.map((a) => a.name)),

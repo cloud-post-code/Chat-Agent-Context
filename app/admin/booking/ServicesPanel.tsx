@@ -1,7 +1,7 @@
-import { deleteServiceAction, moveServiceAction } from "../actions";
+import { deleteServiceAction, moveServiceAction, refreshServicesFromSiteAction } from "../actions";
 import { BookingToggle } from "../BookingPanel";
 import { PendingButton } from "../PendingButton";
-import { panel, btnGhost, btnDanger, SectionTitle } from "../ui";
+import { panel, field as fieldStyle, btn, btnGhost, btnDanger, SectionTitle } from "../ui";
 import { pricingLabel, formatDuration, type ServiceRow, type StaffRow, type LocationRow } from "@/lib/booking/types";
 import { ServiceForm } from "./ServiceForm";
 
@@ -17,12 +17,18 @@ export function ServicesPanel({
   locations,
   currency,
   bookingEnabled,
+  siteUrl,
+  notice,
 }: {
   services: ServiceRow[];
   staff: StaffRow[];
   locations: LocationRow[];
   currency: string;
   bookingEnabled: boolean;
+  /** The site onboarding read, when one is on file — the refresh's default. */
+  siteUrl?: string | null;
+  /** The last refresh's one-line result, carried back on the query string. */
+  notice?: string;
 }) {
   const categories = [...new Set(services.map((s) => s.category).filter(Boolean))];
 
@@ -36,6 +42,31 @@ export function ServicesPanel({
           What visitors can book — pricing, duration, who performs it and where. Order here is
           the order the booking card shows them in.
         </p>
+        {/* The same read onboarding does, on demand: prices, durations, add-ons,
+            policies and photos from the site, filling only what is still blank.
+            Anything set by hand here is kept. */}
+        <form action={refreshServicesFromSiteAction} style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginTop: 12 }}>
+          <input
+            name="site"
+            type="url"
+            defaultValue={siteUrl ?? ""}
+            placeholder="https://your-site.example"
+            aria-label="Website to read"
+            style={{ ...fieldStyle, width: "auto", flex: "1 1 240px", marginBottom: 0 }}
+          />
+          <PendingButton pendingLabel="Reading your site…" style={btn as React.CSSProperties}>
+            Refresh from my site
+          </PendingButton>
+          <span style={{ fontSize: 12, fontStyle: "italic", color: "var(--on-surface)", flex: "1 1 100%" }}>
+            Fills in prices, durations, add-ons, deposits, policies and photos the site states.
+            Only blanks are filled — what you have typed here stays.
+          </span>
+        </form>
+        {notice ? (
+          <p role="status" style={{ fontSize: 13, marginTop: 10, color: "var(--on-surface)" }}>
+            {notice}
+          </p>
+        ) : null}
       </div>
 
       {services.length === 0 ? (

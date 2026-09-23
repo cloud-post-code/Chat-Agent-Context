@@ -5,6 +5,7 @@
  */
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import * as cheerioLib from "cheerio";
 import type * as CheerioModule from "cheerio";
 import type {
   BookingFlow,
@@ -161,6 +162,9 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
   const legacyUser = await prisma.user.create({
     data: { email: `${SLUG}-legacy@example.invalid`, name: "Proof Legacy", slug: `${SLUG}-legacy`, passwordHash: "x" },
   });
+  const menuUser = await prisma.user.create({
+    data: { email: `${SLUG}-menu@example.invalid`, name: "Proof Menu", slug: `${SLUG}-menu`, passwordHash: "x" },
+  });
   try {
     await prisma.profile.upsert({ where: { userId: user.id }, update: { company_name: "Proof Salon", bookingEnabled: true }, create: { userId: user.id, company_name: "Proof Salon", bookingEnabled: true } });
     await S.saveBookingSettings(user.id, {
@@ -288,7 +292,8 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     await prisma.photo.create({ data: { userId: legacyUser.id, filename: "0f1e2d3c-1111-2222-3333-444455556666.jpg", caption: "A gel manicure being finished", kind: "gallery" } });
     const legacy = await S.getBookingFlow(legacyUser.id);
     const gel = legacy?.flow.services.find((s) => s.name === "Gel Manicure");
-    check("C11 a picker-only tenant gets a service step derived from the menu", !!legacy && legacy.flow.services.length === 2 && gel?.id.startsWith("legacy:") === true && gel?.category === "Manicures");
+    check("C11 a picker-only tenant gets a service step built from the menu", !!legacy && legacy.flow.services.length === 2 && gel?.category === "Manicures");
+    check("C11 …written as real rows the owner can now edit", !!gel && !gel.id.startsWith("legacy:") && (await S.listServices(legacyUser.id)).length === 2);
     check("C11 …priced and timed from the menu's own words", gel?.pricing.kind === "fixed" && gel?.pricing.amount === 35 && gel?.durationMinutes === 45 && legacy?.flow.services[1].pricing.kind === "starting_at");
     check("C11 …with a gallery photo matched by its caption", gel?.imageUrl === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
     check("C11 name, email and the picker leave the intake; the rest stays", legacy?.intake.map((f) => f.key).join() === "allergies");
@@ -298,9 +303,47 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     check("C11 booking a derived service works", lb.ok && lb.serviceName === "Gel Manicure", lb.ok ? "" : lb.error);
     const stored = (await Ap.listAppointments(legacyUser.id))[0];
     check("C11 …and the old readers still see the pick with its price", stored?.answers.service?.includes("Gel Manicure ($35") === true && stored?.answers.allergies === "Yes");
+
+    // A tenant whose services extractor wrote menu items (the menu-cart
+    // feature): those carry the site's prices and the model's own image match.
+    await prisma.profile.upsert({ where: { userId: menuUser.id }, update: { bookingEnabled: true }, create: { userId: menuUser.id, bookingEnabled: true } });
+    await prisma.menuItem.create({
+      data: { userId: menuUser.id, key: "deep-tissue-massage", name: "Deep Tissue Massage", category: "Massage", order: 0,
+        data: JSON.stringify({ price: "$80", estimatedTime: "1 hr", image: "https://example.invalid/deep.jpg", shortDescription: "Firm pressure for tight muscles." }) },
+    });
+    const fromMenu = await S.getBookingFlow(menuUser.id);
+    const deep = fromMenu?.flow.services[0];
+    check("C12 menu items become services with their price, length and picture", deep?.name === "Deep Tissue Massage" && deep.pricing.kind === "fixed" && deep.pricing.amount === 80 && deep.durationMinutes === 60 && deep.imageUrl === "https://example.invalid/deep.jpg" && deep.description === "Firm pressure for tight muscles.");
+
+    // Refresh from the site fills blanks and never overwrites the owner.
+    const { enrichServices } = await import("../../../lib/onboarding/bookingSeed");
+    const blowout = await S.saveService(user.id, { name: "Blowout", pricing: { kind: "variable" }, durationMinutes: 30 });
+    check("C13 a service can start unpriced", blowout.ok);
+    const html = '<html><body><h2>Blowout</h2><img src="https://example.invalid/blowout.jpg" alt="Blowout at the salon"></body></html>';
+    const page = { url: "https://example.invalid/services", html, $: cheerioLib.load(html) };
+    const enriched = await enrichServices(
+      user.id,
+      [
+        { name: "Blowout", description: "Wash and blow-dry.", price: "$40", duration: "30 min", addons: [{ name: "Deep conditioning", price: "$15" }] },
+        { name: "Haircut", description: "", price: "$99" },
+        { name: "Kids Cut", description: "Under 12s.", price: "$20", duration: "20 min" },
+      ],
+      [],
+      [page],
+      () => {},
+      { download: async () => ({ filename: "0f1e2d3c-1111-2222-3333-444455556666.jpg" }) },
+    );
+    const after = await S.listServices(user.id);
+    const b = after.find((r) => r.name === "Blowout");
+    const kids = after.find((r) => r.name === "Kids Cut");
+    const cut = after.find((r) => r.id === haircut.id);
+    check("C13 the refresh fills the blanks: price, description, add-on, photo", enriched.updated === 1 && b?.pricing.amount === 40 && b?.description === "Wash and blow-dry." && b?.addons[0]?.price === 15 && b?.imageUrl === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg" && enriched.imaged === 1, JSON.stringify(enriched));
+    check("C13 …adds a service the site names that the owner lacks", enriched.added === 1 && kids?.pricing.amount === 20 && kids?.durationMinutes === 20);
+    check("C13 …and never overwrites a price the owner set", cut?.pricing.amount === 45);
   } finally {
     await prisma.user.delete({ where: { id: user.id } });
     await prisma.user.delete({ where: { id: legacyUser.id } });
+    await prisma.user.delete({ where: { id: menuUser.id } });
     check("Z no proof users left behind", (await prisma.user.count({ where: { slug: { startsWith: SLUG } } })) === 0);
   }
 }

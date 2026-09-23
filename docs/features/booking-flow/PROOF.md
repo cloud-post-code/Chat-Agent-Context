@@ -101,12 +101,18 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
 9. Cancelling frees the provider's slot and leaves the owner's list.
 10. The old intake-only wizard still books, and the same instant twice is
     refused.
-11. The legacy bridge: a picker-only tenant gets a service step derived from
-    the menu, priced and timed from the menu's own words, with a gallery
-    photo matched by caption; name, email and the picker leave the intake;
-    the old required name/email fold onto the customer step; booking a
-    derived service works and the old readers still see the pick with its
-    price.
+11. Existing tenants: a picker-only tenant gets a service step built from
+    the menu — written as real `Service` rows the owner can now edit — priced
+    and timed from the menu's own words, with a gallery photo matched by
+    caption; name, email and the picker leave the intake; the old required
+    name/email fold onto the customer step; booking one works and the old
+    readers still see the pick with its price.
+12. A tenant whose extractor wrote menu items gets services with the site's
+    price, length, description and the model's own image match.
+13. Refresh from the site (`enrichServices`): an unpriced service gets its
+    price, description, add-on and a photo from the pages; a service the
+    site names that the owner lacks is added; a price the owner set is never
+    overwritten.
 
 ### D. The card (`app/cards/Cards.tsx`), static render
 1. The service step opens with a tile per service — the imaged one draws
@@ -117,7 +123,7 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
 3. The services card shows thumbnails, prices and a Book button per service.
 
 ## Result
-160 assertions, all passing. `booking-menu-fields` (86), `booking-on-by-default`,
+166 assertions, all passing. `booking-menu-fields` (86), `booking-on-by-default`,
 `services-card` and `starter-tabs` still green. `tsc --noEmit` and `next lint`
 clean for the whole repo.
 

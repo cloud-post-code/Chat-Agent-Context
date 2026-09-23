@@ -37,6 +37,7 @@ import {
 import { CalendarPanel } from "./CalendarPanel";
 import { getBookingConfig } from "@/lib/appointments";
 import { listOrders } from "@/lib/orders";
+import { siteUrlFor } from "@/lib/onboarding/refreshServices";
 import {
   listServices,
   listStaff,
@@ -109,7 +110,7 @@ export type AdminPanelSet = {
 
 export async function buildAdminPanels(
   user: User,
-  query: { error?: string; gmail?: string } = {},
+  query: { error?: string; gmail?: string; booking?: string } = {},
 ): Promise<AdminPanelSet> {
   const [
     profile,
@@ -791,6 +792,8 @@ export async function buildAdminPanels(
       locations={locationList}
       currency={bookingSettings.currency}
       bookingEnabled={bookingConfig.enabled}
+      siteUrl={await siteUrlFor(user.id).catch(() => null)}
+      notice={query.booking}
     />
   );
   flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;

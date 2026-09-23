@@ -59,6 +59,7 @@ import {
   parseMembershipLines,
 } from "./booking/lines";
 import { hoursFromForm, numOrUndef, intOrUndef, intOr, strOrUndef, listOf } from "./booking/forms";
+import { refreshServicesFromSite } from "@/lib/onboarding/refreshServices";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
@@ -1718,6 +1719,23 @@ export async function cancelBookingAction(formData: FormData) {
   const id = String(formData.get("id") ?? "");
   if (id) await setBookingStatus(user.id, id, "cancelled");
   revalidateAll();
+}
+
+/**
+ * Re-read the site for the services' prices, durations, add-ons, policies
+ * and photos, filling only what is blank (lib/onboarding/refreshServices.ts).
+ * Runs inline — a site read takes tens of seconds, which the pending button
+ * shows — and lands back on the Services tab with a one-line result.
+ */
+export async function refreshServicesFromSiteAction(formData: FormData) {
+  const user = await requireUser();
+  const site = String(formData.get("site") ?? "").trim();
+  const result = await refreshServicesFromSite(user.id, () => {}, site || undefined);
+  revalidateAll();
+  const notice = result.ok
+    ? `Read ${result.site}: ${result.services} service${result.services === 1 ? "" : "s"} found, ${result.added} added, ${result.updated} updated, ${result.imaged} photo${result.imaged === 1 ? "" : "s"} attached.`
+    : result.error;
+  redirect(`/admin/dashboard?tab=booking-services&booking=${encodeURIComponent(notice)}`);
 }
 
 /** Confirm a waitlisted booking. */
