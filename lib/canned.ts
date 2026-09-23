@@ -21,6 +21,9 @@ export const CARD_TOOLS = [
   "show_project",
   "show_gallery",
   "show_services",
+  // The menu and the cart it feeds (lib/menu.ts).
+  "show_menu",
+  "show_cart",
   "show_contact_form",
   // The booking wizard; hydration guards it, so a canned answer naming it
   // after booking is disabled draws nothing.

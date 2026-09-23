@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/db";
 import { getBookingConfig } from "@/lib/appointments";
 import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/lib/cards";
+import { menuBlock } from "@/lib/menu";
 import { draftUiCard, type BuilderDeps, type CardDraft } from "@/lib/cardBuilder";
 import { writeUiCard } from "@/lib/uiCards";
 import type { Page } from "./crawl";
@@ -34,7 +35,8 @@ The text contains the site's pages, each preceded by "=== <url>", then a BUSINES
 
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" (one photo at a time) or "filmstrip" (thumbnails with a lightbox).
-- "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file — and then ALWAYS plan it, for the question about what the business offers.
+- "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file.
+- "menu": the business's menu the visitor can order from — items with prices, options and add-ons, each addable to a cart with a quantity, and a checkout. Only when SIGNALS lists services on file. Plan "menu" when the business sells things a visitor picks several of (dishes, drinks, products, treatments with add-ons); plan "services" when it is a plain list booked one at a time. One of the two is ALWAYS planned when services are on file, for the question about what the business offers — never both.
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
@@ -49,10 +51,10 @@ Rules:
 - At most 5 cards, at most 3 of them "designed". Fewer, sharper cards beat padding. Nothing groundable? Return an empty list.
 
 Respond with ONLY this JSON, no other text:
-{"cards":[{"kind":"gallery|services|contact|projects|booking|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"cards":[{"kind":"gallery|services|menu|contact|projects|booking|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
-export type CardKind = "gallery" | "services" | "contact" | "projects" | "booking" | "designed";
-const KINDS: readonly CardKind[] = ["gallery", "services", "contact", "projects", "booking", "designed"];
+export type CardKind = "gallery" | "services" | "menu" | "contact" | "projects" | "booking" | "designed";
+const KINDS: readonly CardKind[] = ["gallery", "services", "menu", "contact", "projects", "booking", "designed"];
 
 export type PlannedCard = {
   kind: CardKind;
@@ -108,7 +110,7 @@ const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim
 function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "gallery") return signals.photos > 0;
   if (kind === "projects") return signals.projects > 0;
-  if (kind === "services") return signals.services > 0;
+  if (kind === "services" || kind === "menu") return signals.services > 0;
   if (kind === "booking") return signals.takesAppointments;
   return true;
 }
@@ -167,6 +169,9 @@ export function sanitizeCardPlan(
     });
     if (out.cards.length === MAX_CARDS) break;
   }
+  // The menu lists the same items the services card does, with a cart on top:
+  // a plan naming both would give the model two cards for one question.
+  if (out.cards.some((c) => c.kind === "menu")) out.cards = out.cards.filter((c) => c.kind !== "services");
   return out;
 }
 
@@ -311,6 +316,13 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
     // deleted between the plan and this read.
     const block = (await servicesBlock(userId)) ?? { type: "services", items: [], booking: null };
     return { tool: "show_services", sample: JSON.stringify(block) };
+  }
+  if (card.kind === "menu") {
+    const block = (await menuBlock(userId, {})) ?? {
+      type: "menu", title: "Menu", full: true, items: [],
+      checkout: { fulfillment: [], contact: { phone: "off", email: "required" }, currency: "" },
+    };
+    return { tool: "show_menu", sample: JSON.stringify(block) };
   }
   return { tool: "show_contact_form", sample: JSON.stringify({ type: "contact" }) };
 }

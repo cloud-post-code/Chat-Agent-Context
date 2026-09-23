@@ -3,6 +3,8 @@ import { FIELD_TYPES, rebuildUntouchedForm } from "@/lib/appointments";
 import { isChoiceType } from "@/lib/appointmentTypes";
 import { BOOKING_KINDS, planBookingForm, type BookingKind, type ContactNeed } from "@/lib/bookingFormPlan";
 import type { MenuService } from "@/lib/bookingMenu";
+import { replaceMenu } from "@/lib/menu";
+import { sanitizeMenuItem, type MenuItemData } from "@/lib/menuTypes";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import { SERVICES_SOURCE_TITLE, formatServiceCatalog } from "@/lib/serviceCatalog";
 import type { Crawler, Page } from "./crawl";
@@ -29,6 +31,7 @@ export const SERVICES_SYSTEM_PROMPT = `You read text from a business's website a
 Rules:
 - A service is something the business actually offers customers: a treatment, a package, a job type, a menu category. "name" is the site's own name for it; "description" is what the text says about it (what's included, price, duration). Copy from the text; never invent or embellish.
 - "price" and "duration" are that service's own price and length exactly as the text writes them ("$35", "$40+", "from £25", "45 min"); "category" is the menu heading the text lists it under ("Manicures", "Add-ons"). Each is "" when the text does not state it. Never estimate, convert, or fill one in from a similar service.
+- "menu" holds the rest of what the text states about the item, for a menu the customer can order from. Every field is optional: leave it "", [], false or omit it when the text does not state it — never fill one in from what such an item usually has. Fields: subcategory; shortDescription (one line); fullDescription (the text's longer description); image (a URL from the IMAGES list whose alt or position clearly matches this item, else ""); gallery (more matching image URLs); priceType (fixed | starting_at | market | varies | free); originalPrice and salePrice (only when the text shows a struck-through or reduced price); currency (code like USD, only when stated); unit (each | person | lb | hour …); availability (available | unavailable | limited | unknown); availabilityWindow ("breakfast only", "after 4 PM"); locations (branches it is available at); modifiers: the choices the text offers for this item — sizes, sides, temperature, add-ons — each {"name":"Size","choices":[{"label":"Large","price":"+$2"}],"required":true,"min":1,"max":1,"defaults":["Medium"]} with min/max as the text states ("choose 1–2 toppings") and price only when the text prices that choice; quantityMin/quantityMax when the text limits how many; ingredients; dietaryTags (vegan, vegetarian, gluten-free, keto …, as written); allergens; warnings ("contains raw or undercooked …"); customization (true when the text invites requests like "no onions" or "sauce on the side"); nutrition ("720 cal"); servingSize ("serves 2"); popularity (popular | bestseller | new | staff_pick, only when the text marks it); rating and reviewCount as written; estimatedTime ("15–20 min"); inventory ("4 remaining"); fulfillment (pickup | delivery | dine_in | appointment | shipping — how the text says this item is had); related, upsells, pairings (names of other listed items the text pairs or suggests with it).
 - "takesAppointments" is true ONLY if the text says customers can book, schedule, or make an appointment/reservation with this business.
 - "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, party size, a preferred stylist). One entry per piece. Do NOT list the choice of service itself — services are already reported above — nor the date and time, which every booking asks. "required" is true when the text presents it as needed.
 - A requirement's "type" is one of: short_text, long_text, email, phone, number (a count: party size, guests, pets), yes_no, select (the customer picks ONE of choices the text lists), multi_select (picks ANY of them). "options" holds those listed choices, copied from the text, and is [] for every other type. Use select/multi_select only when the text itself lists at least two choices; otherwise short_text.
@@ -38,7 +41,7 @@ Rules:
 - Nothing qualifying? Return empty lists, false, "other" and "unknown". Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":"","price":"","duration":"","category":""}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
 
 export type { ServiceItem } from "@/lib/serviceCatalog";
 export type BookingRequirement = {
@@ -51,6 +54,8 @@ export type BookingRequirement = {
 export type ServicesExtract = {
   /** A ServiceItem plus the menu facts (price, duration, category) the form's picker shows. */
   services: MenuService[];
+  /** The same items with everything the site states about them (lib/menuTypes.ts). */
+  menu: MenuItemData[];
   takesAppointments: boolean;
   kind: BookingKind;
   /** People a customer can ask for. Unverified here; see `namedInText`. */
@@ -72,6 +77,7 @@ const str = (v: unknown, max = 2000): string =>
 export function sanitizeServices(raw: Record<string, unknown> | null): ServicesExtract {
   const out: ServicesExtract = {
     services: [],
+    menu: [],
     takesAppointments: false,
     kind: "other",
     staff: [],
@@ -95,6 +101,19 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
       if (duration) service.duration = duration;
       if (category) service.category = category;
       out.services.push(service);
+      // The menu item: the service's own facts, plus whatever the model put
+      // under "menu"; the sanitizer keeps only the closed vocabulary.
+      const extra = item.menu && typeof item.menu === "object" && !Array.isArray(item.menu) ? (item.menu as Record<string, unknown>) : {};
+      const menuItem = sanitizeMenuItem({
+        ...extra,
+        name,
+        category,
+        shortDescription: typeof extra.shortDescription === "string" && extra.shortDescription.trim() ? extra.shortDescription : service.description.length <= 200 ? service.description : "",
+        fullDescription: typeof extra.fullDescription === "string" && extra.fullDescription.trim() ? extra.fullDescription : service.description.length > 200 ? service.description : "",
+        price: price || (typeof extra.price === "string" ? extra.price : ""),
+        estimatedTime: typeof extra.estimatedTime === "string" && extra.estimatedTime.trim() ? extra.estimatedTime : duration,
+      });
+      if (menuItem) out.menu.push(menuItem);
     }
   }
 
@@ -174,11 +193,39 @@ export async function discoverServicePages(
 /** Widgets read per business: the booking form, and one more for a second form on the page. */
 const MAX_FRAMES = 2;
 
-/** On-site pages as usual; an offsite booking page labelled, with room for its menu. */
+/** Images per page: what the extractor may name as an item's picture. */
+const MAX_IMAGES_PER_PAGE = 40;
+
+/** The pages' images (absolute src, alt) so an item's picture can be matched to it. */
+export function imagesBlock(pages: Page[]): string {
+  const lines: string[] = [];
+  for (const p of pages) {
+    const seen = new Set<string>();
+    p.$("img").each((_, el) => {
+      if (seen.size >= MAX_IMAGES_PER_PAGE) return;
+      const raw = p.$(el).attr("src") ?? p.$(el).attr("data-src") ?? "";
+      let src = "";
+      try {
+        src = raw && !raw.startsWith("data:") ? new URL(raw, p.url).toString() : "";
+      } catch {
+        src = "";
+      }
+      if (!src || !/^https?:/.test(src) || seen.has(src)) return;
+      seen.add(src);
+      const alt = (p.$(el).attr("alt") ?? "").replace(/\s+/g, " ").trim().slice(0, 80);
+      lines.push(`${src}${alt ? ` — ${alt}` : ""}`);
+    });
+  }
+  return lines.length ? `=== IMAGES (url — alt; name one as an item's "image" only when it clearly shows that item)\n${lines.join("\n")}` : "";
+}
+
+/** On-site pages as usual; an offsite booking page labelled, with room for its menu; then the images. */
 function servicesCorpus(pages: Page[]): string {
   const origin = new URL(pages[0].url).origin;
   const offsite = (p: Page) => new URL(p.url).origin !== origin;
-  return [llmCorpus(pages.filter((p) => !offsite(p))), ...pages.filter(offsite).map(bookingCorpus)].join("\n\n");
+  return [llmCorpus(pages.filter((p) => !offsite(p))), ...pages.filter(offsite).map(bookingCorpus), imagesBlock(pages)]
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 /** Keep a name only when the text read actually contains it. */
@@ -192,6 +239,8 @@ export type ServicesReport = {
   takesAppointments: boolean;
   /** What kind of booking the form was planned for. */
   kind: BookingKind;
+  /** Menu items written for the menu card. */
+  menuItems: number;
   seededFields: number;
   pagesChecked: string[];
 };
@@ -215,16 +264,18 @@ export async function extractServicesAndBooking(
     services: 0,
     takesAppointments: false,
     kind: "other",
+    menuItems: 0,
     seededFields: 0,
     pagesChecked: pages.map((p) => p.url),
   };
   if (!pages.length) return { report, chunks: 0 };
 
   const corpus = servicesCorpus(pages);
-  const raw = await llm(SERVICES_SYSTEM_PROMPT, corpus, 8000, onEvent);
+  const raw = await llm(SERVICES_SYSTEM_PROMPT, corpus, 16000, onEvent);
   const clean = sanitizeServices(raw);
   clean.staff = namedInText(clean.staff, corpus);
   report.services = clean.services.length;
+  report.menuItems = clean.menu.length;
   report.takesAppointments = clean.takesAppointments;
   report.kind = clean.kind;
 
@@ -233,9 +284,19 @@ export async function extractServicesAndBooking(
     // One source for the whole catalog, keyed on the page that carried it, so
     // a re-onboard refreshes in place instead of stacking duplicates.
     const url = pages.find((p) => /services?|treatments?|menu|pricing/i.test(p.url))?.url ?? pages[0].url;
-    const pieces = clean.services.map((s) =>
-      s.description ? `${s.name}. ${s.description}` : `${s.name}.`,
-    );
+    // Each piece carries the menu facts too, so the agent can answer "is it
+    // vegan?" or "how much?" in words from the same knowledge the card draws.
+    const pieces = clean.services.map((s, i) => {
+      const m = clean.menu[i];
+      const facts = m
+        ? [
+            m.price && !s.description.includes(m.price) ? `Price: ${m.price}.` : "",
+            m.dietaryTags.length ? `${m.dietaryTags.join(", ")}.` : "",
+            m.allergens.length ? `Contains ${m.allergens.join(", ")}.` : "",
+          ].filter(Boolean)
+        : [];
+      return [s.description ? `${s.name}. ${s.description}` : `${s.name}.`, ...facts].join(" ");
+    });
     // rawText is the catalog the services card reads back (lib/serviceCatalog.ts);
     // the pieces stay sentence-shaped, which is what retrieval embeds well.
     const saved = await saveKnowledgeRecord(
@@ -249,6 +310,13 @@ export async function extractServicesAndBooking(
       pieces,
     );
     chunks = saved.chunks;
+    // The structured menu the menu card draws from and the cart orders
+    // against. Best-effort: the knowledge above is already saved.
+    try {
+      await replaceMenu(userId, clean.menu);
+    } catch {
+      report.menuItems = 0;
+    }
   }
 
   // One rule: after this stage the tenant has the form this business would

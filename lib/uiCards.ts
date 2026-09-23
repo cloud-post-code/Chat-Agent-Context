@@ -37,6 +37,8 @@ const BLOCK_TYPES = [
   "project",
   "gallery",
   "services",
+  "menu",
+  "cart",
   "contact",
   "custom",
   "html",

@@ -351,6 +351,8 @@ blocks:
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
 | `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
 | `show_services` | The business's services, read live from the services knowledge onboarding saved — each with a **Book** button that opens the appointment wizard with that service already chosen (no button while booking is off; no card when no services are on file) |
+| `show_menu` | The business's menu the visitor can order from (`lib/menu.ts`): every `MenuItem` on file — prices, sale prices, options and add-ons with their rules, dietary tags, allergens, availability, images and the rest of what the site states — grouped by section with every section after the first folded, or a curated list when the model passes `keys`, `tags` or `category` (from the prompt's `MENU INDEX`). Each row opens to its detail and customizer and adds to the cart; tenants with only a services record get the menu read from it |
+| `show_cart` | The visitor's cart — one per agent, shared by every card in the thread, kept in `localStorage` — with quantity steppers, Edit, Remove, the subtotal, and checkout posted to `/api/order`, where `createOrder` re-prices every line from the menu on file. `add_to_cart` lets the agent put an on-menu item in it; a timed order also lands on the calendar through `createAppointment` |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
 | `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
 

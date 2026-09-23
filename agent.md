@@ -14,10 +14,30 @@ file whenever prompts, tools or routing change.
    scored, one-hop graph expansion. Small multi-chunk sources (a price list)
    are served whole.
 3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
-   `show_contact_form`, `show_card`), `show_booking` when booking is on, and
-   `search_knowledge` on every unscripted turn.
+   `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
+   `show_card`), `show_booking` when booking is on, `add_to_cart` whenever the
+   menu is in the catalog, and `search_knowledge` on every unscripted turn.
 4. **Loop**: up to 4 model turns; tool results are fed back so the model can
    close.
+
+## The menu and the cart
+
+When a `show_menu` (or `show_cart`) row is in the catalog the prompt gains a
+`MENU INDEX` — one line per item: key, name, section, price and tags
+(`menuPromptSection`, `lib/menu.ts`) — with the rule: `show_menu` with no
+filter for the whole menu, `keys` for a curated list that fits the question,
+`tags` for a dietary or popularity filter, `category` for a section; never a
+price or tag not in the index. The chat request carries the visitor's cart
+(names and counts) and the prompt gets a `VISITOR'S CART` section from it.
+`add_to_cart {key, quantity}` is checked against the menu on file and emits a
+`cart` event the page applies; an unknown or unavailable key emits nothing and
+the model is told so. `show_cart` draws the cart card. The menu itself is
+written by the services extractor (`SERVICES_SYSTEM_PROMPT` now reports a
+`menu` object per service — every field optional, never invented — beside an
+`=== IMAGES` list of the pages' image URLs) into `MenuItem` rows; the
+onboarding and site-cards planners gained kind `menu`, gated on items on file,
+which wins over `services` when both are planned. Proof:
+`docs/features/menu-cart/proof.ts`.
 
 ## search_knowledge
 

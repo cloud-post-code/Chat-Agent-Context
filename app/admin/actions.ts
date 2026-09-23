@@ -1404,6 +1404,13 @@ export async function moveAppointmentFieldAction(formData: FormData) {
   revalidateAll();
 }
 
+export async function deleteOrderAction(formData: FormData) {
+  const user = await requireUser();
+  const { deleteOrder } = await import("@/lib/orders");
+  await deleteOrder(user.id, String(formData.get("id") ?? ""));
+  revalidateAll();
+}
+
 export async function cancelAppointmentAction(formData: FormData) {
   const user = await requireUser();
   await cancelAppointment(user.id, String(formData.get("id") ?? ""));

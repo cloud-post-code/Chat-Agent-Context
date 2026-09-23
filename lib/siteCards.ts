@@ -39,6 +39,7 @@ Work in two steps. First determine the NEEDS: what does a prospective customer o
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" or "filmstrip".
 - "services": the business's services from live data. Only when SIGNALS lists services on file.
+- "menu": the business's orderable menu from live data — items with prices, options and add-ons, a cart with quantities, and checkout. Only when SIGNALS lists services on file, and instead of "services" when visitors pick several things.
 - "contact": the in-chat contact form.
 - "projects": the project portfolio. Only when SIGNALS lists projects.
 - "designed": a card designed for this business from its own content — hours and locations, meet the team, what to expect on a first visit, parking and access, an FAQ, testimonials, policies, a process walkthrough. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
@@ -53,7 +54,7 @@ Rules:
 - At most 4 needs, at most 3 of them "designed". Nothing missing? Return an empty list — that is a good answer.
 
 Respond with ONLY this JSON, no other text:
-{"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|contact|projects|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|menu|contact|projects|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
 export type SiteCard = PlannedCard & {
   /** The visitor need this card serves, in one sentence. */
@@ -96,6 +97,7 @@ const PLAN_MAX_TOKENS = 2500;
 const LIVE_TOOL: Partial<Record<CardKind, string>> = {
   gallery: "show_gallery",
   services: "show_services",
+  menu: "show_menu",
   contact: "show_contact_form",
   projects: "show_projects",
 };
