@@ -40,7 +40,7 @@ Card kinds:
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
-- "designed": a card designed for this business from its own content — an hours-and-locations card, a meet-the-team card, a what-to-expect-on-your-first-visit card, an FAQ, a testimonials card. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
+- "designed": a card designed for this business from its own content. Examples span hours and locations, directions and parking, accessibility, service area, meet-the-team and staff expertise, founder story, credentials and licenses, awards and affiliations, testimonials and reviews, portfolio or before/after, pricing and packages, deposits and fees, policies (cancellation, rescheduling, no-show, refund, guarantee), an FAQ, a what-to-expect-on-your-first-visit walkthrough, insurance and financing accepted, and any other content the site itself spends real space on — plan whichever of these (or something else entirely) the site's actual pages support, and nothing the site is silent on. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
 
 Rules:
 - Every card serves what a prospective customer of THIS business needs, named in the business's own words for what it sells.
