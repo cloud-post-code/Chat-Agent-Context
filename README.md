@@ -351,8 +351,23 @@ blocks:
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
 | `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
 | `show_services` | The business's services, read live from the services knowledge onboarding saved — each with a **Book** button that opens the appointment wizard with that service already chosen (no button while booking is off; no card when no services are on file) |
+| `show_menu` | The business's menu the visitor can order from (`lib/menu.ts`): every `MenuItem` on file — prices, sale prices, options and add-ons with their rules, dietary tags, allergens, availability, images and the rest of what the site states — grouped by section with every section after the first folded, or a curated list when the model passes `keys`, `tags` or `category` (from the prompt's `MENU INDEX`). Each row opens to its detail and customizer and adds to the cart; tenants with only a services record get the menu read from it |
+| `show_cart` | The visitor's cart — one per agent, shared by every card in the thread, kept in `localStorage` — with quantity steppers, Edit, Remove, the subtotal, and checkout posted to `/api/order`, where `createOrder` re-prices every line from the menu on file. `add_to_cart` lets the agent put an on-menu item in it; a timed order also lands on the calendar through `createAppointment` |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
 | `show_booking` | The appointment wizard: the tenant's configured questions one step at a time, then a time, posted to `/api/booking` — offered only when the Appointments toggle is on |
+
+**Where the booking questions come from.** Onboarding's services stage reads the
+business's own booking page — the one offsite page it may load, found from the
+homepage's booking link (`lib/onboarding/bookingPage.ts`; public `https` hosts
+only) — and `lib/bookingFormPlan.ts` builds the form that business would have
+built itself: what the site shows it asking, and where the site is silent, what
+that kind of business (salon, restaurant, trade, class, consultancy) normally
+asks. Questions onboarding writes are marked `generated`; it rebuilds a form
+nobody has edited, and one admin save, delete or reorder makes the form the
+tenant's for good. An untouched default form with services on file is shown
+with the services menu straight away, no re-onboarding needed. The rules and the
+real booking page they were checked against are in
+`docs/features/booking-form-planner/`.
 
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)

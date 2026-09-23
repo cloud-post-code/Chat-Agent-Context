@@ -1,7 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { ModelClient, Msg } from "@/lib/brain";
-import { prisma } from "@/lib/db";
+import { prisma, getThemeConfig } from "@/lib/db";
 import { saveDirective } from "@/lib/directives";
 import {
   asClassification,
@@ -21,6 +21,7 @@ import {
 import { extractDocument, extractLink, extractText } from "@/lib/scrape";
 import { indexSource } from "@/lib/retrieval/indexer";
 import { getBookingConfig } from "@/lib/appointments";
+import { COLOR_ROLES, type ThemeColors } from "@/lib/theme";
 import { NEW_SOURCE_TAB_KEY } from "@/app/admin/contentTabs";
 
 /**
@@ -44,12 +45,26 @@ export type IngestProposal = {
   classification?: string;
 };
 
+/**
+ * A focused edit: the copilot worked out one setting's new value, and the chat
+ * shows only that slice of the panel, pre-filled, to be saved by a click.
+ * `panel` names the owning panel so other panels can add slices later.
+ */
+export type FocusedEdit = {
+  panel: "theme";
+  role: keyof ThemeColors;
+  label: string;
+  value: string;
+  current: string;
+};
+
 /** What the admin brain emits. The transport writes these out as NDJSON. */
 export type AdminEvent =
   | { t: "text"; v: string }
   | { t: "panel"; v: string }
   | { t: "goal"; v: { id: string; text: string } }
-  | { t: "approve"; v: IngestProposal };
+  | { t: "approve"; v: IngestProposal }
+  | { t: "edit"; v: FocusedEdit };
 
 export type AdminInput = {
   userId: string;
@@ -283,6 +298,50 @@ async function approveBuiltin(
   return null;
 }
 
+// ── Focused theme edits ─────────────────────────────────────────────────────
+
+/** Same rule as saveTheme: only a valid hex is ever stored. */
+const HEX = /^#[0-9a-fA-F]{3,8}$/;
+
+const colorRole = (key: string) => COLOR_ROLES.find((r) => r.key === key);
+
+function safeColors(json: string): Record<string, string> {
+  try {
+    const v = JSON.parse(json);
+    return v && typeof v === "object" ? (v as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Every color role's current value: what is stored, else the role's fallback. */
+async function currentThemeColors(userId: string): Promise<Record<string, string>> {
+  const stored = safeColors((await getThemeConfig(userId)).themeColors);
+  return Object.fromEntries(COLOR_ROLES.map((r) => [r.key, stored[r.key] || r.fallback]));
+}
+
+/**
+ * Save one theme color, leaving every other role and theme field alone —
+ * saveTheme can't do this, it rewrites the whole theme from its form.
+ * Returns an error string, or null on success.
+ */
+export async function applyThemeColor(
+  userId: string,
+  role: string,
+  value: string,
+): Promise<string | null> {
+  if (!colorRole(role)) return `There's no theme color called "${role}".`;
+  const hex = value.trim();
+  if (!HEX.test(hex)) return "That isn't a hex color (like #aabbcc).";
+  const colors = safeColors((await getThemeConfig(userId)).themeColors);
+  colors[role] = hex;
+  await prisma.themeConfig.update({
+    where: { userId },
+    data: { themeColors: JSON.stringify(colors) },
+  });
+  return null;
+}
+
 // ── The tool loop ───────────────────────────────────────────────────────────
 
 function adminTools(
@@ -313,6 +372,26 @@ function adminTools(
         type: "object",
         properties: { text: { type: "string", description: "The goal, exactly as it should read" } },
         required: ["text"],
+      },
+    },
+    {
+      name: "propose_theme_color",
+      description:
+        "Change one theme color for the admin. Work out the new hex value yourself — a hex " +
+        "they gave, or the current value of another role they pointed at — and call this. " +
+        "Only that color's editor is shown, pre-filled; nothing is written until the admin " +
+        "clicks Save. Never guess a color you cannot derive.",
+      input_schema: {
+        type: "object",
+        properties: {
+          role: {
+            type: "string",
+            enum: COLOR_ROLES.map((r) => r.key),
+            description: "The color role to change",
+          },
+          value: { type: "string", description: "The new color as a hex value, e.g. #aabbcc" },
+        },
+        required: ["role", "value"],
       },
     },
   ];
@@ -348,7 +427,11 @@ function adminTools(
 function systemPrompt(
   panels: Array<{ key: string; label: string }>,
   sources: IngestionSourceRow[],
+  colors: Record<string, string>,
 ): string {
+  const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
+    "\n",
+  );
   const panelLines = panels.map((p) => `- ${p.key}: ${p.label}`).join("\n");
   const sourceLines = sources
     .map((s) => {
@@ -375,6 +458,11 @@ function systemPrompt(
     "INGESTION SOURCES for propose_ingestion (pick the best match for the content):",
     sourceLines,
     "",
+    "THEME COLORS right now, by role, for propose_theme_color:",
+    colorLines,
+    "The owner's name (the page headline) and body copy render in the text role; the",
+    '"Ask me anything." line renders in the accent.',
+    "",
     "Rules:",
     "- Asked to see or work with a section: call show_panel with its key. Keep any",
     "  accompanying text to one short sentence.",
@@ -383,6 +471,11 @@ function systemPrompt(
     "- Asked to ingest something: pick the best source, pre-fill everything you can",
     "  (title, text, url, classification), and call propose_ingestion. For a document",
     "  or image file, still propose — the card exposes the file picker.",
+    "- Asked to change a theme color to a value you can work out (a hex they gave, or",
+    "  another role's current color such as \"the color of the name\"): call",
+    "  propose_theme_color — do not open the whole theme panel — then say in one short",
+    "  sentence what Save will do. If you cannot work out the hex, ask one short",
+    "  question or show the theme panel; never guess.",
     "- Never invent panel keys or source keys beyond the lists above.",
   ].join("\n");
 }
@@ -436,6 +529,21 @@ async function execute(
         result: "Approval card shown. Nothing is written until the admin clicks Approve.",
       };
     }
+    case "propose_theme_color": {
+      const role = colorRole(String(input.role ?? ""));
+      if (!role) return { events: [], result: `No theme color role "${String(input.role)}".` };
+      const value = String(input.value ?? "").trim();
+      if (!HEX.test(value)) {
+        return { events: [], result: `"${value}" is not a hex color; nothing was shown.` };
+      }
+      const current = (await currentThemeColors(userId))[role.key];
+      return {
+        events: [
+          { t: "edit", v: { panel: "theme", role: role.key, label: role.label, value, current } },
+        ],
+        result: "Focused editor shown, pre-filled. Nothing is saved until the admin clicks Save.",
+      };
+    }
     default:
       return { events: [], result: `Unknown tool "${name}".` };
   }
@@ -453,15 +561,16 @@ export async function* adminAnswer(
   const client: ModelClient = deps.client ?? claude();
 
   try {
-    const [panels, sources] = await Promise.all([
+    const [panels, sources, colors] = await Promise.all([
       adminPanelKeys(userId, operator),
       listIngestionSources(userId),
+      currentThemeColors(userId),
     ]);
     const enabled = sources.filter((s) => s.enabled);
     const ingestable = enabled.filter((s) =>
       (["url", "text", "file", "image"] as const).some((m) => ingestPlanFor(s, m).ok),
     );
-    const system = systemPrompt(panels, ingestable);
+    const system = systemPrompt(panels, ingestable, colors);
     const tools = adminTools(
       panels.map((p) => p.key),
       ingestable,

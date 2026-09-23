@@ -56,6 +56,9 @@ export type FieldConfig = {
   /** number only; whole numbers. */
   min?: number;
   max?: number;
+  /** Onboarding wrote this question and nobody has edited the form since —
+   *  so onboarding may rebuild it. Stored only; never accepted from a caller. */
+  generated?: boolean;
 };
 
 export type AppointmentFieldRow = {
@@ -68,6 +71,11 @@ export type AppointmentFieldRow = {
 };
 
 export type BookingConfig = { enabled: boolean; fields: AppointmentFieldRow[] };
+
+/** The key a label becomes. One rule, because the planner must see a key
+ *  collision before the store's upsert silently overwrites a question. */
+export const keyFromLabel = (label: string) =>
+  label.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 60);
 
 const MAX_OPTIONS = 60;
 const MAX_PICKS = 20;
@@ -126,7 +134,9 @@ export function sanitizeFieldConfig(type: string, raw: unknown): FieldConfig {
 
 export function parseFieldConfig(type: string, json: string | null | undefined): FieldConfig {
   try {
-    return sanitizeFieldConfig(type, JSON.parse(json || "{}"));
+    const stored = JSON.parse(json || "{}");
+    const config = sanitizeFieldConfig(type, stored);
+    return stored?.generated === true ? { ...config, generated: true } : config;
   } catch {
     return sanitizeFieldConfig(type, {});
   }

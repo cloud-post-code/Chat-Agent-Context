@@ -3,6 +3,9 @@ import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
+import type { CartBlock, MenuBlock } from "./menu";
+
+export type { CartBlock, MenuBlock } from "./menu";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
@@ -76,7 +79,12 @@ export type UiBlock =
   // The booking wizard: one question per configured field, then a time, then
   // a confirm. The fields ride in the block so the card asks exactly what the
   // tenant configured at the moment it was drawn.
-  | { type: "booking"; fields: BookingField[] };
+  | { type: "booking"; fields: BookingField[] }
+  // The menu — the whole thing grouped by section, or a curated list — and the
+  // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
+  // live with the visitor, so the cart block carries only how to check out.
+  | MenuBlock
+  | CartBlock;
 
 function toProjectCard(p: {
   id: string;

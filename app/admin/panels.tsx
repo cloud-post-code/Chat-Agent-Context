@@ -31,9 +31,11 @@ import {
   deleteAccountAction,
   impersonateAction,
   cancelAppointmentAction,
+  deleteOrderAction,
 } from "./actions";
 import { CalendarPanel } from "./CalendarPanel";
 import { getBookingConfig, listAppointments } from "@/lib/appointments";
+import { listOrders } from "@/lib/orders";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
 import { KnowledgePanel, isDocSource } from "./KnowledgePanel";
@@ -115,6 +117,7 @@ export async function buildAdminPanels(
     gmail,
     bookingConfig,
     appointments,
+    orders,
   ] = await Promise.all([
       getProfile(user.id),
       getPersonaConfig(user.id),
@@ -158,6 +161,7 @@ export async function buildAdminPanels(
       gmailStatus(user.id),
       getBookingConfig(user.id),
       listAppointments(user.id),
+      listOrders(user.id).catch(() => []),
     ]);
   const metrics = chatMetrics(chatSessions);
   // Operator-only: account rows are fetched (and the Users tab rendered) for
@@ -719,6 +723,17 @@ export async function buildAdminPanels(
       fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
       cancelAction={cancelAppointmentAction}
       config={bookingConfig}
+      orders={orders.map((o) => ({
+        id: o.id,
+        createdAt: o.createdAt.toISOString(),
+        startsAt: o.startsAt ? o.startsAt.toISOString() : null,
+        lines: o.lines.map((l) => ({ name: l.name, quantity: l.quantity, choices: l.choices.flatMap((c) => c.picks).join(", "), note: l.note, lineTotal: l.lineTotal })),
+        contact: o.contact,
+        fulfillment: o.fulfillment,
+        notes: o.notes,
+        subtotal: o.subtotal,
+      }))}
+      deleteOrderAction={deleteOrderAction}
     />
   );
   // The retired standalone Appointments panel: anything still naming "booking"

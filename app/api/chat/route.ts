@@ -16,7 +16,7 @@ export const runtime = "nodejs";
  */
 
 export async function POST(req: Request) {
-  let body: { messages?: Msg[]; sessionId?: string; slug?: string };
+  let body: { messages?: Msg[]; sessionId?: string; slug?: string; cart?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -40,6 +40,18 @@ export async function POST(req: Request) {
 
   // Everything before the visitor's latest question is context for the brain.
   const history = incoming.slice(0, incoming.lastIndexOf(lastUser));
+  // The visitor's cart, as the page reports it: names and counts only.
+  const cart = (Array.isArray(body.cart) ? body.cart : [])
+    .filter((l) => l && typeof l === "object" && typeof (l as { name?: unknown }).name === "string")
+    .slice(0, 30)
+    .map((l) => {
+      const line = l as { name: string; quantity?: unknown; unitPrice?: unknown };
+      return {
+        name: line.name,
+        quantity: Number.isInteger(line.quantity) ? Number(line.quantity) : 1,
+        unitPrice: typeof line.unitPrice === "string" ? line.unitPrice : undefined,
+      };
+    });
 
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
@@ -50,6 +62,7 @@ export async function POST(req: Request) {
         history,
         sessionId,
         channel: "web",
+        cart,
       })) {
         controller.enqueue(encoder.encode(JSON.stringify(event) + "\n"));
       }

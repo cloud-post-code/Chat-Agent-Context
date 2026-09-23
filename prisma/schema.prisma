@@ -52,6 +52,8 @@ model User {
   contacts            Contact[]
   appointmentFields   AppointmentField[]
   appointments        Appointment[]
+  menuItems           MenuItem[]
+  orders              Order[]
   profile             Profile?
   personaConfig       PersonaConfig?
   themeConfig         ThemeConfig?
@@ -692,5 +694,50 @@ model A2ATask {
   @@index([contextId])
   @@index([state])
   @@index([createdAt])
+  @@index([userId])
+}
+
+/// One item of the business's menu, as the site states it: the menu card draws
+/// from these rows and the cart's checkout is validated against them. `data`
+/// is JSON MenuItemData (lib/menuTypes.ts) — every field optional, none invented.
+model MenuItem {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  /// Stable per-tenant key derived from the name ("chicken-parmigiana"): what
+  /// the cart, the model's show_menu/add_to_cart calls and an order line name.
+  key       String
+  name      String
+  category  String   @default("")
+  order     Int      @default(0)
+  data      String   @default("{}") @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, key])
+  @@index([userId])
+}
+
+/// An order placed from the cart card. Lines, contact and totals are what the
+/// server computed from the menu on file at checkout (lib/orders.ts).
+model Order {
+  id          String    @id @default(cuid())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  /// JSON OrderLine[] (lib/menuTypes.ts).
+  lines       String    @default("[]") @db.Text
+  /// JSON {name, phone, email}.
+  contact     String    @default("{}") @db.Text
+  /// pickup | delivery | dine_in | appointment | shipping | "" when the menu offers one way.
+  fulfillment String    @default("")
+  /// The time the visitor asked for, when one was asked.
+  startsAt    DateTime?
+  notes       String    @default("") @db.Text
+  /// The order's total in the menu's own figures ("$58", "$58+").
+  subtotal    String    @default("")
+  currency    String    @default("")
+  status      String    @default("new")
+  createdAt   DateTime  @default(now())
+
   @@index([userId])
 }

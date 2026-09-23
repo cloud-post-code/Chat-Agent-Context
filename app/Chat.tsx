@@ -2,6 +2,8 @@
 
 import { useRef, useState, useEffect } from "react";
 import { Cards, type UiBlock } from "./cards/Cards";
+import { CartProvider, cartSummary, useCart } from "./cards/cart";
+import type { MenuItemData } from "@/lib/menuTypes";
 import { Markdown } from "./Markdown";
 import {
   listChats,
@@ -33,14 +35,7 @@ function store(): Storage | null {
   }
 }
 
-export default function Chat({
-  name,
-  tagline,
-  logo,
-  starters,
-  slug,
-  photos = [],
-}: {
+type ChatProps = {
   name: string;
   tagline: string;
   logo?: string | null;
@@ -49,7 +44,19 @@ export default function Chat({
   slug: string;
   /** The business's curated photos for the home screen's bottom strip. */
   photos?: HomePhoto[];
-}) {
+};
+
+/** The visitor's cart wraps the whole chat: every menu and cart card shares it. */
+export default function Chat(props: ChatProps) {
+  return (
+    <CartProvider slug={props.slug}>
+      <ChatInner {...props} />
+    </CartProvider>
+  );
+}
+
+function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatProps) {
+  const cart = useCart();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -143,6 +150,8 @@ export default function Chat({
           messages: next.map(({ role, content }) => ({ role, content })),
           sessionId: chatId,
           slug,
+          // Names and counts only, so the agent can talk about the cart.
+          cart: cartSummary(cart.store.get()),
         }),
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
@@ -163,6 +172,11 @@ export default function Chat({
             const obj = JSON.parse(l);
             if (obj.t === "text") acc += obj.v;
             else if (obj.t === "card") cards.push(obj.v);
+            else if (obj.t === "cart" && obj.v?.op === "add" && obj.v.item?.key) {
+              // The agent added something (add_to_cart): the cart is the
+              // visitor's, so it changes here, on their page.
+              cart.store.add(obj.v.item as MenuItemData, Number(obj.v.quantity) || 1);
+            }
           } catch {
             /* partial line — ignore */
           }
@@ -481,6 +495,14 @@ function Bubble({
   const hasCards = !!cards && cards.length > 0;
   return (
     <div style={{ ...styles.row, flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
+      {/* A2UI cards always lead; the agent's words follow. */}
+      {hasCards && (
+        <div style={{ width: "100%", marginBottom: content ? 8 : 0 }}>
+          {cards!.map((c, i) => (
+            <Cards key={i} block={c} slug={slug} />
+          ))}
+        </div>
+      )}
       {(content || !hasCards) && (
         <div data-fill="surface" style={isUser ? styles.userBubble : styles.botBubble}>
           {content ? (
@@ -496,13 +518,6 @@ function Bubble({
               <i style={{ ...styles.tdot, animationDelay: "300ms" }} />
             </span>
           ) : null}
-        </div>
-      )}
-      {hasCards && (
-        <div style={{ width: "100%", marginTop: 8 }}>
-          {cards!.map((c, i) => (
-            <Cards key={i} block={c} slug={slug} />
-          ))}
         </div>
       )}
     </div>

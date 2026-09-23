@@ -6,6 +6,7 @@ import { Cards } from "@/app/cards/Cards";
 import { parseSampleBlock, type UiCardRow } from "@/lib/uiCards";
 import { deleteCard } from "./actions";
 import { PendingButton } from "./PendingButton";
+import { SiteCardsButton, SiteCardsLog, useSiteCardsRun } from "./SiteCardsRun";
 import { panel, field, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
 
 /**
@@ -14,7 +15,9 @@ import { panel, field, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
  * and a sample payload — rendered as a preview by the same Cards component the
  * chat uses, so the preview shows what the card looks like, not what the
  * site's data says. There is no default set: onboarding designs the cards for
- * the business, and rows are editable, addable and deletable from here.
+ * the business, and rows are editable, addable and deletable from here. The
+ * "Build cards from my site" control (SiteCardsRun.tsx) runs the site-cards
+ * agent, which only ever adds rows.
  *
  * Collapsed by default, and only one card open at a time: clicking a heading
  * draws that card and puts away whichever was open, so the tab stays the
@@ -36,6 +39,7 @@ export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
   const [sort, setSort] = useState<SortKey>("default");
   // One card open at a time: opening a card closes the previous one.
   const [openId, setOpenId] = useState<string | null>(null);
+  const siteRun = useSiteCardsRun();
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -69,7 +73,9 @@ export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
         live wiring: &ldquo;when the agent should show it&rdquo; goes into the
         chatbot&apos;s instructions, and deleting a card takes it away from the
         chatbot entirely. There is no default set: onboarding designs cards for
-        your business, and the builder adds more. Pick a card to draw its preview — built-in cards preview a stored sample and
+        your business, the builder adds more, and &ldquo;Build cards from my
+        site&rdquo; re-reads the site you imported and adds cards for whatever
+        your visitors need that isn&apos;t covered yet. Pick a card to draw its preview — built-in cards preview a stored sample and
         use your live data in chat; custom-built cards show exactly what you
         saved.
       </p>
@@ -98,7 +104,9 @@ export function A2uiPanel({ rows, slug }: { rows: UiCardRow[]; slug: string }) {
         <Link href="/admin/cards/new" style={{ ...(btn as React.CSSProperties), textDecoration: "none" }}>
           + Build a card
         </Link>
+        <SiteCardsButton running={siteRun.running} onRun={siteRun.run} />
       </div>
+      <SiteCardsLog lines={siteRun.lines} running={siteRun.running} />
 
       {visible.length === 0 && (
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
