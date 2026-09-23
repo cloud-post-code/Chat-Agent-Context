@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   isChoiceType,
+  isUploadType,
   optionFacts,
   pickedOptions,
   selectionTotal,
@@ -10,6 +11,7 @@ import {
   type FieldOption,
   type FieldType,
 } from "@/lib/appointmentTypes";
+import { uploadBookingFile } from "./booking/api";
 
 /**
  * The booking wizard's question controls: one A2UI element per question type,
@@ -76,6 +78,8 @@ type InputProps = {
   onEnter: () => void;
   /** The card's text-input style, passed in so this file copies none of it. */
   inputStyle: React.CSSProperties;
+  /** The tenant's slug — needed by the upload/signature types to reach /api/booking/upload. */
+  slug: string;
 };
 
 export function QuestionInput(props: InputProps) {
@@ -83,6 +87,11 @@ export function QuestionInput(props: InputProps) {
   if (isChoiceType(field.type)) return <ChoiceInput {...props} />;
   if (field.type === "number") return <NumberInput {...props} />;
   if (field.type === "yes_no") return <YesNoInput {...props} />;
+  if (field.type === "date") return <DateInput {...props} />;
+  if (field.type === "address") return <AddressInput {...props} />;
+  if (field.type === "waiver") return <WaiverInput {...props} />;
+  if (field.type === "signature") return <SignatureInput {...props} />;
+  if (isUploadType(field.type)) return <UploadInput {...props} />;
   return <TextInput {...props} />;
 }
 
@@ -365,6 +374,221 @@ function YesNoInput({ field, value, onChange }: InputProps) {
     </div>
   );
 }
+
+function DateInput({ field, value, onChange, inputStyle }: InputProps) {
+  return (
+    <input
+      type="date"
+      value={typeof value === "string" ? value : ""}
+      onChange={(e) => onChange(e.target.value)}
+      aria-label={field.label}
+      style={inputStyle}
+    />
+  );
+}
+
+function AddressInput({ field, value, onChange, onEnter, inputStyle }: InputProps) {
+  return (
+    <input
+      type="text"
+      value={typeof value === "string" ? value : ""}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => e.key === "Enter" && onEnter()}
+      placeholder={field.required ? "Required" : "Optional"}
+      aria-label={field.label}
+      autoFocus
+      style={inputStyle}
+    />
+  );
+}
+
+function WaiverInput({ field, value, onChange }: InputProps) {
+  const text = field.config?.text ?? "";
+  const agreed = value === "yes";
+  return (
+    <div>
+      <div
+        style={{
+          height: 160,
+          overflowY: "auto",
+          padding: 10,
+          border: "1px solid var(--border)",
+          borderRadius: "var(--radius-sm)",
+          background: "var(--surface)",
+          color: "var(--on-surface)",
+          fontSize: 13,
+          lineHeight: 1.5,
+          whiteSpace: "pre-wrap",
+          marginBottom: 10,
+        }}
+      >
+        {text}
+      </div>
+      <label style={{ display: "flex", gap: 8, alignItems: "center", fontSize: 14 }}>
+        <input type="checkbox" checked={agreed} onChange={(e) => onChange(e.target.checked ? "yes" : "")} />
+        I agree
+      </label>
+    </div>
+  );
+}
+
+/** A file or photo: uploaded immediately on pick, previewed, removable. */
+function UploadInput({ field, value, onChange, slug }: InputProps) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = typeof value === "string" ? value : "";
+  const isPhoto = field.type === "photo";
+  const accept = isPhoto ? "image/*" : "image/*,application/pdf";
+  const isImagePath = /\.(jpg|jpeg|png|webp|gif)$/i.test(path);
+
+  async function handleFile(file: File | null) {
+    if (!file) return;
+    setBusy(true);
+    setError("");
+    const res = await uploadBookingFile(slug, file);
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    onChange(res.path);
+  }
+
+  return (
+    <div>
+      {path ? (
+        <div style={{ marginBottom: 10 }}>
+          {isImagePath ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={path} alt="" style={{ maxWidth: 160, borderRadius: "var(--radius-sm)", display: "block", marginBottom: 6 }} />
+          ) : (
+            <p style={{ fontSize: 13 }}>{path.split("/").pop()}</p>
+          )}
+          <button type="button" onClick={() => onChange("")} style={textBtn}>
+            Remove
+          </button>
+        </div>
+      ) : (
+        <input type="file" accept={accept} aria-label={field.label} onChange={(e) => handleFile(e.target.files?.[0] ?? null)} disabled={busy} />
+      )}
+      {busy && <p style={{ fontSize: 12, opacity: 0.75 }}>Uploading…</p>}
+      {error && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13 }}>{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * A drawn signature: pointer-events drawing on a canvas, exported to PNG and
+ * uploaded as soon as a stroke ends (rather than gated behind Next, so a
+ * dropped connection surfaces immediately, not at submit time). Once uploaded
+ * the answer holds the path, so Back always shows the signature just given;
+ * Clear starts over.
+ */
+function SignatureInput({ field, value, onChange, slug }: InputProps) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const drawingRef = useRef(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const path = typeof value === "string" ? value : "";
+
+  function pos(e: React.PointerEvent<HTMLCanvasElement>) {
+    const canvas = e.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = rect.width ? canvas.width / rect.width : 1;
+    const scaleY = rect.height ? canvas.height / rect.height : 1;
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+  function start(e: React.PointerEvent<HTMLCanvasElement>) {
+    drawingRef.current = true;
+    const ctx = canvasRef.current?.getContext("2d");
+    const { x, y } = pos(e);
+    ctx?.beginPath();
+    ctx?.moveTo(x, y);
+  }
+  function move(e: React.PointerEvent<HTMLCanvasElement>) {
+    if (!drawingRef.current) return;
+    const ctx = canvasRef.current?.getContext("2d");
+    if (!ctx) return;
+    const { x, y } = pos(e);
+    ctx.lineWidth = 2;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "#111";
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  }
+  async function end() {
+    if (!drawingRef.current) return;
+    drawingRef.current = false;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const blob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
+    if (!blob) return;
+    setBusy(true);
+    setError("");
+    const res = await uploadBookingFile(slug, new File([blob], "signature.png", { type: "image/png" }));
+    setBusy(false);
+    if (!res.ok) {
+      setError(res.error);
+      return;
+    }
+    onChange(res.path);
+  }
+  function clear() {
+    const canvas = canvasRef.current;
+    const ctx = canvas?.getContext("2d");
+    if (canvas && ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+    onChange("");
+  }
+
+  if (path) {
+    return (
+      <div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={path}
+          alt="Signature"
+          style={{ maxWidth: "100%", height: 160, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "#fff", display: "block", marginBottom: 8 }}
+        />
+        <button type="button" onClick={clear} style={textBtn}>
+          Clear
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <canvas
+        ref={canvasRef}
+        width={400}
+        height={160}
+        style={{ width: "100%", height: 160, border: "1px solid var(--border)", borderRadius: "var(--radius-sm)", background: "#fff", touchAction: "none" }}
+        aria-label={field.label}
+        onPointerDown={start}
+        onPointerMove={move}
+        onPointerUp={end}
+        onPointerLeave={end}
+      />
+      <div style={{ marginTop: 6 }}>
+        <button type="button" onClick={clear} style={textBtn}>
+          Clear
+        </button>
+      </div>
+      {busy && <p style={{ fontSize: 12, opacity: 0.75 }}>Saving…</p>}
+      {error && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13 }}>{error}</p>}
+    </div>
+  );
+}
+
+const textBtn: React.CSSProperties = {
+  background: "none",
+  border: "none",
+  padding: 0,
+  fontSize: 13,
+  color: "var(--accent-on-bg-soft)",
+  textDecoration: "underline",
+  cursor: "pointer",
+};
 
 const row: React.CSSProperties = {
   display: "flex",

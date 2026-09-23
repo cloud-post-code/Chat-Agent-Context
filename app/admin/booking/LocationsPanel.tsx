@@ -1,7 +1,7 @@
 import { saveLocationAction, deleteLocationAction, moveLocationAction } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, btnGhost, btnDanger, panel, SectionTitle, Label } from "../ui";
-import { LOCATION_KINDS, type LocationKind, type LocationRow } from "@/lib/booking/types";
+import { LOCATION_KINDS, type LocationKind, type LocationRow, type ServiceRow } from "@/lib/booking/types";
 import { WeeklyHoursField } from "./WeeklyHoursEditor";
 
 const KIND_LABELS: Record<LocationKind, string> = {
@@ -33,7 +33,7 @@ const COMMON_ZONES = [
  * One panel per location — collapsed summary, expands to the full editor —
  * plus an "Add location" form.
  */
-export function LocationsPanel({ locations }: { locations: LocationRow[] }) {
+export function LocationsPanel({ locations, services }: { locations: LocationRow[]; services: ServiceRow[] }) {
   return (
     <section>
       <div data-fill="surface" style={panel}>
@@ -60,7 +60,7 @@ export function LocationsPanel({ locations }: { locations: LocationRow[] }) {
               <span style={{ fontSize: 12, textDecoration: "underline" }}>Edit</span>
             </summary>
             <div style={{ marginTop: 14, borderTop: "1px solid var(--border)", paddingTop: 14 }}>
-              <LocationForm location={l} />
+              <LocationForm location={l} services={services} />
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 {i > 0 ? <MoveButton id={l.id} dir="up" /> : null}
                 {i < locations.length - 1 ? <MoveButton id={l.id} dir="down" /> : null}
@@ -78,13 +78,13 @@ export function LocationsPanel({ locations }: { locations: LocationRow[] }) {
 
       <div data-fill="surface" style={panel}>
         <SectionTitle>Add a location</SectionTitle>
-        <LocationForm key={locations.length} />
+        <LocationForm key={locations.length} services={services} />
       </div>
     </section>
   );
 }
 
-function LocationForm({ location }: { location?: LocationRow }) {
+function LocationForm({ location, services }: { location?: LocationRow; services: ServiceRow[] }) {
   return (
     <form action={saveLocationAction}>
       {location ? <input type="hidden" name="id" value={location.id} /> : null}
@@ -128,6 +128,31 @@ function LocationForm({ location }: { location?: LocationRow }) {
       </select>
 
       <WeeklyHoursField label="Hours" prefix="hours" initial={location?.hours ?? null} optional />
+
+      <Label>Capacity (bookings that may overlap here when no providers are tracked — a single room is 1)</Label>
+      <input name="capacity" type="number" min="1" defaultValue={location?.capacity ?? 1} style={{ ...fieldStyle, width: 100 }} />
+
+      {services.length > 0 ? (
+        <div style={{ marginBottom: 12 }}>
+          <Label>Price overrides (blank = the service&apos;s own price)</Label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {services.map((sv) => (
+              <div key={sv.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <span style={{ fontSize: 13, flex: "1 1 160px" }}>{sv.name}</span>
+                <input
+                  name={`priceOverride.${sv.id}`}
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Price"
+                  defaultValue={location?.priceOverrides[sv.id]}
+                  style={{ ...fieldStyle, width: 110, marginBottom: 0 }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       <div style={box}>
         <Label>Service area (for &ldquo;we come to you&rdquo;)</Label>

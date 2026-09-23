@@ -199,6 +199,27 @@ export async function saveService(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const name = flat(input.name, 200);
   if (!name) return { ok: false, error: "A service needs a name." };
+  if (input.id) {
+    // A partial update: what the caller left out keeps its stored value, so
+    // renaming a service (or ticking who performs it) never wipes its menu.
+    const existing = await prisma.service.findFirst({ where: { id: input.id, userId } });
+    if (!existing) return { ok: false, error: "That service could not be found." };
+    const stored = toServiceRow(existing);
+    await prisma.service.update({
+      where: { id: input.id },
+      data: {
+        name,
+        category: input.category !== undefined ? flat(input.category, 60) : stored.category,
+        description: input.description !== undefined ? text(input.description, 2000) : stored.description,
+        pricing: JSON.stringify(sanitizePricing(input.pricing ?? stored.pricing)),
+        durationMinutes: clampInt(input.durationMinutes ?? stored.durationMinutes, 5, 24 * 60, 60),
+        config: JSON.stringify(sanitizeServiceConfig({ ...stored, ...input })),
+        imageFilename: input.imageFilename !== undefined ? input.imageFilename : existing.imageFilename,
+        enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
+      },
+    });
+    return { ok: true, id: input.id };
+  }
   const data = {
     name,
     category: flat(input.category, 60),
@@ -207,19 +228,6 @@ export async function saveService(
     durationMinutes: clampInt(input.durationMinutes, 5, 24 * 60, 60),
     config: JSON.stringify(sanitizeServiceConfig(input)),
   };
-  if (input.id) {
-    const existing = await prisma.service.findFirst({ where: { id: input.id, userId } });
-    if (!existing) return { ok: false, error: "That service could not be found." };
-    await prisma.service.update({
-      where: { id: input.id },
-      data: {
-        ...data,
-        imageFilename: input.imageFilename !== undefined ? input.imageFilename : existing.imageFilename,
-        enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
-      },
-    });
-    return { ok: true, id: input.id };
-  }
   const last = await prisma.service.findFirst({ where: { userId }, orderBy: { order: "desc" } });
   const row = await prisma.service.create({
     data: { ...data, userId, imageFilename: input.imageFilename ?? null, order: (last?.order ?? -1) + 1, enabled: input.enabled ?? true },
@@ -255,25 +263,30 @@ export async function saveStaff(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const name = flat(input.name, 120);
   if (!name) return { ok: false, error: "A provider needs a name." };
-  const data = {
-    name,
-    role: flat(input.role, 80),
-    bio: text(input.bio, 2000),
-    config: JSON.stringify(sanitizeStaffConfig(input)),
-  };
   if (input.id) {
+    // Partial update: what the caller left out keeps its stored value.
     const existing = await prisma.staffMember.findFirst({ where: { id: input.id, userId } });
     if (!existing) return { ok: false, error: "That provider could not be found." };
+    const stored = toStaffRow(existing);
     await prisma.staffMember.update({
       where: { id: input.id },
       data: {
-        ...data,
+        name,
+        role: input.role !== undefined ? flat(input.role, 80) : stored.role,
+        bio: input.bio !== undefined ? text(input.bio, 2000) : stored.bio,
+        config: JSON.stringify(sanitizeStaffConfig({ ...stored, ...input })),
         photoFilename: input.photoFilename !== undefined ? input.photoFilename : existing.photoFilename,
         enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
       },
     });
     return { ok: true, id: input.id };
   }
+  const data = {
+    name,
+    role: flat(input.role, 80),
+    bio: text(input.bio, 2000),
+    config: JSON.stringify(sanitizeStaffConfig(input)),
+  };
   const last = await prisma.staffMember.findFirst({ where: { userId }, orderBy: { order: "desc" } });
   const row = await prisma.staffMember.create({
     data: { ...data, userId, photoFilename: input.photoFilename ?? null, order: (last?.order ?? -1) + 1, enabled: input.enabled ?? true },
@@ -309,24 +322,36 @@ export async function saveLocation(
 ): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const name = flat(input.name, 120);
   if (!name) return { ok: false, error: "A location needs a name." };
-  const kind = (LOCATION_KINDS as readonly string[]).includes(String(input.kind)) ? (input.kind as LocationKind) : "business";
+  const kindOf = (v: unknown, fallback: LocationKind): LocationKind =>
+    (LOCATION_KINDS as readonly string[]).includes(String(v)) ? (v as LocationKind) : fallback;
+  if (input.id) {
+    // Partial update: what the caller left out keeps its stored value.
+    const existing = await prisma.bookingLocation.findFirst({ where: { id: input.id, userId } });
+    if (!existing) return { ok: false, error: "That location could not be found." };
+    const stored = toLocationRow(existing);
+    await prisma.bookingLocation.update({
+      where: { id: input.id },
+      data: {
+        name,
+        kind: input.kind !== undefined ? kindOf(input.kind, stored.kind) : stored.kind,
+        address: input.address !== undefined ? flat(input.address, 300) : stored.address,
+        phone: input.phone !== undefined ? flat(input.phone, 40) : stored.phone,
+        timezone:
+          input.timezone !== undefined ? (isValidTimezone(input.timezone) ? input.timezone : "") : stored.timezone,
+        config: JSON.stringify(sanitizeLocationConfig({ ...stored, ...input })),
+        enabled: input.enabled !== undefined ? input.enabled : existing.enabled,
+      },
+    });
+    return { ok: true, id: input.id };
+  }
   const data = {
     name,
-    kind,
+    kind: kindOf(input.kind, "business"),
     address: flat(input.address, 300),
     phone: flat(input.phone, 40),
     timezone: input.timezone && isValidTimezone(input.timezone) ? input.timezone : "",
     config: JSON.stringify(sanitizeLocationConfig(input)),
   };
-  if (input.id) {
-    const existing = await prisma.bookingLocation.findFirst({ where: { id: input.id, userId } });
-    if (!existing) return { ok: false, error: "That location could not be found." };
-    await prisma.bookingLocation.update({
-      where: { id: input.id },
-      data: { ...data, enabled: input.enabled !== undefined ? input.enabled : existing.enabled },
-    });
-    return { ok: true, id: input.id };
-  }
   const last = await prisma.bookingLocation.findFirst({ where: { userId }, orderBy: { order: "desc" } });
   const row = await prisma.bookingLocation.create({
     data: { ...data, userId, order: (last?.order ?? -1) + 1, enabled: input.enabled ?? true },
@@ -636,10 +661,27 @@ export type AvailabilityQuery = {
   date?: string;
 };
 
+/** When the business (or the location) opens on a date, or null when closed. */
+function openingInstant(settings: BookingSettings, location: LocationRow | null, date: string): Date | null {
+  if (settings.holidays.some((h) => h.date === date)) return null;
+  const tz = location?.timezone || settings.timezone;
+  const hours = location?.hours ?? settings.hours;
+  const weekday = zonedParts(zonedToUtc(date, "12:00", tz), tz).weekday;
+  const first = hours[weekday]?.[0];
+  return first ? zonedToUtc(date, first.start, tz) : null;
+}
+
 export async function availability(
   userId: string,
   q: AvailabilityQuery,
-): Promise<{ timezone: string; days?: DayAvailability[]; slots?: Slot[]; earliest: Slot | null; full?: boolean }> {
+): Promise<{
+  timezone: string;
+  days?: DayAvailability[];
+  slots?: Slot[];
+  earliest: Slot | null;
+  full?: boolean;
+  dayStart?: string | null;
+}> {
   const settings = await getBookingSettings(userId);
   const resolved = await resolveSelection(userId, settings, {
     serviceId: q.serviceId ?? null,
@@ -673,7 +715,17 @@ export async function availability(
     const booked = await bookedInRange(userId, start, end);
     const input: AvailabilityInput = { settings, service, durationMinutes, staff, location, booked, now };
     const slots = availableSlots(input, q.date);
-    return { timezone: settings.timezone, slots, full: slots.length === 0, earliest: earliestSlot(input) };
+    // A day with hours but no slot is "full" (waitlist-eligible); a closed day
+    // or holiday is not. dayStart is the day's opening instant, which is what
+    // a waitlist entry for that day is filed under.
+    const dayStart = openingInstant(settings, location, q.date);
+    return {
+      timezone: settings.timezone,
+      slots,
+      full: slots.length === 0 && dayStart !== null,
+      dayStart: dayStart?.toISOString() ?? null,
+      earliest: earliestSlot(input),
+    };
   }
   // Neither month nor date: just the next open slot, scanning the whole
   // advance window the way earliestSlot itself does.
@@ -807,7 +859,9 @@ export async function createBooking(
 
   try {
     const rows = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which
+      // $queryRaw's row deserializer can't handle.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
 
       const windowStart = new Date(Math.min(...dates.map((d) => d.getTime())));
       const windowEnd = addMinutes(new Date(Math.max(...dates.map((d) => d.getTime()))), durationMinutes + 1);
@@ -932,8 +986,12 @@ function safePricing(raw: string): PriceBreakdown | null {
   return v && typeof v === "object" && Array.isArray((v as { lines?: unknown }).lines) ? (v as PriceBreakdown) : null;
 }
 
+/** Everything booked or waitlisted; a cancelled appointment leaves the calendar. */
 export async function listBookings(userId: string): Promise<AppointmentDetail[]> {
-  const rows = await prisma.appointment.findMany({ where: { userId }, orderBy: { startsAt: "asc" } });
+  const rows = await prisma.appointment.findMany({
+    where: { userId, status: { not: "cancelled" } },
+    orderBy: { startsAt: "asc" },
+  });
   return rows.map((r) => ({
     id: r.id,
     startsAt: r.startsAt.toISOString(),

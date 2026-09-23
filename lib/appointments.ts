@@ -244,7 +244,9 @@ export async function createAppointment(
 
   try {
     const result = await prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
+      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which
+      // $queryRaw's row deserializer can't handle.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
       const clash = await tx.appointment.findFirst({ where: { userId, startsAt, status: "confirmed" } });
       if (clash) return { ok: false as const, error: "That time was just taken — pick another." };
       const row = await tx.appointment.create({

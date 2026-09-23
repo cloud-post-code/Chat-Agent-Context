@@ -42,14 +42,18 @@ type Props = {
   /** Question labels per field key, so answers read as asked. */
   fieldLabels: Record<string, string>;
   cancelAction: (formData: FormData) => Promise<void>;
-  confirmAction: (formData: FormData) => Promise<void>;
+  /** Confirms a waitlisted booking; without it the Confirm button is not drawn. */
+  confirmAction?: (formData: FormData) => Promise<void>;
   /** Whether booking is on — the toggle at the bottom always renders. */
-  enabled: boolean;
+  enabled?: boolean;
+  /** The pre-flow prop shape (booking-on-by-default proof); `enabled` wins when both are given. */
+  config?: { enabled: boolean };
 };
 
 const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-export function CalendarPanel({ rows, fieldLabels, cancelAction, confirmAction, enabled }: Props) {
+export function CalendarPanel({ rows, fieldLabels, cancelAction, confirmAction, enabled: enabledProp, config }: Props) {
+  const enabled = enabledProp ?? config?.enabled ?? false;
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth());
@@ -184,7 +188,7 @@ export function CalendarPanel({ rows, fieldLabels, cancelAction, confirmAction, 
                 {a.status === "waitlisted" ? <StatusBadge>Waitlist</StatusBadge> : null}
               </div>
               <div style={{ display: "flex", gap: 8 }}>
-                {a.status === "waitlisted" ? (
+                {a.status === "waitlisted" && confirmAction ? (
                   <form action={confirmAction}>
                     <input type="hidden" name="id" value={a.id} />
                     <PendingButton pendingLabel="Confirming…" style={btn as React.CSSProperties}>

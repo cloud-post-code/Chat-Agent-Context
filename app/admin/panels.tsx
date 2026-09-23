@@ -30,10 +30,26 @@ import {
   createAccountAction,
   deleteAccountAction,
   impersonateAction,
-  cancelAppointmentAction,
+  cancelBookingAction,
+  confirmBookingAction,
 } from "./actions";
 import { CalendarPanel } from "./CalendarPanel";
-import { getBookingConfig, listAppointments } from "@/lib/appointments";
+import { getBookingConfig } from "@/lib/appointments";
+import {
+  listServices,
+  listStaff,
+  listLocations,
+  getBookingSettings,
+  listBookings,
+} from "@/lib/booking/store";
+import { formatMoney } from "@/lib/booking/types";
+import { ServicesPanel } from "./booking/ServicesPanel";
+import { ProvidersPanel } from "./booking/ProvidersPanel";
+import { LocationsPanel } from "./booking/LocationsPanel";
+import { HoursPanel } from "./booking/HoursPanel";
+import { CustomerPanel } from "./booking/CustomerPanel";
+import { QuestionsPanel } from "./booking/QuestionsPanel";
+import { PricingPanel } from "./booking/PricingPanel";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
 import { KnowledgePanel, isDocSource } from "./KnowledgePanel";
@@ -114,7 +130,6 @@ export async function buildAdminPanels(
     addressBook,
     gmail,
     bookingConfig,
-    appointments,
   ] = await Promise.all([
       getProfile(user.id),
       getPersonaConfig(user.id),
@@ -157,9 +172,18 @@ export async function buildAdminPanels(
       listAddressBook(user.id),
       gmailStatus(user.id),
       getBookingConfig(user.id),
-      listAppointments(user.id),
     ]);
   const metrics = chatMetrics(chatSessions);
+  // The Booking section's own data — a separate fetch from the big
+  // Promise.all above because lib/booking/store.ts is a sibling feature's
+  // module, kept apart so this block reads as one unit.
+  const [services, staffList, locationList, bookingSettings, bookings] = await Promise.all([
+    listServices(user.id),
+    listStaff(user.id),
+    listLocations(user.id),
+    getBookingSettings(user.id),
+    listBookings(user.id),
+  ]);
   // Operator-only: account rows are fetched (and the Users tab rendered) for
   // operators alone; the actions re-check the gate on every call.
   const operator = await isOperator(user);
@@ -681,6 +705,13 @@ export async function buildAdminPanels(
     a2ui: "A2UI",
     booking: "Calendar",
     calendar: "Calendar",
+    "booking-services": "Services",
+    "booking-providers": "Providers",
+    "booking-locations": "Locations",
+    "booking-hours": "Hours & rules",
+    "booking-customer": "Customer details",
+    "booking-questions": "Questions",
+    "booking-pricing": "Pricing & policies",
     [NEW_SOURCE_TAB_KEY]: "+ New ingestion source",
     users: "Users",
   };
@@ -707,23 +738,52 @@ export async function buildAdminPanels(
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
-  // Always present: the Calendar now carries the Appointments settings, so it
-  // is where booking gets turned back on after it has been turned off.
+  // Always present: the Calendar carries the booking on/off toggle, so it is
+  // where booking gets turned back on after it has been turned off. Rows come
+  // from the richer store (service/staff/location/customer/pricing/status)
+  // rather than the old intake-only listAppointments.
   flat.calendar = (
     <CalendarPanel
-      rows={appointments.map((a) => ({
+      rows={bookings.map((a) => ({
         id: a.id,
-        startsAt: a.startsAt.toISOString(),
+        startsAt: a.startsAt,
+        status: a.status,
+        serviceName: a.serviceName,
+        staffName: a.staffName,
+        locationName: a.locationName,
+        customerName: [a.customer.firstName, a.customer.lastName].filter(Boolean).join(" "),
+        customerEmail: a.customer.email ?? "",
+        customerPhone: a.customer.phone ?? "",
+        durationMinutes: a.durationMinutes,
+        priceDisplay: a.pricing?.total !== undefined ? formatMoney(a.pricing.total, a.pricing.currency) : "",
         answers: a.answers,
       }))}
       fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
-      cancelAction={cancelAppointmentAction}
-      config={bookingConfig}
+      cancelAction={cancelBookingAction}
+      confirmAction={confirmBookingAction}
+      enabled={bookingConfig.enabled}
     />
   );
   // The retired standalone Appointments panel: anything still naming "booking"
   // (a canned answer, a saved chat request) lands on the Calendar instead.
   flat.booking = flat.calendar;
+
+  // ── Booking section (app/admin/booking/) ──
+  flat["booking-services"] = (
+    <ServicesPanel
+      services={services}
+      staff={staffList}
+      locations={locationList}
+      currency={bookingSettings.currency}
+      bookingEnabled={bookingConfig.enabled}
+    />
+  );
+  flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;
+  flat["booking-locations"] = <LocationsPanel locations={locationList} services={services} />;
+  flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
+  flat["booking-customer"] = <CustomerPanel settings={bookingSettings} />;
+  flat["booking-questions"] = <QuestionsPanel config={bookingConfig} />;
+  flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
   if (operator) {
     flat.users = (
       <UsersPanel

@@ -109,9 +109,12 @@ function overlapsWithBuffer(
   bookedStart: Date,
   bookedEnd: Date,
 ): boolean {
+  // Every appointment occupies its own time plus the buffers around it, the
+  // booked one included: a 30-minute clean-up after a 10:00–11:00 booking
+  // pushes the next start to 11:30, whichever of the two is "new".
   const s = start.getTime() - before * 60_000;
   const e = end.getTime() + after * 60_000;
-  return s < bookedEnd.getTime() && e > bookedStart.getTime();
+  return s < bookedEnd.getTime() + after * 60_000 && e > bookedStart.getTime() - before * 60_000;
 }
 
 /**
