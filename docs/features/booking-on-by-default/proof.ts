@@ -395,64 +395,70 @@ async function main() {
     );
     void realCount;
 
-    // ══ C. Settings live on the Calendar ══════════════════════════════════
+    // ══ C. Booking › Services (the on switch) is always present ═══════════
     const onKeys = await adminPanelKeys(userDefault.id);
     const offKeys = await adminPanelKeys(userOff.id);
     check(
-      "C17 the Calendar exists when booking is on",
-      onKeys.some((k) => k.key === "calendar"),
+      "C17 Booking › Services exists when booking is on",
+      onKeys.some((k) => k.key === "booking-services"),
       onKeys.map((k) => k.key).join(","),
     );
     check(
-      "C17 the Calendar exists when booking is OFF (it holds the on switch)",
-      offKeys.some((k) => k.key === "calendar"),
+      "C17 Booking › Services exists when booking is OFF (it holds the on switch)",
+      offKeys.some((k) => k.key === "booking-services"),
       offKeys.map((k) => k.key).join(","),
     );
     check(
-      "C18 booking is retired as a standalone panel key",
-      !onKeys.some((k) => k.key === "booking") && !offKeys.some((k) => k.key === "booking"),
+      "C18 the combined calendar is retired as a panel key",
+      !onKeys.some((k) => k.key === "calendar") && !offKeys.some((k) => k.key === "calendar"),
       onKeys.map((k) => k.key).join(","),
     );
 
-    // C19/C20: the Calendar panel renders the settings, and the grid only
-    // when booking is on. Rendered to static markup — the real component.
+    // C19/C20: the toggle and the question catalog render from their own
+    // panels; the Appointments grid only shows when booking is on.
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
-    const { CalendarPanel } = await import("../../../app/admin/CalendarPanel");
+    const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
+    const { BookingToggle } = await import("../../../app/admin/BookingPanel");
+    const { QuestionsPanel } = await import("../../../app/admin/booking/QuestionsPanel");
     const noopAction = async () => {};
 
     const cfgOn = await getBookingConfig(userDefault.id);
+    const settingsOn = renderToStaticMarkup(React.createElement(BookingToggle, { enabled: cfgOn.enabled }));
+    check(
+      "C19 the toggle renders as 'turn booking off' when on",
+      /booking/i.test(settingsOn) && /turn booking off/i.test(settingsOn),
+    );
+    const questions = renderToStaticMarkup(React.createElement(QuestionsPanel, { config: cfgOn }));
+    check(
+      "C19 Booking › Questions renders the question catalog",
+      cfgOn.fields.every((f) => questions.includes(f.label)),
+      cfgOn.fields.map((f) => f.label).join(" | "),
+    );
     const htmlOn = renderToStaticMarkup(
-      React.createElement(CalendarPanel, {
+      React.createElement(AppointmentsPanel, {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
-        config: cfgOn,
-      } as never),
-    );
-    check(
-      "C19 the Calendar renders the booking toggle",
-      /booking/i.test(htmlOn) && /turn booking off/i.test(htmlOn),
-    );
-    check(
-      "C19 the Calendar renders the question catalog",
-      cfgOn.fields.every((f) => htmlOn.includes(f.label)),
-      cfgOn.fields.map((f) => f.label).join(" | "),
+        bookingEnabled: cfgOn.enabled,
+      }),
     );
     check("C20 the month grid shows when booking is on", /Mon/.test(htmlOn) && /Tue/.test(htmlOn));
 
+    const cfgOff = await getBookingConfig(userOff.id);
+    const settingsOff = renderToStaticMarkup(React.createElement(BookingToggle, { enabled: cfgOff.enabled }));
+    check("C20 the toggle still renders when booking is off", /turn booking on/i.test(settingsOff));
     const htmlOff = renderToStaticMarkup(
-      React.createElement(CalendarPanel, {
+      React.createElement(AppointmentsPanel, {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
-        config: await getBookingConfig(userOff.id),
-      } as never),
+        bookingEnabled: cfgOff.enabled,
+      }),
     );
-    check("C20 the toggle still renders when booking is off", /turn booking on/i.test(htmlOff));
     check(
       "C20 the month grid is hidden when booking is off",
-      !/Mon<\/div>/.test(htmlOff),
+      !/Mon<\/div>/.test(htmlOff) && htmlOff.includes("?tab=booking-services"),
     );
   } finally {
     for (const id of made) {

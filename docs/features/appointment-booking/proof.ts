@@ -135,8 +135,8 @@ async function main() {
       check("stale show_booking call draws no card while disabled", bookingCards(events).length === 0);
     }
     check(
-      "calendar panel key absent while disabled",
-      !(await adminPanelKeys(user.id, false)).some((k) => k.key === "calendar"),
+      "Booking › Services panel key present while disabled (it holds the on switch)",
+      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking-services"),
     );
 
     // ── 2. Enabling seeds default fields ──
@@ -218,10 +218,11 @@ async function main() {
     const dup = await createAppointment(user.id, { startsAt: slot, answers });
     check("duplicate start time rejected", dup.ok === false);
 
-    // ── 8. Calendar panel key appears while enabled ──
+    // ── 8. Appointments and booking panel keys present while enabled ──
+    const enabledKeys = (await adminPanelKeys(user.id, false)).map((k) => k.key);
     check(
-      "calendar panel key present while enabled",
-      (await adminPanelKeys(user.id, false)).some((k) => k.key === "calendar"),
+      "appointments and booking panel keys present while enabled",
+      ["appointments", "booking-services"].every((key) => enabledKeys.includes(key)),
     );
 
     // ── 9. Cancel: gone from the list, chunks dropped, slot rebookable ──
@@ -239,8 +240,8 @@ async function main() {
     const offAgain = await createAppointment(user.id, { startsAt: tomorrowAt(15), answers });
     check("submit while disabled rejected", offAgain.ok === false);
     check(
-      "calendar panel key gone after disable",
-      !(await adminPanelKeys(user.id, false)).some((k) => k.key === "calendar"),
+      "Booking › Services panel key still present after disable",
+      (await adminPanelKeys(user.id, false)).some((k) => k.key === "booking-services"),
     );
   } finally {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});

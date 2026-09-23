@@ -114,6 +114,26 @@ A color it cannot derive gets one question or the full panel — never a guess.
 The `edit` event names its `panel` so other panels can add slices later. Proof:
 `docs/features/copilot-focused-edits/proof.ts`.
 
+## Admin copilot: panels follow the dashboard nav
+
+The dashboard's seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking,
+Settings) are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`), each
+sub-panel with an optional copilot `hint`. `adminPanelKeys` builds the copilot's
+`show_panel` enum from the same config (`fixedPanelEntries`), so the chat can
+reveal exactly the panels the dashboard shows — never `home`, and `users` for
+operators only. The old combined Calendar became `appointments` (Inbox) and the
+on/off switch sits atop `booking-services`; `show_panel` maps retired keys
+(`calendar`, `booking`) through `TAB_ALIASES` before looking a panel up, so
+saved chats and canned answers naming them still open the right panel. Chat starter chips point at
+Chats, Presets, Appointments and Cards. Proof:
+`docs/features/admin-nav-groups/proof.ts`.
+
+## Testing
+
+`docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),
+offline proof, and `--live` answer eval.
+
+
 ## Testing
 
 `docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),

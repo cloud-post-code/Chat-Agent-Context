@@ -6,7 +6,7 @@ import { logout, setIngestionSourceHiddenAction } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { Tabs } from "../Tabs";
 import { SubTabs } from "../SubTabs";
-import { resolveAdminTab, NEW_SOURCE_TAB_KEY, BOOKING_TAB_KEYS } from "../contentTabs";
+import { resolveAdminTab, NAV_GROUPS, NEW_SOURCE_TAB_KEY, type NavGroup } from "../contentTabs";
 import { buildAdminPanels } from "../panels";
 import { btnGhost } from "../ui";
 
@@ -15,7 +15,8 @@ export const dynamic = "force-dynamic";
 /**
  * The classic full-page dashboard. Every panel is built once in
  * app/admin/panels.tsx (shared with the chat-first surface at /admin/chat);
- * this page only lays them out on the Tabs/SubTabs strips.
+ * this page only lays them out on the Tabs/SubTabs strips, in the groups
+ * NAV_GROUPS declares.
  */
 export default async function Dashboard({
   searchParams,
@@ -48,6 +49,30 @@ export default async function Dashboard({
       content: flat[k],
     }));
 
+  // Knowledge leads with the live source tabs; every other group is fixed.
+  const keysFor = (g: NavGroup) =>
+    g.key === "knowledge"
+      ? [...contentKeys.filter((k) => k !== NEW_SOURCE_TAB_KEY), ...g.subs.map((s) => s.key)]
+      : g.subs.map((s) => s.key);
+
+  const groupContent = (g: NavGroup) => {
+    const tabs = sub(keysFor(g));
+    if (tabs.length === 0) return null;
+    // A single panel needs no strip (Home, Cards).
+    if (tabs.length === 1) return tabs[0].content;
+    // Keyed on the resolved sub so a same-route ?tab= link (Home's rows)
+    // remounts the strip on the new tab; useState never re-syncs otherwise.
+    return (
+      <>
+        {g.key === "knowledge" ? <HiddenSources rows={hiddenSources} /> : null}
+        <SubTabs key={initialSub} initial={initialSub} ariaLabel={`${g.label} sections`} tabs={tabs} />
+      </>
+    );
+  };
+
+  const tabs = NAV_GROUPS.map((g) => ({ key: g.key, label: g.label, content: groupContent(g) }))
+    .filter((t) => t.content !== null);
+
   return (
     <main style={{ maxWidth: 1100, margin: "0 auto", padding: "24px 20px 80px" }}>
       {/* The dashboard wears its owner's theme, so Theme-tab edits show here. */}
@@ -70,101 +95,52 @@ export default async function Dashboard({
         </div>
       </header>
 
-      <Tabs
-        initial={initialNav}
-        tabs={[
-          {
-            key: "profile",
-            label: "Me",
-            content: (
-              <SubTabs initial={initialSub} ariaLabel="Me sections" tabs={sub(["profile", "theme"])} />
-            ),
-          },
-          {
-            key: "content",
-            label: "Content",
-            content: (
-              <>
-                {hiddenSources.length > 0 ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      flexWrap: "wrap",
-                      gap: 10,
-                      marginBottom: 10,
-                      fontSize: 13,
-                      color: "var(--on-surface)",
-                    }}
-                  >
-                    <span style={{ fontStyle: "italic" }}>
-                      Hidden sources ({hiddenSources.length}):
-                    </span>
-                    {hiddenSources.map((s) => (
-                      <form
-                        key={s.id}
-                        action={setIngestionSourceHiddenAction}
-                        style={{ display: "flex", alignItems: "center", gap: 4 }}
-                      >
-                        <input type="hidden" name="id" value={s.id} />
-                        <input type="hidden" name="hidden" value="" />
-                        <span>{s.label}</span>
-                        <PendingButton
-                          pendingLabel="…"
-                          style={{
-                            fontSize: 13,
-                            textDecoration: "underline",
-                            background: "none",
-                            border: "none",
-                            padding: 0,
-                            cursor: "pointer",
-                            color: "inherit",
-                          }}
-                        >
-                          (show)
-                        </PendingButton>
-                      </form>
-                    ))}
-                  </div>
-                ) : null}
-                <SubTabs initial={initialSub} tabs={sub(contentKeys)} />
-              </>
-            ),
-          },
-          {
-            key: "graph",
-            label: "Knowledge",
-            content: flat.graph,
-          },
-          {
-            key: "activity",
-            label: "Activity",
-            content: flat.activity,
-          },
-          {
-            key: "agent",
-            label: "Agent Behavior",
-            content: (
-              <SubTabs
-                initial={initialSub}
-                ariaLabel="Agent Behavior sections"
-                tabs={sub(["answers", "goals", "rules", "contacts", "a2ui"])}
-              />
-            ),
-          },
-          // Unconditional: the Calendar carries the booking on/off toggle, so
-          // turning booking off must not remove the way to turn it back on.
-          { key: "calendar", label: "Calendar", content: flat.calendar },
-          {
-            key: "booking",
-            label: "Booking",
-            content: (
-              <SubTabs initial={initialSub} ariaLabel="Booking sections" tabs={sub([...BOOKING_TAB_KEYS])} />
-            ),
-          },
-          ...(set.operator ? [{ key: "users", label: "Users", content: flat.users }] : []),
-        ]}
-      />
+      <Tabs key={initialNav ?? "home"} initial={initialNav} tabs={tabs} />
     </main>
+  );
+}
+
+/** Disabled sources, each with a one-click "show" so they can come back. */
+function HiddenSources({ rows }: { rows: { id: string; label: string }[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div
+      style={{
+        display: "flex",
+        alignItems: "center",
+        flexWrap: "wrap",
+        gap: 10,
+        marginBottom: 10,
+        fontSize: 13,
+        color: "var(--on-surface)",
+      }}
+    >
+      <span style={{ fontStyle: "italic" }}>Hidden sources ({rows.length}):</span>
+      {rows.map((s) => (
+        <form
+          key={s.id}
+          action={setIngestionSourceHiddenAction}
+          style={{ display: "flex", alignItems: "center", gap: 4 }}
+        >
+          <input type="hidden" name="id" value={s.id} />
+          <input type="hidden" name="hidden" value="" />
+          <span>{s.label}</span>
+          <PendingButton
+            pendingLabel="…"
+            style={{
+              fontSize: 13,
+              textDecoration: "underline",
+              background: "none",
+              border: "none",
+              padding: 0,
+              cursor: "pointer",
+              color: "inherit",
+            }}
+          >
+            (show)
+          </PendingButton>
+        </form>
+      ))}
+    </div>
   );
 }
