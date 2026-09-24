@@ -3,7 +3,7 @@ import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, panel, SectionTitle, Label } from "../ui";
 import type { BookingSettings } from "@/lib/booking/types";
 import { WeeklyHoursField } from "./WeeklyHoursEditor";
-import { formatHolidayLines } from "./lines";
+import { RowsEditor, SelectField, minuteOptions, type RowColumn } from "./RowsEditor";
 
 const COMMON_ZONES = [
   "America/New_York",
@@ -24,12 +24,22 @@ const COMMON_ZONES = [
 
 const SLOT_INTERVALS = [5, 10, 15, 20, 30, 45, 60, 90, 120];
 const LEAD_TIMES = [0, 15, 30, 45, 60, 90, 120, 180, 240, 360, 720, 1440, 2880];
+const ADVANCE_DAYS = [7, 14, 30, 60, 90, 120, 180, 365];
+const BUFFER_MINUTES = [0, 5, 10, 15, 20, 30, 45, 60];
 
-const leadTimeLabel = (m: number) => (m < 60 ? `${m} min` : m % 1440 === 0 ? `${m / 1440} day${m / 1440 > 1 ? "s" : ""}` : `${m / 60} hr`);
+const leadTimeLabel = (m: number) => (m === 0 ? "None" : m < 60 ? `${m} min` : m % 1440 === 0 ? `${m / 1440} day${m / 1440 > 1 ? "s" : ""}` : `${m / 60} hr`);
+const withCurrent = (presets: number[], current: number) => [...new Set([...presets, current])].sort((a, b) => a - b);
+const bufferOptions = (current: number) => withCurrent(BUFFER_MINUTES, current).map((m) => ({ value: String(m), label: m ? `${m} min` : "None" }));
+
+const HOLIDAY_COLUMNS: RowColumn[] = [
+  { key: "date", label: "Date", kind: "date", required: true },
+  { key: "label", label: "What", placeholder: "Christmas Day" },
+];
 
 /**
  * "Hours & rules": business hours, holidays, and every timing rule the
- * availability engine reads (lib/booking/availability.ts). One form →
+ * availability engine reads (lib/booking/availability.ts). Every rule with a
+ * known set of answers is a dropdown; holidays are date rows. One form →
  * saveBookingSettingsAction, marked "section=hours" so the action knows which
  * slice of BookingSettings this post updates.
  */
@@ -52,13 +62,12 @@ export function HoursPanel({ settings }: { settings: BookingSettings }) {
 
           <WeeklyHoursField label="Business hours" prefix="hours" initial={settings.hours} />
 
-          <Label>Holidays — one per line: YYYY-MM-DD | label</Label>
-          <textarea
+          <RowsEditor
             name="holidays"
-            defaultValue={formatHolidayLines(settings.holidays)}
-            rows={3}
-            placeholder="2026-12-25 | Christmas Day"
-            style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace", fontSize: 13, resize: "vertical" }}
+            label="Closed days"
+            columns={HOLIDAY_COLUMNS}
+            initial={settings.holidays.map((h) => ({ date: h.date, label: h.label ?? "" }))}
+            addLabel="+ Add a closed day"
           />
 
           <div style={grid3}>
@@ -91,22 +100,23 @@ export function HoursPanel({ settings }: { settings: BookingSettings }) {
           </div>
 
           <div style={grid3}>
-            <div>
-              <Label>Max advance (days)</Label>
-              <input name="maxAdvanceDays" type="number" min="1" defaultValue={settings.maxAdvanceDays} style={fieldStyle} />
-            </div>
-            <div>
-              <Label>Buffer before (minutes)</Label>
-              <input name="bufferBeforeMinutes" type="number" min="0" defaultValue={settings.bufferBeforeMinutes} style={fieldStyle} />
-            </div>
-            <div>
-              <Label>Buffer after (minutes)</Label>
-              <input name="bufferAfterMinutes" type="number" min="0" defaultValue={settings.bufferAfterMinutes} style={fieldStyle} />
-            </div>
+            <SelectField
+              name="maxAdvanceDays"
+              label="How far ahead visitors can book"
+              defaultValue={String(settings.maxAdvanceDays)}
+              options={withCurrent(ADVANCE_DAYS, settings.maxAdvanceDays).map((d) => ({ value: String(d), label: d % 7 === 0 && d < 60 ? `${d / 7} week${d > 7 ? "s" : ""}` : d === 365 ? "1 year" : `${d} days` }))}
+            />
+            <SelectField name="bufferBeforeMinutes" label="Gap before every booking" defaultValue={String(settings.bufferBeforeMinutes)} options={bufferOptions(settings.bufferBeforeMinutes)} />
+            <SelectField name="bufferAfterMinutes" label="Gap after every booking" defaultValue={String(settings.bufferAfterMinutes)} options={bufferOptions(settings.bufferAfterMinutes)} />
           </div>
 
-          <Label>Default duration (minutes, when a booking names no service)</Label>
-          <input name="defaultDurationMinutes" type="number" min="5" defaultValue={settings.defaultDurationMinutes} style={{ ...fieldStyle, width: 130 }} />
+          <SelectField
+            name="defaultDurationMinutes"
+            label="Length of a booking that names no service"
+            defaultValue={String(settings.defaultDurationMinutes)}
+            options={minuteOptions(settings.defaultDurationMinutes)}
+            width={220}
+          />
 
           <div style={{ display: "flex", flexWrap: "wrap", gap: 16, margin: "6px 0 14px" }}>
             <label style={checkboxLabel}>
@@ -123,16 +133,27 @@ export function HoursPanel({ settings }: { settings: BookingSettings }) {
             </label>
           </div>
 
-          <Label>Provider selection</Label>
-          <select name="confirmation" defaultValue={settings.confirmation} aria-label="How bookings are confirmed" style={{ ...fieldStyle, width: 320 }}>
-            <option value="instant">Booked on the spot — the card confirms it</option>
-            <option value="request">A request — you confirm it (phone-only booking)</option>
-          </select>
-          <select name="staffSelection" defaultValue={settings.staffSelection} style={{ ...fieldStyle, width: 220 }}>
-            <option value="hidden">Hidden — never asked</option>
-            <option value="optional">Optional — &ldquo;Anyone available&rdquo; first</option>
-            <option value="required">Required — must pick a person</option>
-          </select>
+          <div style={grid2}>
+            <SelectField
+              name="confirmation"
+              label="How a booking is confirmed"
+              defaultValue={settings.confirmation}
+              options={[
+                { value: "instant", label: "Booked on the spot — the card confirms it" },
+                { value: "request", label: "A request — you confirm it" },
+              ]}
+            />
+            <SelectField
+              name="staffSelection"
+              label="Picking a provider"
+              defaultValue={settings.staffSelection}
+              options={[
+                { value: "optional", label: "Optional — “Anyone available” first" },
+                { value: "required", label: "Required — must pick a person" },
+                { value: "hidden", label: "Hidden — never asked" },
+              ]}
+            />
+          </div>
 
           <PendingButton pendingLabel="Saving…" style={btn as React.CSSProperties}>
             Save
@@ -143,5 +164,6 @@ export function HoursPanel({ settings }: { settings: BookingSettings }) {
   );
 }
 
+const grid2: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
 const grid3: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 };
 const checkboxLabel: React.CSSProperties = { fontSize: 13, display: "flex", alignItems: "center", gap: 6 };

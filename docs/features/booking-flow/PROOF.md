@@ -100,14 +100,14 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
 8. A weekly series books three, a week apart, tagged as one series; a series
    that can't complete books nothing.
 9. Cancelling frees the provider's slot and leaves the owner's list.
-10. The old intake-only wizard still books, and the same instant twice is
-    refused.
+10. The intake-only write path an order uses (`createAppointment`) still
+    books, and the same instant twice is refused.
 11. Existing tenants: a picker-only tenant gets a service step built from
     the menu — written as real `Service` rows the owner can now edit — priced
-    and timed from the menu's own words, with a gallery photo matched by
-    caption; name, email and the picker leave the intake; the old required
-    name/email fold onto the customer step; booking one works and the old
-    readers still see the pick with its price.
+    and timed from the menu's own words, with a gallery photo whose caption
+    names the service; name, email and the picker leave the intake; the old
+    required name/email fold onto the customer step; booking one works and
+    the old readers still see the pick with its price.
 12. A tenant whose extractor wrote menu items gets services with the site's
     price, length, description and the model's own image match.
 13. Refresh from the site (`enrichServices`): an unpriced service gets its
@@ -120,12 +120,13 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
     the mode, and an owner's own choice outlives a later site read.
 
 ### D. The card (`app/cards/Cards.tsx`), static render
-1. The service step opens with a tile per service — the imaged one draws
-   its photo, the others a placeholder; prices read as the business would
+1. The service step opens with a row per service — the imaged one draws
+   its photo, the others no placeholder; prices read as the business would
    say them; durations, the deposit and mode badges; category chips; no
    network needed; a step counter; the business's number as a tap-to-call
    link ("Prefer to call?").
-2. An old stored block (no flow) still draws its first question at once.
+2. An old stored block (no flow) fetches the live flow rather than asking
+   its own questions.
 3. The services card shows thumbnails, prices and a Book button per service.
 
 ## Result

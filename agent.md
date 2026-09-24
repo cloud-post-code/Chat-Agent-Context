@@ -25,12 +25,16 @@ file whenever prompts, tools or routing change.
 ## Booking
 
 `show_booking` draws the whole flow (`lib/booking/store.ts` → `getBookingFlow`):
-services with photos and prices, providers, locations, live availability,
-customer details, intake questions, review, confirm. The `BOOKING` prompt
-section tells the model to draw it rather than collect details in
+services (a list, with a photo where there is one) with prices, providers,
+locations, live availability, customer details, intake questions, review,
+confirm. The tool is offered whenever booking is on. The card is handed the
+flow's **trimmed** intake (`trimIntake`): the catalog minus name/email/phone,
+the service picker when there is a service step and a `staff` question when
+there is a provider step — each thing is asked once, as a step. The `BOOKING`
+prompt section tells the model to draw it rather than collect details in
 conversation, and never to promise a time the card has not shown. The server
-recomputes duration, price, provider and slot from ids on submit; the card's
-figures are convenience.
+recomputes duration, price, provider and slot from ids on submit, and demands
+answers to the same trimmed intake; the card's figures are convenience.
 
 ## The menu and the cart
 
@@ -64,18 +68,33 @@ Facts only from the prompt or a search. Lead with what is known; when the exact
 thing isn't listed, give the closest related facts and name the gap; asked for
 everything, give the full list. Then, and only then, hand off to the owner.
 
-## Onboarding: the booking form
+## Onboarding: booking
 
 The services extractor (`lib/onboarding/services.ts`, `SERVICES_SYSTEM_PROMPT`)
 also reads the business's own booking page, offsite widgets included
 (`=== BOOKING PAGE <url>`), and reports the booking `kind`, `staff` a customer
 can ask for (kept only when the name is in the text read), whether `phone` /
 `email` are asked, and `notes`. It is told not to report the service choice or
-the date and time as requirements. `lib/bookingFormPlan.ts` turns those facts
-into the questions — no model call; site evidence beats the per-kind norm —
-and `rebuildUntouchedForm` writes them only over a form nobody has edited.
-Checked live against a real booking page by
-`docs/features/booking-form-planner/crosscheck.ts`.
+the date and time as requirements. What it finds becomes rows: services →
+`Service` (`seedServices`), the booking page's staff names → `StaffMember`
+after the extraction pool (`lib/onboarding/jobs.ts`, merged by name with the
+team pages' bios so nobody is listed twice), and `lib/bookingFormPlan.ts`
+turns the rest into the intake questions — no model call; site evidence beats
+the per-kind norm; never a service or staff question, those are steps. A
+photo attaches to a service or person only when a caption names it
+(`lib/booking/matchImages.ts`: all of a short name's words, most of a long
+one's), and never to two things. `rebuildUntouchedForm` writes the questions
+only over a form nobody has edited.
+
+Once extraction is done the onboarding chat runs two more steps — the
+services (price kind, amount, length, on/off) and the providers (name, role,
+on/off, whether visitors pick who they see) — through
+`GET/POST /api/admin/onboarding/booking` (`lib/onboarding/bookingReview.ts`),
+partial patches over the same store the Booking tab writes. "Restart
+onboarding" (`lib/accountReset.ts`) wipes the booking setup, the menu and the
+appointments with everything else. Proofs:
+`docs/features/booking-setup-in-chat/proof.ts`,
+`docs/features/booking-form-planner/proof.ts`.
 
 ## Site-cards agent: A2UI cards from the imported site
 

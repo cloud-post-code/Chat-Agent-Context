@@ -257,7 +257,7 @@ export async function buildAdminPanels(
           Restart onboarding — clears all account data
         </PendingButton>
         <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 12, marginTop: 6 }}>
-          Deletes everything on this account — profile, knowledge, photos, chats, persona, and theme — and walks you through setup again.
+          Deletes everything on this account — profile, knowledge, photos, chats, persona, theme, booking setup, menu and appointments — and walks you through setup again.
         </p>
       </form>
     </section>
@@ -832,7 +832,7 @@ export async function buildAdminPanels(
   flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
   flat["booking-customer"] = <CustomerPanel settings={bookingSettings} />;
   flat["booking-questions"] = <QuestionsPanel config={bookingConfig} />;
-  flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
+  flat["booking-pricing"] = <PricingPanel settings={bookingSettings} services={services} />;
   if (operator) {
     flat.users = (
       <UsersPanel

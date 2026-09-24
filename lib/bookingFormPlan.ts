@@ -1,13 +1,20 @@
 import { keyFromLabel, type FieldConfig, type FieldType } from "./appointmentTypes";
-import { SERVICE_PICKER_KEY, servicePickerField, type MenuService } from "./bookingMenu";
+import type { MenuService } from "./bookingMenu";
 
 /**
- * The booking form a business would have built itself, from what onboarding
- * learned: ask what the business asks when it takes a booking, and where the
- * site is silent, what that kind of business normally asks. Evidence from the
- * site always beats a norm. Pure — no store, no model — so the rules can be
- * read and proven in one place. docs/features/booking-form-planner/FEATURE.md
- * has the table this encodes and the real booking page it was checked against.
+ * The intake questions a business would have asked itself, from what
+ * onboarding learned: ask what the business asks when it takes a booking, and
+ * where the site is silent, what that kind of business normally asks.
+ * Evidence from the site always beats a norm. Pure — no store, no model — so
+ * the rules can be read and proven in one place.
+ * docs/features/booking-form-planner/FEATURE.md has the table this encodes.
+ *
+ * These are only the questions the booking flow has no step of its own for.
+ * The service, the provider, the time and the visitor's contact details are
+ * steps of the flow (app/cards/booking/), drawn from the Service, StaffMember
+ * and BookingSettings rows the same extraction seeds — so the plan never asks
+ * for them a second time. `services` and `staff` are read here only to decide
+ * what is left to ask.
  */
 
 export const BOOKING_KINDS = [
@@ -27,8 +34,9 @@ export type PlanRequirement = { label: string; type: FieldType; required: boolea
 
 export type BookingFacts = {
   kind: BookingKind;
+  /** What the site sells — seeded as Service rows, so the flow's own service step asks it. */
   services: MenuService[];
-  /** People a customer can ask for, by the names the site uses. */
+  /** People a customer can ask for — seeded as providers, so the flow's own provider step asks it. */
   staff: string[];
   phone: ContactNeed;
   email: ContactNeed;
@@ -47,7 +55,6 @@ export type PlannedField = {
 
 /** Past this a wizard stops being quicker than a phone call. */
 export const MAX_QUESTIONS = 8;
-export const ANY_STAFF = "Any available";
 
 const NAME: PlannedField = { key: "name", label: "Your name", type: "short_text", required: true };
 const REASON: PlannedField = { key: "reason", label: "What would you like to talk about?", type: "long_text", required: false };
@@ -103,8 +110,9 @@ function contacts(facts: BookingFacts, norm: Norm): PlannedField[] {
   return out.sort((a, b) => Number(b.required) - Number(a.required));
 }
 
-/** What an extracted requirement is really asking, when the plan already asks it. */
-const REPEATS: { says: RegExp; covered: (plan: PlannedField[]) => boolean }[] = [
+/** What an extracted requirement is really asking, when the plan — or a
+ *  step of the flow — already asks it. */
+const REPEATS: { says: RegExp; covered: (plan: PlannedField[], facts: BookingFacts) => boolean }[] = [
   { says: /\bname\b/i, covered: () => true },
   // The wizard's last step is always "when".
   { says: /\b(dates?|times?|days?|when)\b/i, covered: () => true },
@@ -121,34 +129,18 @@ const REPEATS: { says: RegExp; covered: (plan: PlannedField[]) => boolean }[] = 
     says: /need(s|ed)? (done|help)|describe|details? (of|about)|tell us (about|more)|(project|job) description/i,
     covered: (p) => p.some((f) => f.key === "job" || f.key === "reason"),
   },
-  { says: /services?|treatments?/i, covered: (p) => p.some((f) => f.key === SERVICE_PICKER_KEY) },
-  { says: /staff|stylist|technician|therapist|barber|provider|artist/i, covered: (p) => p.some((f) => f.key === "staff") },
+  // The flow's own service and provider steps — when the read found what
+  // they draw from. A site whose staff names only render after a click still
+  // gets its "preferred technician" question, as a text box.
+  { says: /services?|treatments?/i, covered: (_p, f) => f.services.length > 0 },
+  { says: /staff|stylist|technician|therapist|barber|provider|artist/i, covered: (_p, f) => f.staff.length > 0 },
   { says: /notes?|comments?|requests?|anything else|message/i, covered: (p) => p.some((f) => f.key === "notes" || f.type === "long_text") },
 ];
 
-function staffQuestion(staff: string[]): PlannedField | null {
-  const names = [...new Set(staff.map((s) => s.trim()).filter(Boolean))];
-  if (!names.length) return null;
-  return {
-    key: "staff",
-    label: "Who would you like to see?",
-    type: "select",
-    required: false,
-    config: { options: [ANY_STAFF, ...names].map((label) => ({ label })) },
-  };
-}
-
-/** The ordered questions: who → what → who with → the specifics → notes. */
+/** The ordered questions: who → the specifics → notes. */
 export function planBookingForm(facts: BookingFacts): PlannedField[] {
   const norm = NORMS[facts.kind] ?? NORMS.other;
-  // A restaurant's "services" are its dishes, and nobody books a table by the plate.
-  const picker = facts.kind === "table" ? null : servicePickerField(facts.services);
-  const staff = facts.kind === "personal_service" ? staffQuestion(facts.staff) : null;
-
-  const plan: PlannedField[] = [NAME, ...contacts(facts, norm)];
-  if (picker) plan.push(picker);
-  if (staff) plan.push(staff);
-  plan.push(...norm.extras);
+  const plan: PlannedField[] = [NAME, ...contacts(facts, norm), ...norm.extras];
 
   const noteLabel = norm.notes ?? (facts.notes ? NOTES_FALLBACK : null);
   // A long answer is already being asked for; a second box is one too many.
@@ -165,7 +157,7 @@ export function planBookingForm(facts: BookingFacts): PlannedField[] {
     if (extracted.length >= room) break;
     const key = keyFromLabel(r.label.trim().slice(0, 120));
     if (!key || taken.has(key)) continue;
-    if (REPEATS.some((x) => x.says.test(r.label) && x.covered(covered))) continue;
+    if (REPEATS.some((x) => x.says.test(r.label) && x.covered(covered, facts))) continue;
     taken.add(key);
     const choice = r.type === "select" || r.type === "multi_select";
     extracted.push({
@@ -179,7 +171,8 @@ export function planBookingForm(facts: BookingFacts): PlannedField[] {
   }
   plan.push(...extracted);
 
-  // "reason" is the generic catch-all: only when nothing more specific was asked.
-  if (facts.kind === "other" && !picker && !extracted.length) return [...plan, REASON];
+  // "reason" is the generic catch-all: only when nothing more specific was
+  // asked, and there is no service menu to pick from either.
+  if (facts.kind === "other" && facts.services.length === 0 && !extracted.length) return [...plan, REASON];
   return notes ? [...plan, notes] : plan;
 }

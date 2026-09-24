@@ -27,9 +27,9 @@ import {
   setAccountDisabled,
   updateAccount,
 } from "@/lib/accountAdmin";
-import { createUser, provisionUserDefaults } from "@/lib/users";
+import { createUser } from "@/lib/users";
+import { wipeAccountContent } from "@/lib/accountReset";
 import {
-  cancelAppointment,
   deleteAppointmentField,
   moveAppointmentField,
   saveAppointmentField,
@@ -294,58 +294,15 @@ export async function saveProfile(formData: FormData) {
 
 /**
  * Wipe the account's data and send the user back through guided onboarding.
- * The button lives at the bottom of the Profile tab; clearing onboardedAt is
- * what routes the next admin visit into the flow again.
- *
- * "Wipe" is a full content reset, not just the profile: everything onboarding
- * or the dashboard populated — knowledge (sources/chunks and the entity graph
- * hanging off them), photos, projects, chat history, canned answers,
- * directives, UI cards, ingestion sources and their item classifications,
- * address book, contacts, A2A tasks, persona, and theme — so a re-run starts
- * from a genuinely empty account instead of stacking on stale data. The login
- * itself and the Gmail connection (GmailAuth) are kept.
+ * The button lives at the bottom of the Profile tab; the wipe itself is
+ * lib/accountReset.ts wipeAccountContent, which clears every table
+ * onboarding or the dashboard populates (booking setup, menu and
+ * appointments included), clears onboardedAt so the next admin visit routes
+ * into the flow, and puts back what a new account is provisioned with.
  */
 export async function restartOnboarding() {
   const user = await requireUser();
-  const where = { where: { userId: user.id } };
-  await prisma.$transaction([
-    // Chunks first, then entities — mentions/edges/edge-origins cascade.
-    prisma.chunk.deleteMany(where),
-    prisma.source.deleteMany(where),
-    prisma.entity.deleteMany(where),
-    prisma.mergeDismissal.deleteMany(where),
-    prisma.photo.deleteMany(where),
-    prisma.project.deleteMany(where),
-    prisma.chatSession.deleteMany(where), // messages cascade
-    prisma.cannedAnswer.deleteMany(where),
-    prisma.agentDirective.deleteMany(where),
-    prisma.uiCard.deleteMany(where),
-    prisma.itemClassification.deleteMany(where),
-    prisma.ingestionSource.deleteMany(where),
-    prisma.addressBookEntry.deleteMany(where),
-    prisma.contact.deleteMany(where),
-    prisma.a2ATask.deleteMany(where),
-    prisma.personaConfig.deleteMany(where),
-    prisma.themeConfig.deleteMany(where),
-    prisma.profile.upsert({
-      where: { userId: user.id },
-      update: {
-        company_name: "", owner_name: "", company_address: "",
-        company_phone_number: "", company_email: "", company_hours: "",
-        social_links: "[]",
-      },
-      create: { userId: user.id },
-    }),
-    prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } }),
-  ]);
-
-  // The transaction above clears the rows a NEW account is provisioned with —
-  // ingestion sources, A2UI cards, starter answers, persona and theme. Without
-  // putting them back the account restarts onboarding with no content tabs, no
-  // cards and no starter questions, which is what "reset isn't working" looked
-  // like: it wiped everything and rebuilt nothing.
-  await provisionUserDefaults(user.id);
-
+  await wipeAccountContent(user.id);
   revalidateAll();
   redirect("/admin/onboarding");
 }
@@ -1432,11 +1389,6 @@ export async function deleteOrderAction(formData: FormData) {
   revalidateAll();
 }
 
-export async function cancelAppointmentAction(formData: FormData) {
-  const user = await requireUser();
-  await cancelAppointment(user.id, String(formData.get("id") ?? ""));
-  revalidateAll();
-}
 
 // ── Booking (app/admin/booking/): services, providers, locations, settings,
 // and the richer Calendar's status actions. Thin auth wrappers around

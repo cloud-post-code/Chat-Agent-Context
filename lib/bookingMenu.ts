@@ -1,18 +1,13 @@
-import type { FieldConfig, FieldOption, FieldType } from "./appointmentTypes";
+import type { FieldOption } from "./appointmentTypes";
 
 /**
- * A business's services → the booking wizard's service question.
+ * A business's services as menu options — one per service, carrying the price
+ * and duration the site states, grouped the way the site groups them. The
+ * booking flow's service step draws Service rows now; this shape is what an
+ * older tenant's stored service question holds, and lib/booking/store.ts
+ * reads it (and the services catalog) to write those rows once.
  *
- * The question used to be a text box whose label tried to list the menu
- * ("Which service are you booking? Basic Manicure, Gel Manicure, …, or
- * something else"): the visitor saw a few names, no prices, and had to retype
- * one from memory. A menu is a list to pick from, so that is what this builds:
- * one option per service, carrying the price and duration the site states,
- * grouped the way the site groups them, any number pickable, with "something
- * else" still open because a crawl never proves the menu is complete.
- *
- * Import-free apart from types, so onboarding (which writes the question) and
- * the appointment store (which upgrades old ones on read) share one rule.
+ * Import-free apart from types.
  */
 
 export type MenuService = {
@@ -23,11 +18,8 @@ export type MenuService = {
   category?: string;
 };
 
+/** The key an older onboarding wrote its service question under. */
 export const SERVICE_PICKER_KEY = "service";
-export const SERVICE_PICKER_LABEL = "Which services would you like?";
-
-/** How the old generated text-box question began — what marks one for upgrade. */
-export const LEGACY_PICKER_HEAD = "Which service are you booking?";
 
 // A comma counts only between digit groups ("$1,200"), so the one ending a
 // clause ("$35, 45 minutes") is not swallowed into the price.
@@ -109,25 +101,4 @@ export function serviceOptions(services: MenuService[]): FieldOption[] {
     .map((o, i) => ({ o, i }))
     .sort((a, b) => order.indexOf(a.o.group ?? "") - order.indexOf(b.o.group ?? "") || a.i - b.i)
     .map(({ o }) => o);
-}
-
-export type PickerField = {
-  key: string;
-  label: string;
-  type: FieldType;
-  required: boolean;
-  config: FieldConfig;
-};
-
-/** The service question for a menu; null when there are no services to list. */
-export function servicePickerField(services: MenuService[]): PickerField | null {
-  const options = serviceOptions(services);
-  if (!options.length) return null;
-  return {
-    key: SERVICE_PICKER_KEY,
-    label: SERVICE_PICKER_LABEL,
-    type: "multi_select",
-    required: true,
-    config: { options, allowOther: true },
-  };
 }

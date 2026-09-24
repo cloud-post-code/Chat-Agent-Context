@@ -50,7 +50,7 @@ export type ServiceCard = {
   duration?: string;
   category?: string;
 };
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow?: BookingFlow | null };
+export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow };
 export type UiBlock =
   | { type: "projects"; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
@@ -303,10 +303,10 @@ const SERVICE_BLURB = 140;
 
 /**
  * The tenant's services, with booking one tap away. Book swaps the list for
- * the same wizard show_booking draws, opened with that service already
- * answered, so the visitor never retypes what they just tapped. The block can
- * come from a stored sample, which is admin-typed JSON: a booking config that
- * isn't a field list means "no Book button", never a crash.
+ * the same flow show_booking draws, opened on that service, so the visitor
+ * never picks twice what they just tapped. The block can come from a stored
+ * sample, which is admin-typed JSON: a booking config with no flow means "no
+ * Book button", never a crash.
  */
 function ServicesCard({
   slug,
@@ -319,13 +319,11 @@ function ServicesCard({
 }) {
   const [all, setAll] = useState(false);
   const [picked, setPicked] = useState<ServiceCard | null>(null);
-  const fields =
-    booking && Array.isArray(booking.fields) && booking.fields.length > 0 ? booking.fields : null;
-  const flow = booking?.flow ?? null;
-  const canBook = !!(fields || flow);
+  const flow = booking?.flow && Array.isArray(booking.flow.services) ? booking.flow : null;
+  const canBook = !!flow;
 
-  if (picked && canBook) {
-    const flowService = flow?.services.find((s) => s.id === picked.id) ?? null;
+  if (picked && flow) {
+    const flowService = flow.services.find((s) => s.id === picked.id) ?? null;
     return (
       <div>
         <p style={{ fontSize: 13, color: "var(--on-bg-soft)", margin: "0 0 10px" }}>
@@ -337,10 +335,9 @@ function ServicesCard({
         <BookingFlowCard
           key={picked.id}
           slug={slug}
-          fields={fields ?? []}
+          fields={Array.isArray(booking?.fields) ? booking!.fields : []}
           flow={flow}
           preselectServiceId={flowService ? flowService.id : undefined}
-          prefill={!flowService && booking?.serviceKey ? { [booking.serviceKey]: picked.name } : undefined}
         />
       </div>
     );

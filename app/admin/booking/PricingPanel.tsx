@@ -1,19 +1,38 @@
 import { saveBookingSettingsAction } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, panel, SectionTitle, Label } from "../ui";
-import type { BookingSettings } from "@/lib/booking/types";
-import { formatPromoLines, formatMembershipLines } from "./lines";
+import type { BookingSettings, ServiceRow } from "@/lib/booking/types";
+import { RowsEditor, SelectField, type RowColumn } from "./RowsEditor";
 
 const CURRENCIES = ["USD", "CAD", "GBP", "EUR", "AUD", "NZD"];
+
+const MEMBERSHIP_COLUMNS: RowColumn[] = [
+  { key: "name", label: "Membership", placeholder: "VIP", required: true },
+  { key: "percent", label: "% off", kind: "percent", placeholder: "15" },
+];
 
 /**
  * "Pricing & policies": currency, tax, service fee, tips, promo codes,
  * memberships, and the tenant-wide policy text (a service's own policy, when
- * set, overrides the cancellation one). One form → saveBookingSettingsAction
- * (marked "section=pricing").
+ * set, overrides the cancellation one). Promo codes and memberships are rows
+ * with dropdowns, posted in the line format the action parses. One form →
+ * saveBookingSettingsAction (marked "section=pricing").
  */
-export function PricingPanel({ settings }: { settings: BookingSettings }) {
+export function PricingPanel({ settings, services }: { settings: BookingSettings; services: ServiceRow[] }) {
   const knownCurrency = CURRENCIES.includes(settings.currency);
+  const promoColumns: RowColumn[] = [
+    { key: "code", label: "Code", placeholder: "WELCOME10", required: true, width: 130 },
+    { key: "amount", label: "Off", placeholder: "10% or 5", width: 90 },
+    { key: "note", label: "Note", placeholder: "First visit" },
+    { key: "expires", label: "Expires", kind: "date" },
+    {
+      key: "service",
+      label: "Applies to",
+      kind: "select",
+      options: [{ value: "", label: "Every service" }, ...services.map((s) => ({ value: s.id, label: s.name }))],
+      width: 160,
+    },
+  ];
   return (
     <section>
       <div data-fill="surface" style={panel}>
@@ -82,22 +101,28 @@ export function PricingPanel({ settings }: { settings: BookingSettings }) {
             <input name="tipsPresets" defaultValue={settings.tips.presets.join(", ")} placeholder="15, 20, 25" style={{ ...fieldStyle, marginBottom: 0 }} />
           </div>
 
-          <Label>Promo codes — one per line: CODE | 10% | note | 2026-12-31 | serviceId,serviceId</Label>
-          <textarea
+          <RowsEditor
             name="promoCodes"
-            defaultValue={formatPromoLines(settings.promoCodes)}
-            rows={3}
-            placeholder="WELCOME10 | 10% | First visit | 2026-12-31"
-            style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace", fontSize: 13, resize: "vertical" }}
+            label="Promo codes"
+            columns={promoColumns}
+            initial={settings.promoCodes.map((p) => ({
+              code: p.code,
+              amount: p.kind === "percent" ? `${p.amount}%` : String(p.amount),
+              note: p.note ?? "",
+              expires: p.expiresOn ?? "",
+              service: p.serviceIds[0] ?? "",
+            }))}
+            addLabel="+ Add a promo code"
+            hint="“Off” is a percent when it ends in %, otherwise a fixed amount."
           />
 
-          <Label>Memberships — one per line: Name | 15%</Label>
-          <textarea
+          <RowsEditor
             name="memberships"
-            defaultValue={formatMembershipLines(settings.memberships)}
-            rows={2}
-            placeholder="VIP | 15%"
-            style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace", fontSize: 13, resize: "vertical" }}
+            label="Memberships"
+            columns={MEMBERSHIP_COLUMNS}
+            initial={settings.memberships.map((m) => ({ name: m.name, percent: String(m.discountPercent) }))}
+            addLabel="+ Add a membership"
+            serialize={(rows) => rows.map((r) => `${r.name} | ${r.percent}%`).join("\n")}
           />
 
           <Label>Cancellation policy</Label>

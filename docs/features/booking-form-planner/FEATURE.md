@@ -34,12 +34,12 @@ normally asks.** Evidence from the site always wins over a norm.
 
 | Kind | Examples | Asks (besides name and time) |
 |---|---|---|
-| `personal_service` | salon, spa, barber, clinic, studio | phone (required), email (optional), services menu, who they'd like to see (when staff are named), notes |
+| `personal_service` | salon, spa, barber, clinic, studio | phone (required), email (optional), notes — the service and the person are steps of the flow |
 | `table` | restaurant, bar, café | party size 1–20 (required), phone (required), email (optional), notes (allergies, occasion). Never a services menu — its "services" are dishes |
-| `home_service` | trades, cleaning, repair, mobile | phone (required), email (optional), services menu, service address (required), what needs doing (required) |
+| `home_service` | trades, cleaning, repair, mobile | phone (required), email (optional), service address (required), what needs doing (required) |
 | `class` | classes, tours, events | how many are coming 1–30 (required), email (required), phone (optional), notes |
-| `consultation` | agencies, advisers, coaches | email (required), phone (optional), services menu, what they'd like to talk about |
-| `other` | anything else, or unknown | today's form, unchanged: email (required), services menu or "What would you like to talk about?" |
+| `consultation` | agencies, advisers, coaches | email (required), phone (optional), what they'd like to talk about |
+| `other` | anything else, or unknown | email (required), and "What would you like to talk about?" when there are no services |
 
 Order stays who → what → the specifics → notes (the existing contract). The
 form never exceeds 8 questions; extracted requirements are dropped first, and
@@ -69,22 +69,19 @@ for a file upload (the wizard has no such question) is dropped outright.
 
 ### Building the form
 - `lib/bookingFormPlan.ts` (pure): `planBookingForm(facts)` returns the ordered
-  questions per the table. The services menu is still built by
-  `servicePickerField` — prices come from the catalog, never the planner.
+  intake questions per the table — only what the booking flow has no step of
+  its own for. The services and the people the stage found become `Service`
+  and `StaffMember` rows (lib/onboarding/bookingSeed.ts), which the flow's
+  service and provider steps draw; a site requirement that repeats one of
+  those steps is dropped only when the read found what the step draws.
 - Every question onboarding writes is marked `generated` in its config.
 
 ### Whose form it is
-- A form is **untouched** when it is exactly the three defaults, or the
-  defaults plus the legacy picker, or every question is still `generated`.
+- A form is **untouched** when it is exactly the three defaults, or every
+  question is still `generated`.
 - Onboarding (re)builds an untouched form; a form the tenant has edited is
   theirs and is never rewritten. Any admin save, delete or reorder clears
   `generated` from every question.
-- **Existing tenants, no re-onboarding:** the first time an untouched default
-  form is read with services on file, the services menu replaces "What would
-  you like to talk about?" — written down once, idempotently, still
-  `generated`. (Written rather than presented like the legacy picker: the
-  menu's key is `service`, the row it replaces is `reason`, and an admin who
-  deletes or saves the question they are shown must be acting on a stored row.)
 
 ## Scope
 `lib/bookingFormPlan.ts` (new), `lib/onboarding/bookingPage.ts` (new),

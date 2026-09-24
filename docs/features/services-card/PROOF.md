@@ -1,5 +1,13 @@
 # Proof Plan — Services card
 
+> **Superseded (2026-09-24).** The intake-only wizard, the service-picker
+> prefill and the read-time picker upgrade this proof exercised were removed
+> by `docs/features/booking-setup-in-chat`: the booking flow's own steps ask
+> for the service and the person, and the intake is only what the flow has no
+> step for. The assertions below that reach those paths no longer run green;
+> the replacement rules are proven there.
+
+
 ## Definition Of Done
 - A `services` A2UI block and a `show_services` tool exist with the same
   structure as every other card: a typed union member in `lib/cards.ts`

@@ -52,7 +52,7 @@ export type ServiceCard = {
  * full booking flow (services, staff, locations, rules) when one exists, so
  * the new flow-aware card can book straight through it.
  */
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow: BookingFlow | null };
+export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow };
 
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
@@ -152,30 +152,30 @@ export type BookingField = {
 };
 
 /**
- * The booking wizard, hydrated from the live config. Null when booking is
- * disabled or has no questions — the guard that keeps a stale canned answer
- * (or a model that saw the tool a moment ago) from drawing a broken booker.
+ * The booking flow, hydrated from the live catalog. Null when booking is off
+ * — the guard that keeps a stale canned answer (or a model that saw the tool
+ * a moment ago) from drawing a dead booker. `fields` are the intake questions
+ * the flow has no step of its own for (lib/booking/store.ts trimIntake):
+ * the service, the provider, the time and the visitor's details are steps,
+ * so the card must never be handed questions that ask for them again.
  *
- * `preselect` is a service id (or legacy service id) the visitor already
- * named — show_booking's `service` input, resolved by brain.ts — carried
- * into the flow's `preselect.serviceId` so the card can skip straight past
- * the service step.
+ * `preselect` is a service id the visitor already named — show_booking's
+ * `service` input, resolved by brain.ts — carried into the flow's
+ * `preselect.serviceId` so the card can skip straight past the service step.
  */
 export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
-  const { getBookingConfig } = await import("./appointments");
-  const { enabled, fields } = await getBookingConfig(userId);
-  if (!enabled || fields.length === 0) return null;
   const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
+  if (!flowResult) return null;
   return {
     type: "booking",
-    fields: fields.map((f) => ({
+    fields: flowResult.intake.map((f) => ({
       key: f.key,
       label: f.label,
       type: f.type,
       required: f.required,
       config: f.config,
     })),
-    flow: flowResult?.flow ?? null,
+    flow: flowResult.flow,
   };
 }
 
@@ -198,21 +198,12 @@ export async function listServices(userId: string): Promise<ServiceCard[]> {
 }
 
 /**
- * The question a chosen service pre-answers: the picker onboarding seeds
- * (key "service"), else the generic "reason" default. Anything else would be
- * guessing which of the tenant's questions a service name belongs in.
- */
-function serviceQuestionKey(fields: BookingField[]): string | null {
-  return (["service", "reason"] as const).find((k) => fields.some((f) => f.key === k)) ?? null;
-}
-
-/**
  * The services card, hydrated from the live booking flow when it has any
- * services (real Service rows, or the legacy bridge's derived ones — either
- * way richer: image, price label, duration, category), else the plain
- * knowledge catalog as before. Null when neither has anything on file:
- * nothing is drawn and the model answers in words, rather than a visitor
- * being shown an empty price list.
+ * services (richer: image, price label, duration, category), else the plain
+ * knowledge catalog. Null when neither has anything on file: nothing is drawn
+ * and the model answers in words, rather than a visitor being shown an empty
+ * price list. `booking` carries the flow so Book on a row opens the booking
+ * card on that service.
  */
 export async function servicesBlock(userId: string): Promise<UiBlock | null> {
   const [catalogItems, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
@@ -229,11 +220,10 @@ export async function servicesBlock(userId: string): Promise<UiBlock | null> {
       }))
     : catalogItems;
   if (!items.length) return null;
-  const fields = booking?.type === "booking" ? booking.fields : null;
   return {
     type: "services",
     items,
-    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow } : null,
+    booking: booking?.type === "booking" && flow ? { fields: booking.fields, flow } : null,
   };
 }
 

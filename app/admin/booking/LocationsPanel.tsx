@@ -3,6 +3,7 @@ import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, btnGhost, btnDanger, panel, SectionTitle, Label } from "../ui";
 import { LOCATION_KINDS, type LocationKind, type LocationRow, type ServiceRow } from "@/lib/booking/types";
 import { WeeklyHoursField } from "./WeeklyHoursEditor";
+import { SelectField } from "./RowsEditor";
 
 const KIND_LABELS: Record<LocationKind, string> = {
   business: "A branch",
@@ -129,8 +130,13 @@ function LocationForm({ location, services }: { location?: LocationRow; services
 
       <WeeklyHoursField label="Hours" prefix="hours" initial={location?.hours ?? null} optional />
 
-      <Label>Capacity (bookings that may overlap here when no providers are tracked — a single room is 1)</Label>
-      <input name="capacity" type="number" min="1" defaultValue={location?.capacity ?? 1} style={{ ...fieldStyle, width: 100 }} />
+      <SelectField
+        name="capacity"
+        label="Bookings at the same time here (when no providers are tracked — one room is 1)"
+        defaultValue={String(location?.capacity ?? 1)}
+        options={[1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 20].map((n) => ({ value: String(n), label: n === 1 ? "1 — one at a time" : String(n) }))}
+        width={220}
+      />
 
       {services.length > 0 ? (
         <div style={{ marginBottom: 12 }}>
@@ -178,9 +184,16 @@ function LocationForm({ location, services }: { location?: LocationRow; services
       <Label>Note</Label>
       <textarea name="note" defaultValue={location?.note} rows={2} style={{ ...fieldStyle, resize: "vertical" }} />
 
-      <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-        <input type="checkbox" name="enabled" defaultChecked={location?.enabled ?? true} /> Enabled
-      </label>
+      <SelectField
+        name="enabled"
+        label="Offered to visitors"
+        defaultValue={(location?.enabled ?? true) ? "on" : "off"}
+        options={[
+          { value: "on", label: "Yes" },
+          { value: "off", label: "No — hidden for now" },
+        ]}
+        width={220}
+      />
 
       <PendingButton pendingLabel={location ? "Saving…" : "Adding…"} style={btn as React.CSSProperties}>
         {location ? "Save" : "Add location"}

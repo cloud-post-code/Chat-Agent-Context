@@ -1,5 +1,13 @@
 # Proof — Booking questions that fit a menu
 
+> **Superseded (2026-09-24).** The intake-only wizard, the service-picker
+> prefill and the read-time picker upgrade this proof exercised were removed
+> by `docs/features/booking-setup-in-chat`: the booking flow's own steps ask
+> for the service and the person, and the intake is only what the flow has no
+> step for. The assertions below that reach those paths no longer run green;
+> the replacement rules are proven there.
+
+
 ## Primary proof command
 ```
 npx tsx --tsconfig docs/features/booking-menu-fields/tsconfig.proof.json docs/features/booking-menu-fields/proof.ts

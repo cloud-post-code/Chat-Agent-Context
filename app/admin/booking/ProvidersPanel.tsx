@@ -1,14 +1,14 @@
-import { saveStaffAction, deleteStaffAction, moveStaffAction } from "../actions";
+import { deleteStaffAction, moveStaffAction } from "../actions";
 import { PendingButton } from "../PendingButton";
-import { field as fieldStyle, btn, btnGhost, btnDanger, panel, SectionTitle, Label } from "../ui";
+import { btnGhost, btnDanger, panel, SectionTitle } from "../ui";
 import type { ServiceRow, StaffRow } from "@/lib/booking/types";
-import { WeeklyHoursField } from "./WeeklyHoursEditor";
-import { formatTimeOffLines } from "./lines";
+import { StaffForm } from "./StaffForm";
 
 /**
- * One panel per provider — collapsed summary, expands to the full editor —
- * plus an "Add provider" form. Own hours default to the business hours;
- * per-service price/duration only need a row when the tenant sells services.
+ * One panel per provider — collapsed summary, expands to the full editor
+ * (StaffForm) — plus an "Add provider" form. Own hours default to the
+ * business hours; per-service price/duration only need a row when the tenant
+ * sells services.
  */
 export function ProvidersPanel({ staff, services }: { staff: StaffRow[]; services: ServiceRow[] }) {
   return (
@@ -67,110 +67,6 @@ export function ProvidersPanel({ staff, services }: { staff: StaffRow[]; service
   );
 }
 
-function StaffForm({ staff, services }: { staff?: StaffRow; services: ServiceRow[] }) {
-  return (
-    <form action={saveStaffAction}>
-      {staff ? <input type="hidden" name="id" value={staff.id} /> : null}
-
-      <div style={grid2}>
-        <div>
-          <Label>Name</Label>
-          <input name="name" defaultValue={staff?.name} required style={fieldStyle} />
-        </div>
-        <div>
-          <Label>Role</Label>
-          <input name="role" defaultValue={staff?.role} placeholder="Stylist, Massage therapist…" style={fieldStyle} />
-        </div>
-      </div>
-
-      <Label>Bio</Label>
-      <textarea name="bio" defaultValue={staff?.bio} rows={3} style={{ ...fieldStyle, resize: "vertical" }} />
-
-      <Label>Photo</Label>
-      {staff?.photoUrl ? (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={staff.photoUrl} alt="" style={{ width: 48, height: 48, borderRadius: "var(--radius-sm)", objectFit: "cover" }} />
-          <label style={{ fontSize: 12, display: "flex", alignItems: "center", gap: 6 }}>
-            <input type="checkbox" name="removePhoto" /> Remove photo
-          </label>
-        </div>
-      ) : null}
-      <input type="file" name="photo" accept="image/*" style={fieldStyle} />
-
-      <div style={grid3}>
-        <div>
-          <Label>Specialties (comma-separated)</Label>
-          <input name="specialties" defaultValue={staff?.specialties.join(", ")} style={fieldStyle} />
-        </div>
-        <div>
-          <Label>Languages (comma-separated)</Label>
-          <input name="languages" defaultValue={staff?.languages.join(", ")} style={fieldStyle} />
-        </div>
-        <div>
-          <Label>Credentials (comma-separated)</Label>
-          <input name="credentials" defaultValue={staff?.credentials.join(", ")} style={fieldStyle} />
-        </div>
-      </div>
-
-      <Label>Preference tag</Label>
-      <input name="genderLabel" defaultValue={staff?.genderLabel} placeholder="Female, Male, Non-binary…" style={fieldStyle} />
-      <p style={{ fontSize: 12, fontStyle: "italic", margin: "-4px 0 12px", color: "var(--on-surface)" }}>
-        Shown only when gender preference is on under Hours &amp; rules.
-      </p>
-
-      <WeeklyHoursField label="Own hours" prefix="hours" initial={staff?.hours ?? null} optional />
-
-      <Label>Time off — one per line: start date | end date | label (whole days)</Label>
-      <textarea
-        name="timeOff"
-        defaultValue={formatTimeOffLines(staff?.timeOff)}
-        rows={2}
-        placeholder="2026-12-24 | 2026-12-27 | Holiday"
-        style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace", fontSize: 13, resize: "vertical" }}
-      />
-
-      {services.length > 0 ? (
-        <div style={{ marginBottom: 12 }}>
-          <Label>Price / duration overrides (blank = the service&apos;s own)</Label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            {services.map((sv) => (
-              <div key={sv.id} style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <span style={{ fontSize: 13, flex: "1 1 160px" }}>{sv.name}</span>
-                <input
-                  name={`priceOverride.${sv.id}`}
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Price"
-                  defaultValue={staff?.priceOverrides[sv.id]}
-                  style={{ ...fieldStyle, width: 110, marginBottom: 0 }}
-                />
-                <input
-                  name={`durationOverride.${sv.id}`}
-                  type="number"
-                  min="5"
-                  placeholder="Minutes"
-                  defaultValue={staff?.durationOverrides[sv.id]}
-                  style={{ ...fieldStyle, width: 110, marginBottom: 0 }}
-                />
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
-        <input type="checkbox" name="enabled" defaultChecked={staff?.enabled ?? true} /> Enabled
-      </label>
-
-      <PendingButton pendingLabel={staff ? "Saving…" : "Adding…"} style={btn as React.CSSProperties}>
-        {staff ? "Save" : "Add provider"}
-      </PendingButton>
-    </form>
-  );
-}
-
 function MoveButton({ id, dir }: { id: string; dir: "up" | "down" }) {
   return (
     <form action={moveStaffAction}>
@@ -183,8 +79,6 @@ function MoveButton({ id, dir }: { id: string; dir: "up" | "down" }) {
   );
 }
 
-const grid2: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 };
-const grid3: React.CSSProperties = { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 };
 const summaryStyle: React.CSSProperties = {
   cursor: "pointer",
   display: "flex",

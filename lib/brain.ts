@@ -356,7 +356,7 @@ async function* runModel(
   const customKeys = catalog.filter((c) => c.tool === "show_card").map((c) => c.key);
   if (customKeys.length) tools.push(customCardTool(customKeys));
   // Booking is gated by its own toggle, not the catalog.
-  if (booking.enabled && booking.fields.length > 0) tools.push(BOOKING_TOOL);
+  if (booking.enabled) tools.push(BOOKING_TOOL);
   if (!script) tools.push(SEARCH_TOOL);
   const convo: Anthropic.MessageParam[] = history.map((m) => ({
     role: m.role,

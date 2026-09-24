@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import type { BookingFlow, BookingSelection, ServiceRow } from "@/lib/booking/types";
 import { effectivePricing, formatDuration, formatMoney, MODE_LABELS, pricingLabel } from "@/lib/booking/types";
-import { Badge, Chip, chipRow, inputStyle, linkBtn, liveBtn, optionRow, picked, PlaceholderImage, sectionLabel, stepBtn, Tile, tileGrid } from "./ui";
+import { Badge, Chip, chipRow, inputStyle, linkBtn, liveBtn, optionRow, picked, sectionLabel, stepBtn, Tile } from "./ui";
 
 /** Past this many services, a search box appears above the grid. */
 const SEARCH_OVER = 8;
@@ -71,9 +71,9 @@ export function ServiceStep({
           style={inputStyle}
         />
       )}
-      <div style={tileGrid}>
+      <div role="list" aria-label="Services" style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {filtered.map((s) => (
-          <ServiceTile
+          <ServiceLine
             key={s.id}
             service={s}
             currency={flow.business.currency}
@@ -87,7 +87,13 @@ export function ServiceStep({
   );
 }
 
-function ServiceTile({
+/**
+ * One service as a row — name, price and length on one line, a small photo
+ * beside it only when the business has one. A list reads faster than a grid
+ * of tiles, and a service with no picture gets no picture: a lettered
+ * placeholder block is a thing the visitor has to look past.
+ */
+function ServiceLine({
   service,
   currency,
   selected,
@@ -100,41 +106,29 @@ function ServiceTile({
 }) {
   const pricing = effectivePricing(service, null);
   const modesToShow = service.modes.filter((m) => m !== "in_person");
-  const letter = (service.name[0] || "?").toUpperCase();
   return (
     <Tile selected={selected} onClick={onClick} ariaLabel={service.name} role="button">
-      <div
-        style={{
-          aspectRatio: "4 / 3",
-          overflow: "hidden",
-          borderRadius: "var(--radius-sm) var(--radius-sm) 0 0",
-          background: "var(--bg)",
-        }}
-      >
-        {service.imageUrl ? (
+      <div style={{ display: "flex", gap: 10, alignItems: "center", padding: "8px 10px" }}>
+        {service.imageUrl && (
           // eslint-disable-next-line @next/next/no-img-element
           <img
             src={service.imageUrl}
             alt=""
             loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
+            style={{ width: 48, height: 48, borderRadius: "var(--radius-sm)", objectFit: "cover", flex: "0 0 auto" }}
           />
-        ) : (
-          <PlaceholderImage letter={letter} radius="0" />
         )}
-      </div>
-      <div style={{ padding: 10 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "var(--font-heading)" }}>{service.name}</div>
-        <div style={{ fontSize: 12, marginTop: 2 }}>{pricingLabel(pricing, currency)}</div>
-        <div style={{ fontSize: 12, opacity: 0.8 }}>{formatDuration(service.durationMinutes)}</div>
-        {(modesToShow.length > 0 || service.deposit.kind !== "none") && (
-          <div style={{ marginTop: 6 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-heading)" }}>{service.name}</div>
+          <div style={{ fontSize: 12, opacity: 0.85, marginTop: 2 }}>
+            {pricingLabel(pricing, currency)} · {formatDuration(service.durationMinutes)}
             {modesToShow.map((m) => (
               <Badge key={m}>{MODE_LABELS[m]}</Badge>
             ))}
             {service.deposit.kind !== "none" && <Badge tone="accent">Deposit</Badge>}
           </div>
-        )}
+        </div>
+        <span aria-hidden style={{ fontSize: 16, opacity: 0.6 }}>›</span>
       </div>
     </Tile>
   );
@@ -152,30 +146,19 @@ function ServiceDetail({
   onChoose: () => void;
 }) {
   const providers = flow.staff.filter((p) => p.enabled && (service.staffIds.length === 0 || service.staffIds.includes(p.id)));
-  const letter = (service.name[0] || "?").toUpperCase();
   const policy = service.cancellationPolicy || flow.rules.cancellationPolicy;
   return (
     <div>
       <button type="button" onClick={onBack} style={linkBtn}>
         Back to services
       </button>
-      <div
-        style={{
-          aspectRatio: "16 / 9",
-          overflow: "hidden",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--bg)",
-          margin: "10px 0",
-        }}
-      >
-        {service.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
+      {service.imageUrl && (
+        <div style={{ aspectRatio: "16 / 9", overflow: "hidden", borderRadius: "var(--radius-sm)", background: "var(--bg)", margin: "10px 0" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={service.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        ) : (
-          <PlaceholderImage letter={letter} radius="var(--radius-sm)" />
-        )}
-      </div>
-      <strong style={{ fontSize: 16, fontFamily: "var(--font-heading)" }}>{service.name}</strong>
+        </div>
+      )}
+      <strong style={{ fontSize: 16, fontFamily: "var(--font-heading)", display: "block", marginTop: service.imageUrl ? 0 : 10 }}>{service.name}</strong>
       <p style={{ fontSize: 13, marginTop: 4 }}>
         {pricingLabel(effectivePricing(service, null), flow.business.currency)} · {formatDuration(service.durationMinutes)}
       </p>

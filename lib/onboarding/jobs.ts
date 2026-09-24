@@ -503,6 +503,10 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   let goalPages: Page[] = [home, ...(job.extras ?? [])];
   let chunks = 0;
   const onEvent = (m: string) => log(job, m);
+  // The people the booking page says a customer can ask for, and the pages
+  // they were read from — seeded as providers once every agent is done, so
+  // the team agent's fuller rows (bio, photo) win when both name someone.
+  let bookingStaff: { names: string[]; pages: Page[] } = { names: [], pages: [] };
 
   // The bar moves as agents FINISH, whatever order that happens in. The extra
   // step is everything after the extractors — indexing, goals, questions and
@@ -566,6 +570,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent);
       report.services = svc.report;
       chunks += svc.chunks;
+      bookingStaff = { names: svc.extract.staff, pages: svcPages };
       log(job, svc.report.services
         ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
         : "No services described on this site");
@@ -593,6 +598,22 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     // first rejection ends the stage, and closing the crawler (the finally
     // below) is what winds the other agents down.
     await mapPool(categories, atOnce, (c) => agents[c]().then(stepDone));
+
+    // Providers the booking page names that the team pages did not: the
+    // visitor picks a person in the flow's provider step, so every name the
+    // site lets a customer ask for has to be a row there. After the pool, so
+    // the two agents can't race each other for the same name.
+    if (bookingStaff.names.length) {
+      try {
+        const people = bookingStaff.names.map((name) => ({ name, bio: "" }));
+        const staff = await seedStaff(job.userId, people, bookingStaff.pages, onEvent);
+        if (staff.seeded) {
+          log(job, `Booking: added ${staff.seeded} provider${staff.seeded === 1 ? "" : "s"} visitors can ask for by name`);
+        }
+      } catch {
+        // Left as-is; Providers stays open under Booking.
+      }
+    }
 
     // The sweep goes after the categories, not beside them: it takes every
     // page they did NOT claim, so it needs their `covered` sets complete.

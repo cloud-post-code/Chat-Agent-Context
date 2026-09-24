@@ -5,6 +5,11 @@
  * A and B exercise the pure rules. C and D run the real store and the real
  * onboarding services stage against the local dev Postgres under throwaway
  * users; the scripted `llm` is the one doubled boundary. Offline.
+ *
+ * The plan is the INTAKE — the questions the booking flow has no step of its
+ * own for. The service, the provider, the time and the visitor's contact
+ * details are steps of the flow, drawn from the Service, StaffMember and
+ * BookingSettings rows the same stage seeds, so the plan never asks them.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -37,13 +42,6 @@ const page = (url: string, body: string) => {
 
 const GEL = "Quillfeather Gel Manicure";
 const PEDI = "Quillfeather Spa Pedicure";
-
-const tomorrowAt = (h: number) => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  d.setHours(h, 0, 0, 0);
-  return d.toISOString();
-};
 
 type Planned = { key: string; label: string; type: string; required: boolean; config?: { options?: { label: string }[]; min?: number; max?: number } };
 const keys = (fields: { key: string }[]) => fields.map((f) => f.key).join(",");
@@ -106,12 +104,10 @@ async function main() {
     const plan = (f: Record<string, unknown>) => P.planBookingForm({ ...base, ...f } as never) as Planned[];
 
     const salon = plan({ kind: "personal_service", services, staff: ["Katherine", "Vivian"] });
-    check("B1 a salon: who → what → who with → notes", keys(salon) === "name,phone,email,service,staff,notes", keys(salon));
+    check("B1 a salon: who → notes; the service and the person are steps of the flow, never questions", keys(salon) === "name,phone,email,notes", keys(salon));
     check("B1 phone is required, email optional", salon[1].required && salon[1].type === "phone" && !salon[2].required);
-    const staffQ = salon.find((f) => f.key === "staff");
-    check("B1 the staff question is a pick-one led by 'Any available'", staffQ?.type === "select" && staffQ.config?.options?.map((o) => o.label).join("|") === "Any available|Katherine|Vivian" && !staffQ.required, JSON.stringify(staffQ));
-    check("B1 the menu is the catalog's, priced and sectioned", JSON.stringify(salon.find((f) => f.key === "service")?.config).includes('"price":"$35"') && JSON.stringify(salon[3].config).includes('"group":"Manicures"'));
-    check("B2 no staff named → no staff question", !plan({ kind: "personal_service", services }).some((f) => f.key === "staff"));
+    check("B1 no service or staff question, however many the site names", !salon.some((f) => f.key === "service" || f.key === "staff"));
+    check("B2 no staff named → still no staff question", !plan({ kind: "personal_service", services }).some((f) => f.key === "staff"));
 
     const table = plan({ kind: "table" });
     const party = table.find((f) => f.key === "party_size");
@@ -139,7 +135,7 @@ async function main() {
 
     check("B5 a consultation keeps 'What would you like to talk about?'", plan({ kind: "consultation" }).find((f) => f.key === "reason")?.label === "What would you like to talk about?");
     check("B5 'other' with no services is today's form", keys(plan({ kind: "other" })) === "name,email,reason", keys(plan({ kind: "other" })));
-    check("B5 'other' with services is today's seeded form", keys(plan({ kind: "other", services })) === "name,email,service", keys(plan({ kind: "other", services })));
+    check("B5 'other' with services asks nothing more: the flow's service step is the question", keys(plan({ kind: "other", services })) === "name,email", keys(plan({ kind: "other", services })));
 
     const evidence = plan({ kind: "personal_service", services, email: "required", phone: "optional" });
     check("B6 site evidence beats the norm", evidence.find((f) => f.key === "email")?.required === true && evidence.find((f) => f.key === "phone")?.required === false);
@@ -164,9 +160,9 @@ async function main() {
   // ══ C, D. The store and the onboarding stage ════════════════════════════
   const { prisma } = await import("../../../lib/db");
   const A = await import("../../../lib/appointments");
+  const S = await import("../../../lib/booking/store");
   const { extractServicesAndBooking } = await import("../../../lib/onboarding/services");
-  const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
-  const { SERVICES_SOURCE_TITLE } = await import("../../../lib/serviceCatalog");
+  const { seedStaff } = await import("../../../lib/onboarding/bookingSeed");
 
   let seq = 0;
   const made: string[] = [];
@@ -188,43 +184,11 @@ async function main() {
     (await prisma.appointmentField.findMany({ where: { userId } })).filter((r) => r.config.includes('"generated":true')).length;
 
   try {
-    // The recorded failure: booking on by default seeded the three defaults,
-    // then onboarding found the services and wrote nothing.
+    // A fresh tenant: booking on by default seeds the three defaults, then
+    // the services stage seeds Service rows and rewrites the intake.
     const salon = await newUser("salon");
     await A.setBookingEnabled(salon.id, true);
-    await prisma.source.create({
-      data: {
-        userId: salon.id,
-        kind: onboardingIngestKind("services"),
-        title: SERVICES_SOURCE_TITLE,
-        url: "https://example.invalid/service",
-        rawText: `${GEL}. Long-wear gel polish. $35.\n\n${PEDI}. $60.`,
-      },
-    });
-    const shown = (await A.getBookingConfig(salon.id)).fields;
-    const menu = shown.find((f) => f.key === "service");
-    check("C1 an untouched default form is handed the services menu", menu?.type === "multi_select" && menu.config.options?.map((o) => o.label).join("|") === `${GEL}|${PEDI}`, keys(shown));
-    check("C1 …in place of 'What would you like to talk about?'", !shown.some((f) => f.key === "reason") && keys(shown) === "name,email,service", keys(shown));
-    const stored = await prisma.appointmentField.findMany({ where: { userId: salon.id }, orderBy: { order: "asc" } });
-    check("C1 …written down once, so what is shown is what is stored", keys(stored) === "name,email,service" && keys((await A.getBookingConfig(salon.id)).fields) === "name,email,service", keys(stored));
-    check("C1 …still onboarding's to rebuild", stored.every((r) => r.config.includes('"generated":true')));
-
-    // The admin owns what they see: deleting the shown question really removes it.
-    const pruner = await newUser("pruner");
-    await A.setBookingEnabled(pruner.id, true);
-    await prisma.source.create({
-      data: { userId: pruner.id, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE, url: "https://example.invalid/service", rawText: `${GEL}. $35.` },
-    });
-    await A.getBookingConfig(pruner.id);
-    await A.deleteAppointmentField(pruner.id, "service");
-    check("C1 an admin can delete the menu, and it stays deleted", keys((await A.getBookingConfig(pruner.id)).fields) === "name,email", keys((await A.getBookingConfig(pruner.id)).fields));
-
-    const bare = await A.createAppointment(salon.id, { startsAt: tomorrowAt(9), answers: { name: "Wren", email: "w@example.invalid" } });
-    const on = await A.createAppointment(salon.id, { startsAt: tomorrowAt(10), answers: { name: "Wren", email: "w@example.invalid", service: [GEL] } });
-    check("C2 the validator holds a pick to that same menu", on.ok === true, JSON.stringify(on));
-    const booked = on.ok ? await prisma.appointment.findUnique({ where: { id: on.id } }) : null;
-    check("C2 …and stores it with its price", Boolean(booked?.answers.includes("$35")), booked?.answers);
-    check("C2 …and requires one, as the menu is required", !bare.ok && bare.error.includes("required"), JSON.stringify(bare));
+    check("C1 the defaults are the untouched form", keys((await A.getBookingConfig(salon.id)).fields) === "name,email,reason" && A.isUntouchedForm((await A.getBookingConfig(salon.id)).fields));
 
     const pages = [page("https://example.invalid/service", `<h1>Menu</h1> with Katherine`)];
     const answer = (price: string) => ({
@@ -233,24 +197,29 @@ async function main() {
     });
     const first = await extractServicesAndBooking(pages as never, salon.id, () => {}, { llm: scripted(answer("$35")) });
     const rebuilt = (await A.getBookingConfig(salon.id)).fields;
-    check("C3 onboarding now rebuilds the untouched form (it wrote nothing before)", first.report.seededFields === 6 && keys(rebuilt) === "name,phone,email,service,staff,notes", `${first.report.seededFields} ${keys(rebuilt)}`);
-    check("C3 every question it wrote is marked generated", (await generatedCount(salon.id)) === 6, String(await generatedCount(salon.id)));
-    const staffOpts = rebuilt.find((f) => f.key === "staff")?.config.options?.map((o) => o.label) ?? [];
-    check("C6 a staff name the text never contained is dropped", staffOpts.join("|") === "Any available|Katherine", staffOpts.join("|"));
+    check("C3 onboarding rebuilds the untouched form as the intake alone", first.report.seededFields === 4 && keys(rebuilt) === "name,phone,email,notes", `${first.report.seededFields} ${keys(rebuilt)}`);
+    check("C3 every question it wrote is marked generated", (await generatedCount(salon.id)) === 4, String(await generatedCount(salon.id)));
+    const rows = await S.listServices(salon.id);
+    check("C2 the services became Service rows, priced and timed from the menu's own words", first.report.seededServices === 2 && rows.length === 2 && rows[0].name === GEL && rows[0].pricing.kind === "fixed" && rows[0].pricing.amount === 35 && rows[0].durationMinutes === 45 && rows[1].pricing.amount === 60, JSON.stringify(rows.map((r) => [r.name, r.pricing, r.durationMinutes])));
+    const flow = await S.getBookingFlow(salon.id);
+    check("C2 …so the flow has a service step and the card is asked only for notes", flow?.flow.services.length === 2 && keys(flow.intake) === "notes", keys(flow?.intake ?? []));
+    check("C6 a staff name the text never contained is dropped", first.extract.staff.join("|") === "Katherine", first.extract.staff.join("|"));
+    const seeded = await seedStaff(salon.id, first.extract.staff.map((name) => ({ name, bio: "" })), pages as never, () => {});
+    const again = await seedStaff(salon.id, [{ name: "katherine", bio: "" }], pages as never, () => {});
+    check("C6 …and the rest become providers, once: the same name seeded twice is one row", seeded.seeded === 1 && again.seeded === 0 && (await S.listStaff(salon.id)).map((p) => p.name).join() === "Katherine", JSON.stringify(await S.listStaff(salon.id)));
 
     await extractServicesAndBooking(pages as never, salon.id, () => {}, { llm: scripted(answer("$42")) });
-    const refreshed = (await A.getBookingConfig(salon.id)).fields.find((f) => f.key === "service");
-    check("C4 re-running refreshes a form nobody has edited", refreshed?.config.options?.[0]?.price === "$42", JSON.stringify(refreshed?.config.options?.[0]));
+    check("C4 re-running rewrites a form nobody has edited and never duplicates a service", (await generatedCount(salon.id)) === 4 && (await S.listServices(salon.id)).length === 2, String((await S.listServices(salon.id)).length));
 
     await A.saveAppointmentField(salon.id, { key: "phone", label: "Best number to text", type: "phone", required: true });
     check("C5 one admin save makes the form the tenant's: nothing is generated any more", (await generatedCount(salon.id)) === 0, String(await generatedCount(salon.id)));
     const third = await extractServicesAndBooking(pages as never, salon.id, () => {}, { llm: scripted(answer("$99")) });
     const kept = (await A.getBookingConfig(salon.id)).fields;
-    check("C5 …and onboarding never rewrites it", third.report.seededFields === 0 && kept.find((f) => f.key === "phone")?.label === "Best number to text" && kept.find((f) => f.key === "service")?.config.options?.[0]?.price === "$42", keys(kept));
+    check("C5 …and onboarding never rewrites it", third.report.seededFields === 0 && kept.find((f) => f.key === "phone")?.label === "Best number to text", keys(kept));
 
     const mover = await newUser("mover");
     await extractServicesAndBooking(pages as never, mover.id, () => {}, { llm: scripted(answer("$35")) });
-    await A.moveAppointmentField(mover.id, "service", "up");
+    await A.moveAppointmentField(mover.id, "notes", "up");
     check("C5 reordering claims the form too", (await generatedCount(mover.id)) === 0, String(await generatedCount(mover.id)));
     const deleter = await newUser("deleter");
     await extractServicesAndBooking(pages as never, deleter.id, () => {}, { llm: scripted(answer("$35")) });
@@ -263,12 +232,13 @@ async function main() {
     const moonPages = [page(MOONLIGHT.site, "<h1>MoonLight Nails & Spa</h1>"), page(MOONLIGHT.bookingUrl, "<main>Service Staff Manicure</main>")];
     await extractServicesAndBooking(moonPages as never, moon.id, () => {}, { llm: scripted(MOONLIGHT_EXTRACT) });
     const form = (await A.getBookingConfig(moon.id)).fields;
-    const opts = form.find((f) => f.key === "service")?.config.options ?? [];
-    check("D1 the menu carries the real page's prices", ["Basic Manicure", "Gel Manicure", "SPA PEDICURE"].every((n) => opts.find((o) => o.label === n)?.price === MOONLIGHT.prices[n]), JSON.stringify(opts.slice(0, 3)));
-    check("D1 …under its headings, and more than one can be picked", new Set(opts.map((o) => o.group)).size >= 5 && form.find((f) => f.key === "service")?.type === "multi_select");
+    const moonRows = await S.listServices(moon.id);
+    const amount = (price: string) => Number.parseFloat(price.replace(/[^0-9.]/g, ""));
+    check("D1 the service step carries the real page's prices", ["Basic Manicure", "Gel Manicure", "SPA PEDICURE"].every((n) => moonRows.find((r) => r.name === n)?.pricing.amount === amount(MOONLIGHT.prices[n])), JSON.stringify(moonRows.slice(0, 3).map((r) => [r.name, r.pricing])));
+    check("D1 …under its headings", new Set(moonRows.map((r) => r.category)).size >= 5 && moonRows.length === MOONLIGHT_EXTRACT.services.length, String(moonRows.length));
     check("D2 it asks what the real page asks: name and phone required, email optional, notes", form.find((f) => f.key === "name")?.required === true && form.find((f) => f.key === "phone")?.required === true && form.find((f) => f.key === "email")?.required === false && form.find((f) => f.key === "notes")?.required === false, keys(form));
     check("D3 the technician step, whose names one read can't see, is an optional text question", form.find((f) => f.key === "preferred_technician")?.required === false);
-    check("D3 …and nothing the real page doesn't ask", keys(form) === "name,phone,email,service,preferred_technician,notes", keys(form));
+    check("D3 …and nothing the real page doesn't ask", keys(form) === "name,phone,email,preferred_technician,notes", keys(form));
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: made } } });
     const left = await prisma.user.count({ where: { email: { startsWith: "proof-form-planner-" } } });

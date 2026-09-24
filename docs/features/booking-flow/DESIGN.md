@@ -140,23 +140,23 @@ export async function listBookings(userId): Promise<AppointmentDetail[]>      //
 export async function setBookingStatus(userId, id, status: "confirmed" | "cancelled"): Promise<void>
 ```
 
-**The legacy bridge (existing tenants are fixed without doing anything):**
-`getBookingFlow` reads `Service` rows; when a tenant has none, it derives
-services from the intake catalog's service picker (`getBookingConfig(userId)`
-already upgrades the old text box into a `multi_select` menu with prices and
-durations as text) — one `ServiceRow` per option, `id: "legacy:<slugId(label)>"`,
-`pricing: pricingFromText(price)`, `durationMinutes: durationMinutes(duration) ??
-settings.defaultDurationMinutes`, `category: group`, and an `imageUrl` matched
-from the tenant's gallery photos by caption/description word overlap (the
-`Photo` table, non-`ingest:` kinds), else null. When there is no picker either,
-`services` is `[]` and the card books a plain appointment.
+**Older tenants (fixed without doing anything):** `getBookingFlow` reads
+`Service` rows; when a tenant has none, `materializeServices` writes them
+once from what is already on file — the structured menu items, a stored
+service question's options, the services knowledge record — priced and timed
+from their own words, with a gallery photo whose caption names the service.
+After that the rows are the owner's. No read-time derived services: a tenant
+with nothing on file has `services: []` and the card books a plain
+appointment.
 
 The intake handed to the card is the catalog **minus** the keys the flow asks
-elsewhere: `name`, `email`, `phone` (the customer step; fold their `required`
-onto the matching customer fields) and `service` (when the service step
-exists). On `createBooking` with a `legacy:` service, write the picked names
-back into `answers.service` so `resolveAnswer` still validates it and the
-Calendar's old readers see it.
+as steps of its own (`trimIntake`): `name`, `email`, `phone` (the customer
+step; fold their `required` onto the matching customer fields), `service`
+when the service step exists, and `staff` when the provider step exists.
+`createBooking` demands answers to exactly that same set, so the server never
+asks for what the card never showed. An older tenant's stored service picker
+gets the chosen service written back into `answers.service` when it will
+accept it, so the Calendar's old readers see it.
 
 `createBooking` must: check enabled; load the flow; resolve the service /
 variant / add-ons / provider / location by id (reject unknown ids, disabled rows,
@@ -183,7 +183,7 @@ sets status cancelled (keep the delete semantics for the knowledge origin).
 
 ### API (`app/api/booking/…`)
 - `GET  /api/booking?slug=…[&service=<id>]` → `{ ok, enabled, fields, flow }` (`fields` = intake, as today; `flow` = `BookingFlow` or null)
-- `POST /api/booking` body `{ slug, ...BookingSelection }` (also still accepts the legacy `{ slug, startsAt, answers }` → `createAppointment`) → the `createBooking` result
+- `POST /api/booking` body `{ slug, ...BookingSelection }` → the `createBooking` result
 - `GET  /api/booking/availability?slug&serviceId&variantId&addonIds=a,b&staffId&locationId&month=YYYY-MM` → `{ ok, timezone, days, earliest }`; with `&date=YYYY-MM-DD` → `{ ok, timezone, slots, full, earliest }`
 - `POST /api/booking/quote` body `{ slug, ...BookingSelection }` → `{ ok, breakdown }` — the review screen's figures
 - `POST /api/booking/upload` multipart `{ slug, file }` → `{ ok, path: "/api/uploads/…" }`; images (jpeg/png/webp/gif) and PDF, ≤ 8 MB. `lib/uploads.ts` must learn `application/pdf` (`.pdf`) and `readUpload` must serve it.
@@ -202,15 +202,15 @@ Card width: the chat column is ~720px; the card may use `maxWidth: 560`. Every
 step is a `data-fill="bg-soft"` card in the existing `card` style with the
 existing theme variables (`--surface`, `--on-surface`, `--primary`,
 `--on-primary`, `--border`, `--radius-*`, `--font-heading`); no new CSS files,
-no new dependencies. Images: `<img>` with `objectFit: cover`, a fixed aspect
-box, `loading="lazy"`, and a themed placeholder (initial letter on a
-`--primary`-tinted gradient) when `imageUrl` is null so every service tile has
-an image area. Mobile: single column under 480px.
+no new dependencies. Images: `<img>` with `objectFit: cover`, `loading="lazy"`,
+drawn only when `imageUrl` is set — a service with no picture gets no picture,
+never a placeholder block. Mobile: single column under 480px.
 
-The service step is a grid of image tiles (name, price label, duration, mode
-badges, deposit badge) with category chips above and a search box past eight
-services; tapping a tile opens its detail (full description, add-ons,
-variants, who performs it, eligibility, preparation, cancellation policy) with
+The service step is a list of rows (name, price label, duration, mode badges,
+deposit badge, a 48px thumbnail where there is a photo) with category chips
+above and a search box past eight services; tapping a row opens its detail
+(photo when there is one, full description, add-ons, variants, who performs
+it, eligibility, preparation, cancellation policy) with
 a "Choose" button. `preselect.serviceId` skips straight past the step.
 
 The provider step: "Anyone available" first (with the earliest slot when

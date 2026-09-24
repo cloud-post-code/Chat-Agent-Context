@@ -26,7 +26,6 @@ import {
   sanitizePricing,
   sanitizeServiceConfig,
   sanitizeStaffConfig,
-  slugId,
   text,
   type BookingFlow,
   type BookingRules,
@@ -396,64 +395,11 @@ export async function saveBookingSettings(userId: string, patch: Partial<Booking
   });
 }
 
-// ── The legacy bridge ────────────────────────────────────────────────────
+// ── Older tenants' services ──────────────────────────────────────────────
 
-/**
- * Services derived from the intake catalog's service picker, for a tenant
- * with no Service rows of its own. `getBookingConfig` already upgrades an old
- * generated text box into a priced multi_select menu (lib/appointments.ts),
- * so this just reads that menu's options as services — one legacy ServiceRow
- * each, an image matched from the gallery by caption word overlap.
- */
-async function legacyServices(userId: string, settings: BookingSettings): Promise<ServiceRow[]> {
-  const { fields } = await getBookingConfig(userId);
-  const picker = fields.find(
-    (f) => f.key === SERVICE_PICKER_KEY && (f.config.options?.length ?? 0) > 0,
-  );
-  if (!picker) return [];
-  const photos = await prisma.photo.findMany({
-    where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
-    select: { filename: true, caption: true, description: true },
-  });
-  const gallery: GalleryPhoto[] = photos.map((p) => ({
-    src: `/api/uploads/${p.filename}`,
-    text: [p.caption, p.description].filter(Boolean).join(" "),
-  }));
-  const seen = new Set<string>();
-  return (picker.config.options ?? []).map((opt, i) => {
-    let id = `legacy:${slugId(opt.label)}`;
-    while (seen.has(id)) id = `legacy:${slugId(opt.label)}-${i}`;
-    seen.add(id);
-    return {
-      id,
-      name: opt.label,
-      category: opt.group ?? "",
-      description: opt.description ?? "",
-      imageUrl: bestImageFor(opt.label, gallery),
-      images: [],
-      pricing: pricingFromText(opt.price ?? ""),
-      durationMinutes: parseDurationMinutes(opt.duration) ?? settings.defaultDurationMinutes,
-      addons: [],
-      variants: [],
-      deposit: { kind: "none" },
-      modes: [],
-      staffIds: [],
-      locationIds: [],
-      eligibility: "",
-      preparation: "",
-      cancellationPolicy: "",
-      bufferBeforeMinutes: 0,
-      bufferAfterMinutes: 0,
-      order: i,
-      enabled: true,
-    };
-  });
-}
-
-/** The services a booking may pick from: real rows when there are any
- *  (enabled only — a disabled service is not offered), else the legacy
- *  bridge's derived list. Shared by getBookingFlow and everything that
- *  resolves a selection, so both sides always agree on what "the service
+/** The services a booking may pick from: the tenant's rows, enabled only —
+ *  a disabled service is not offered. Shared by getBookingFlow and everything
+ *  that resolves a selection, so both sides always agree on what "the service
  *  catalog" is. */
 async function resolveServices(userId: string, settings: BookingSettings): Promise<ServiceRow[]> {
   const rows = await listServices(userId);
@@ -463,7 +409,7 @@ async function resolveServices(userId: string, settings: BookingSettings): Promi
   if (await materializeServices(userId, settings)) {
     return (await listServices(userId)).filter((r) => r.enabled);
   }
-  return legacyServices(userId, settings);
+  return [];
 }
 
 /** A row of the tenant's gallery: what a caption says, and the file it names. */
@@ -549,9 +495,11 @@ async function materializeServices(userId: string, settings: BookingSettings): P
     const known = await knownServices(userId);
     if (!known.length) return false;
     const gallery = await galleryPhotos(userId);
+    const taken = new Set<string>();
     let written = 0;
     for (const k of known) {
-      const fromGallery = k.image ? null : bestImageFor(k.name, gallery);
+      const fromGallery = k.image ? null : bestImageFor(k.name, gallery, taken);
+      if (fromGallery) taken.add(fromGallery);
       const photo = fromGallery ? gallery.find((g) => g.src === fromGallery) : null;
       const saved = await saveService(userId, {
         name: k.name,
@@ -587,13 +535,19 @@ function foldLegacyRequired(rules: BookingRules, fields: AppointmentFieldRow[]):
   };
 }
 
-/** The catalog minus the keys the flow now asks elsewhere: name/email/phone
- *  (the customer step) and the legacy service picker once a real service
- *  step exists to replace it. */
-function trimIntake(fields: AppointmentFieldRow[], hasServiceStep: boolean): AppointmentFieldRow[] {
+/** The catalog minus the keys the flow asks as steps of its own: name/email/
+ *  phone (the customer step), the service picker once a real service step
+ *  exists to replace it, and a "who would you like to see?" question once the
+ *  providers it named are rows the provider step draws. Exported for the
+ *  proofs; the flow is the one caller. */
+export function trimIntake(
+  fields: AppointmentFieldRow[],
+  steps: { hasServiceStep: boolean; hasProviderStep: boolean },
+): AppointmentFieldRow[] {
   return fields.filter((f) => {
     if (f.key === "name" || f.key === "email" || f.key === "phone") return false;
-    if (f.key === SERVICE_PICKER_KEY && hasServiceStep) return false;
+    if (f.key === SERVICE_PICKER_KEY && steps.hasServiceStep) return false;
+    if (f.key === "staff" && steps.hasProviderStep) return false;
     return true;
   });
 }
@@ -636,7 +590,7 @@ export async function getBookingFlow(
       rules,
       preselect,
     },
-    intake: trimIntake(fields, services.length > 0),
+    intake: trimIntake(fields, { hasServiceStep: services.length > 0, hasProviderStep: staff.length > 0 }),
   };
 }
 
@@ -942,15 +896,14 @@ export async function createBooking(
   const customer: Customer = { ...selection.customer };
   if (customer.smsConsent) customer.smsConsent = /^(yes|true|on|1)$/i.test(customer.smsConsent) ? "yes" : "no";
 
-  // Intake: every catalog question the flow doesn't ask elsewhere. The
-  // legacy service picker is the one exception — when the chosen service came
-  // from it, the visitor's pick is fed back in so it still validates and the
-  // old Calendar readers (which key off answers.service) keep working.
+  // Intake: every catalog question the flow doesn't ask as a step of its own
+  // — the same trim the card was handed (trimIntake), so the server never
+  // demands an answer the card never asked for. An older tenant's service
+  // picker gets the chosen service written back when it will accept it, so
+  // Calendar readers keyed on answers.service keep working.
   const { fields } = await getBookingConfig(userId);
+  const asked = new Set(trimIntake(fields, { hasServiceStep: !!service, hasProviderStep: staffPool.length > 0 }).map((f) => f.key));
   const picker = fields.find((f) => f.key === SERVICE_PICKER_KEY);
-  // The pick is written back only when the picker will accept it — its own
-  // option, or "something else" allowed — so a menu the owner has since
-  // edited can never turn a valid booking into a validation error.
   const pickerTakes =
     !!picker && !!service &&
     (picker.config.allowOther === true ||
@@ -960,8 +913,7 @@ export async function createBooking(
 
   const answers: Record<string, string> = {};
   for (const f of fields) {
-    if (f.key === "name" || f.key === "email" || f.key === "phone") continue;
-    if (f.key === SERVICE_PICKER_KEY && service && !pickerTakes) continue; // asked in the new Service step instead
+    if (!asked.has(f.key) && !(f.key === SERVICE_PICKER_KEY && pickerTakes)) continue;
     if (!isFieldShown(f, rawAnswers, fields.map((x) => x.key))) continue;
     const resolvedAns = resolveAnswer(f, rawAnswers[f.key]);
     if (!resolvedAns.ok) return { ok: false, error: resolvedAns.error };
@@ -1029,8 +981,7 @@ export async function createBooking(
             endsAt: occEnd,
             durationMinutes,
             status,
-            // A virtual (bridge) service has no row to point at.
-            serviceId: service && !service.id.startsWith("legacy:") ? service.id : null,
+            serviceId: service?.id ?? null,
             serviceName: service?.name ?? "",
             variantName: variant?.name ?? "",
             addons: JSON.stringify(addons.map((a) => a.name)),

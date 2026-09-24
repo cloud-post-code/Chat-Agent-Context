@@ -34,11 +34,14 @@ import { weeklyHoursFrom, timezoneFromAddress } from "@/lib/booking/hours";
 /**
  * Onboarding's booking seeder: `Service`, `StaffMember`, `BookingLocation` and
  * `BookingSettings` rows from whatever the crawl and the sibling extractors
- * already found. Every write here is gated on the tenant's table being
- * EMPTY — re-onboarding, or onboarding a tenant who has since built their own
- * booking setup by hand, must never duplicate or overwrite a single row. Every
- * export is best-effort and never throws: a failure is logged through the
- * caller's `log` and the stage that called it moves on with an empty result.
+ * already found. Services and providers merge BY NAME into what the tenant
+ * has: a name already on file is left exactly as it is, a new one is added —
+ * so re-onboarding, a second extractor naming the same person, or a tenant
+ * who has since built their own setup by hand never gets a duplicate or an
+ * overwritten row. Locations and settings seed only into an empty table.
+ * Every export is best-effort and never throws: a failure is logged through
+ * the caller's `log` and the stage that called it moves on with an empty
+ * result.
  */
 
 const MAX_DOWNLOADS_PER_RUN = 25;
@@ -85,9 +88,10 @@ function absoluteImageUrl(raw: string, pageUrl: string): string | null {
   }
 }
 
-/** The nearest heading (h1–h4) that reads before this element: its own
+/** The nearest heading (h2–h4) that reads before this element: its own
  *  previous siblings first (or a heading nested in one of them), then its
- *  ancestors' previous siblings, walking up toward <body>. */
+ *  ancestors' previous siblings, walking up toward <body>. The h1 is the
+ *  page's own title ("Our Services"), never the name of one thing on it. */
 function nearestHeadingText($: CheerioAPI, el: Element): string {
   let node = $(el);
   let hops = 0;
@@ -95,8 +99,8 @@ function nearestHeadingText($: CheerioAPI, el: Element): string {
     let sib = node.prev();
     while (sib.length) {
       const tag = (sib.prop("tagName") as string | undefined) ?? "";
-      if (/^h[1-4]$/i.test(tag)) return sib.text().trim();
-      const inside = sib.find("h1, h2, h3, h4").last();
+      if (/^h[2-4]$/i.test(tag)) return sib.text().trim();
+      const inside = sib.find("h2, h3, h4").last();
       if (inside.length) return inside.text().trim();
       sib = sib.prev();
       hops++;
@@ -205,29 +209,31 @@ export async function downloadImage(url: string): Promise<{ filename: string } |
 
 type Downloader = typeof downloadImage;
 
-/** Resolve (and cache by url) the stored filename for a name matched against
- *  the page's image candidates. At most `MAX_DOWNLOADS_PER_RUN` fetches; every
- *  further match past the cap is skipped, not queued. */
+/** Resolve the stored filename for a name matched against the page's image
+ *  candidates. A picture is of one thing: once matched it is `taken` and never
+ *  offered to the next name, so two services can't share a hero image. At
+ *  most `MAX_DOWNLOADS_PER_RUN` fetches; a match past the cap is skipped. */
 async function resolveImage(
   name: string,
   candidates: { src: string; text: string }[],
-  cache: Map<string, string | null>,
+  taken: Set<string>,
   downloads: { count: number },
   download: Downloader,
 ): Promise<string | null> {
   if (!candidates.length) return null;
-  const match = bestImageFor(name, candidates);
+  const match = bestImageFor(name, candidates, taken);
   if (!match) return null;
-  if (cache.has(match)) return cache.get(match) ?? null;
+  taken.add(match);
   if (downloads.count >= MAX_DOWNLOADS_PER_RUN) return null;
   downloads.count++;
   const got = await download(match);
-  const filename = got?.filename ?? null;
-  cache.set(match, filename);
-  return filename;
+  return got?.filename ?? null;
 }
 
 // ── Services ──────────────────────────────────────────────────────────────
+
+/** "Gel Manicure!" and "gel manicure" are the same service. */
+const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /** A MenuService plus the long-tail facts the services prompt may also report
  *  for a service: add-ons, a deposit, a cancellation policy, prep notes. Every
@@ -258,11 +264,12 @@ function depositFromText(raw: string | undefined): Deposit | undefined {
 }
 
 /**
- * Seed `Service` rows from the extracted menu, only when the tenant has none.
- * Each service gets its pricing and duration read from the text, and — when
- * the site's own pages carry a matching photo — a downloaded image. Never
- * throws: a service that fails to save is logged and skipped, and the loop
- * continues with the rest of the menu.
+ * Seed `Service` rows from the extracted menu — the services the tenant does
+ * not have yet, by name; one already on file is left untouched. Each new
+ * service gets its pricing and duration read from the text, and — when the
+ * site's own pages carry a photo whose caption names it — a downloaded image.
+ * Never throws: a service that fails to save is logged and skipped, and the
+ * loop continues with the rest of the menu.
  */
 export async function seedServices(
   userId: string,
@@ -275,8 +282,9 @@ export async function seedServices(
   const result = { seeded: 0, imaged: 0 };
   if (!services.length) return result;
 
+  let have: Set<string>;
   try {
-    if ((await listServices(userId)).length > 0) return result;
+    have = new Set((await listServices(userId)).map((r) => nameKey(r.name)));
   } catch (err) {
     log(`Booking: couldn't check for existing services — ${errMsg(err)}`);
     return result;
@@ -290,14 +298,17 @@ export async function seedServices(
   }
 
   const candidates = serviceImageCandidates(pages);
-  const cache = new Map<string, string | null>();
+  const taken = new Set<string>();
   const downloads = { count: 0 };
 
   for (const s of services) {
+    const key = nameKey(s.name);
+    if (!key || have.has(key)) continue;
+    have.add(key);
     try {
       const pricing = pricingFromService(s);
       const svcDuration = durationFromService(s, fallbackDuration);
-      const imageFilename = await resolveImage(s.name, candidates, cache, downloads, download);
+      const imageFilename = await resolveImage(s.name, candidates, taken, downloads, download);
       if (imageFilename) result.imaged++;
 
       const addons = s.addons?.length
@@ -327,8 +338,6 @@ export async function seedServices(
   }
   return result;
 }
-
-const nameKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /**
  * Fill the blanks in a tenant's EXISTING services from a fresh read of the
@@ -370,7 +379,7 @@ export async function enrichServices(
     ...menu.filter((m) => /^https?:\/\//i.test(m.image)).map((m) => ({ src: m.image, text: m.name })),
     ...serviceImageCandidates(pages),
   ];
-  const cache = new Map<string, string | null>();
+  const taken = new Set<string>(existing.map((r) => r.imageUrl ?? "").filter(Boolean));
   const downloads = { count: 0 };
 
   for (const s of services) {
@@ -401,7 +410,7 @@ export async function enrichServices(
       if (s.cancellationPolicy && !(row?.cancellationPolicy)) { patch.cancellationPolicy = s.cancellationPolicy; changed = true; }
 
       if (!row?.imageUrl) {
-        const imageFilename = await resolveImage(s.name, candidates, cache, downloads, download);
+        const imageFilename = await resolveImage(s.name, candidates, taken, downloads, download);
         if (imageFilename) { patch.imageFilename = imageFilename; changed = true; result.imaged++; }
       }
       if (!changed) continue;
@@ -461,9 +470,12 @@ function roleFromBio(bio: string): string {
 }
 
 /**
- * Seed `StaffMember` rows from the team bios, only when the tenant has none.
- * A photo is matched the same way a service's is — by name against the
- * team/about pages' images. Never throws.
+ * Seed `StaffMember` rows — the people the tenant does not have yet, by name.
+ * Two extractors name providers: the team pages (with bios) and the booking
+ * page (the names a customer can ask for, bare). Whichever writes first
+ * owns the row; a name already on file is left exactly as it is, so a person
+ * is never listed twice. A photo is matched the same way a service's is — by
+ * name against the pages' images. Never throws.
  */
 export async function seedStaff(
   userId: string,
@@ -476,20 +488,24 @@ export async function seedStaff(
   const result = { seeded: 0, imaged: 0 };
   if (!people.length) return result;
 
+  let have: Set<string>;
   try {
-    if ((await listStaff(userId)).length > 0) return result;
+    have = new Set((await listStaff(userId)).map((r) => nameKey(r.name)));
   } catch (err) {
     log(`Booking: couldn't check for existing staff — ${errMsg(err)}`);
     return result;
   }
 
   const candidates = serviceImageCandidates(pages);
-  const cache = new Map<string, string | null>();
+  const taken = new Set<string>();
   const downloads = { count: 0 };
 
   for (const p of people) {
+    const key = nameKey(p.name);
+    if (!key || have.has(key)) continue;
+    have.add(key);
     try {
-      const photoFilename = await resolveImage(p.name, candidates, cache, downloads, download);
+      const photoFilename = await resolveImage(p.name, candidates, taken, downloads, download);
       if (photoFilename) result.imaged++;
       const role = (p.role ?? "").trim() || roleFromBio(p.bio);
 

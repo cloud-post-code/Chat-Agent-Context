@@ -4,7 +4,7 @@
 
 The booking card in the chat becomes a complete booking site, not a
 questionnaire with a date box at the end. A visitor picks a service from a
-grid of photographed tiles (price, duration, what's included, add-ons,
+list (photo where there is one, price, duration, what's included, add-ons,
 packages, who performs it, what to prepare, the cancellation policy), a
 provider ("anyone available" or a named person with photo, role, bio,
 specialties, languages, credentials, their own price and next opening), a
@@ -38,7 +38,7 @@ they already have, inside the conversation, with images.
 Stated in [DESIGN.md](DESIGN.md), which is the contract every module was
 built against. In short:
 
-- **Service**: image tiles, category chips, search past eight, a detail view
+- **Service**: a list with thumbnails where there are photos, category chips, search past eight, a detail view
   with add-ons, variants/packages, performers, eligibility, preparation,
   policy; "Free", "$45", "From $45", "$45–$80", "$45/hr", "$12/person",
   "$40/room", "Quote", "Varies" pricing; deposit and mode badges.
@@ -100,8 +100,9 @@ off the grid — all rejections with reasons.
 
 **Images from the tenant's own material first.** Onboarding matches each
 service and person to an image on the pages that describe them; the admin can
-upload; the gallery is the fallback; a themed placeholder is the last resort,
-so every tile has an image area.
+upload; the gallery is the fallback. A service with no picture shows none —
+a caption has to name the service for a photo to count as a picture of it,
+and one photo is never hung on two services.
 
 **There is always a way to book.** The extractor reports how the site says
 one books. A business that books by phone (or email, or walk-in) but not

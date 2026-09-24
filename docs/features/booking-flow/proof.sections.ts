@@ -304,7 +304,7 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     const lslot = (await S.availability(legacyUser.id, { serviceId: gel!.id, date: openDay!.date })).slots?.[0];
     const lb = await S.createBooking(legacyUser.id, T.sanitizeSelection({ serviceId: gel!.id, startsAt: lslot?.startsAt, customer, answers: { allergies: "yes" } }));
     check("C11 booking a derived service works", lb.ok && lb.serviceName === "Gel Manicure", lb.ok ? "" : lb.error);
-    const stored = (await Ap.listAppointments(legacyUser.id))[0];
+    const stored = (await S.listBookings(legacyUser.id))[0];
     check("C11 …and the old readers still see the pick with its price", stored?.answers.service?.includes("Gel Manicure ($35") === true && stored?.answers.allergies === "Yes");
 
     // A tenant whose services extractor wrote menu items (the menu-cart
@@ -403,7 +403,7 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
 
   const html = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields, flow }, slug: "proof" }));
   const $ = cheerio.load(html);
-  check("D1 the service step opens with a tile per service", $("img").length === 1 && $('[data-testid="placeholder-image"]').length === 2, `${$("img").length} img, ${$('[data-testid="placeholder-image"]').length} placeholders`);
+  check("D1 the service step opens with a row per service, photos only where there is one", $('[role="list"] [role="button"]').length === 3 && $("img").length === 1 && $('[data-testid="placeholder-image"]').length === 0, `${$('[role="list"] [role="button"]').length} rows, ${$("img").length} img, ${$('[data-testid="placeholder-image"]').length} placeholders`);
   check("D1 the imaged service draws its photo", $("img").attr("src") === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
   check("D1 prices read as the business would say them", html.includes("$45") && html.includes("From $80") && html.includes("Quote"));
   check("D1 durations and badges", html.includes("45 min") && html.includes("1 hr 30 min") && html.includes("Deposit") && html.includes(T.MODE_LABELS.mobile));
@@ -413,10 +413,10 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   check("D1 the other way to book is one tap away", $('a[href="tel:+15125550100"], a[href="tel:5125550100"]').length === 1 && html.includes("Prefer to call?"));
 
   const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields }, slug: "proof" }));
-  check("D2 an old stored block still draws the first question at once", noFlow.includes("Anything else?") && !noFlow.includes("Loading"));
+  check("D2 an old stored block with no flow fetches the live one rather than asking its own questions", noFlow.includes("Loading booking") && !noFlow.includes("Anything else?"));
 
   const services = renderToStaticMarkup(React.createElement(Cards, {
-    block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, serviceKey: null, flow } },
+    block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, flow } },
     slug: "proof",
   }));
   const $s = cheerio.load(services);

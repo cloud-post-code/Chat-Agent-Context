@@ -10,14 +10,18 @@ import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 import { GalleryCard, type GalleryItem } from "./GalleryCard";
 import { ActivityStream, Typewriter, type Eta } from "./ActivityStream";
+import { ProvidersSetupCard, ServicesSetupCard, type ServiceDraft, type StaffDraft } from "./BookingSetupCard";
+import type { BookingReview } from "@/lib/onboarding/bookingReview";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
  * walks through the stages one message at a time — contact info (with one
- * form per location), theme (the dashboard's own ThemePicker), then a
- * pick-what-you-have knowledge extraction that keeps running while the user
- * heads to the dashboard. Extraction pre-fills every form before it shows,
- * and the loading state streams the job's REAL activity log.
+ * form per location), theme (the dashboard's own ThemePicker), a
+ * pick-what-you-have knowledge extraction, and finally the booking setup:
+ * the services and the providers the extraction seeded, checked as two more
+ * chat steps (BookingSetupCard) before the chat opens. Extraction pre-fills
+ * every form before it shows, and the loading state streams the job's REAL
+ * activity log.
  */
 
 const DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"] as const;
@@ -51,7 +55,8 @@ type Step =
   | "social-running" | "review-social"
   | "images-running" | "review-images"
   | "theme-running" | "review-theme"
-  | "select-knowledge" | "knowledge-running";
+  | "select-knowledge" | "knowledge-running"
+  | "review-services" | "review-providers";
 
 const COMPANY_FIELDS: FieldSpec[] = [
   { kind: "text", key: "company_name", label: "Company name" },
@@ -241,6 +246,20 @@ function knowledgeSummary(picked: string[]): string {
   return labels.length ? `Extract: ${labels.join(", ")}` : "Extract nothing.";
 }
 
+function servicesSummary(services: ServiceDraft[]): string {
+  const kept = services.filter((s) => s.name.trim());
+  const on = kept.filter((s) => s.enabled).length;
+  if (!kept.length) return "No services to book yet.";
+  return `${on} bookable service${on === 1 ? "" : "s"}${on < kept.length ? ` (${kept.length - on} hidden)` : ""}: ${kept.map((s) => s.name.trim()).join(", ")}`;
+}
+
+function providersSummary(staff: StaffDraft[], selection: string): string {
+  const kept = staff.filter((p) => p.name.trim());
+  if (!kept.length) return "No named providers — bookings go to whoever is free.";
+  const how = selection === "required" ? "visitors must pick one" : selection === "hidden" ? "we assign one" : "visitors may pick one";
+  return `${kept.length} provider${kept.length === 1 ? "" : "s"} (${kept.map((p) => p.name.trim()).join(", ")}) — ${how}.`;
+}
+
 function Bubble({ who, children }: { who: "assistant" | "user"; children: React.ReactNode }) {
   const mine = who === "user";
   return (
@@ -288,6 +307,19 @@ export function OnboardingFlow() {
   const [brandValues, setBrandValues] = useState("");
   const [tone, setTone] = useState("");
   const [picked, setPicked] = useState<string[]>(EXTRACTOR_OPTIONS.map((o) => o.key));
+  // The booking review: what the extraction seeded, as editable rows, plus
+  // the ids of rows the user removed here (deleted on save).
+  const [services, setServices] = useState<ServiceDraft[]>([]);
+  const [staffDrafts, setStaffDrafts] = useState<StaffDraft[]>([]);
+  const [staffSelection, setStaffSelection] = useState<"hidden" | "optional" | "required">("optional");
+  const [foundServices, setFoundServices] = useState(false);
+  const [foundStaff, setFoundStaff] = useState(false);
+  const removedServices = useRef<string[]>([]);
+  const removedStaff = useRef<string[]>([]);
+  // /complete is posted once: at the start of a site extraction (so the
+  // knowledge keeps filing in the background) or at the end of the booking
+  // review on the paths where no extraction ran.
+  const completed = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   // The entry panel for the current step shows only once the assistant's
@@ -594,13 +626,86 @@ export function OnboardingFlow() {
       setBusy(false);
       return;
     }
+    const summary = themeSummary(v("themeBodyFont"), v("themeRadius"), tagline);
     if (manual) {
-      await post("/api/admin/onboarding/complete", { mode: "manual" });
-      router.push("/admin/chat");
+      await openBookingReview(summary);
+      setBusy(false);
       return;
     }
-    go("select-knowledge", themeSummary(v("themeBodyFont"), v("themeRadius"), tagline));
+    go("select-knowledge", summary);
     setBusy(false);
+  }
+
+  /**
+   * Load what the booking seeder wrote and step into the review. The site
+   * path reaches this once extraction is done (the services and providers
+   * exist by then); the manual and skip paths reach it with empty lists the
+   * user fills in by hand.
+   */
+  async function openBookingReview(summary?: string) {
+    setError("");
+    const res = await fetch("/api/admin/onboarding/booking");
+    if (!res.ok) {
+      setError(await res.text());
+      return;
+    }
+    const review = (await res.json()) as BookingReview;
+    setServices(review.services.map((s) => ({ ...s, durationMinutes: String(s.durationMinutes) })));
+    setStaffDrafts(review.staff);
+    setStaffSelection(review.staffSelection);
+    setFoundServices(review.services.length > 0);
+    setFoundStaff(review.staff.length > 0);
+    removedServices.current = [];
+    removedStaff.current = [];
+    go("review-services", summary);
+  }
+
+  async function saveServices() {
+    setBusy(true);
+    setError("");
+    const res = await post("/api/admin/onboarding/booking", {
+      services: services
+        .filter((s) => s.name.trim())
+        .map((s) => ({ id: s.id, name: s.name, pricingKind: s.pricingKind, amount: s.amount, maxAmount: s.maxAmount, durationMinutes: s.durationMinutes, enabled: s.enabled })),
+      removedServiceIds: removedServices.current,
+    });
+    if (!res.ok) {
+      setError(await res.text());
+      setBusy(false);
+      return;
+    }
+    go("review-providers", servicesSummary(services));
+    setBusy(false);
+  }
+
+  async function saveProviders() {
+    setBusy(true);
+    setError("");
+    const res = await post("/api/admin/onboarding/booking", {
+      staff: staffDrafts.filter((p) => p.name.trim()).map((p) => ({ id: p.id, name: p.name, role: p.role, enabled: p.enabled })),
+      removedStaffIds: removedStaff.current,
+      staffSelection,
+    });
+    if (!res.ok) {
+      setError(await res.text());
+      setBusy(false);
+      return;
+    }
+    if (!completed.current) {
+      completed.current = true;
+      await post("/api/admin/onboarding/complete", { mode: "manual" });
+    }
+    router.push("/admin/chat");
+  }
+
+  /** Drop a row: a seeded one is remembered so the save deletes it. */
+  function setServiceRows(next: ServiceDraft[]) {
+    for (const s of services) if (s.id && !next.some((n) => n.id === s.id)) removedServices.current.push(s.id);
+    setServices(next);
+  }
+  function setStaffRows(next: StaffDraft[]) {
+    for (const p of staffDrafts) if (p.id && !next.some((n) => n.id === p.id)) removedStaff.current.push(p.id);
+    setStaffDrafts(next);
   }
 
   async function startKnowledge() {
@@ -615,13 +720,19 @@ export function OnboardingFlow() {
       return;
     }
     // The user is set up from here — knowledge keeps extracting on its own.
+    completed.current = true;
     await post("/api/admin/onboarding/complete", { mode: "site" });
     go("knowledge-running", knowledgeSummary(picked));
     setBusy(false);
   }
 
-  async function skipToDashboard(mode: "site" | "manual") {
-    await post("/api/admin/onboarding/complete", { mode });
+  /** Leave for the chat while extraction runs on; the booking review then
+   *  lives in the dashboard's Booking section instead. */
+  async function leaveForChat() {
+    if (!completed.current) {
+      completed.current = true;
+      await post("/api/admin/onboarding/complete", { mode: "manual" });
+    }
     router.push("/admin/chat");
   }
 
@@ -1030,7 +1141,7 @@ export function OnboardingFlow() {
                 {/* Skipping runs no extraction, so completion must do the
                     indexing and starter-question work itself — that is the
                     "manual" path, whatever got us to this step. */}
-                <button style={btnGhost} onClick={() => skipToDashboard("manual")} disabled={busy}>
+                <button style={btnGhost} onClick={() => openBookingReview("Skip extraction.")} disabled={busy}>
                   Skip this
                 </button>
               </div>
@@ -1077,13 +1188,74 @@ export function OnboardingFlow() {
               </div>
             )}
           </Bubble>
-          {(textDone || status?.phase === "done") && (
-            <UserEntry maxWidth={360}>
-              <button style={btn} onClick={() => router.push("/admin/chat")}>
-                Continue to chat →
-              </button>
+          {step === "knowledge-running" && (textDone || status?.phase === "done") && (
+            <UserEntry maxWidth={420}>
+              {status?.phase === "done" ? (
+                <button style={btn} onClick={() => openBookingReview("Extraction finished.")} disabled={busy}>
+                  Next — check your booking setup →
+                </button>
+              ) : (
+                <>
+                  <p style={{ fontSize: 13, margin: "0 0 10px", opacity: 0.85 }}>
+                    Once it finishes I&apos;ll show you the services and providers I found, so you can check prices and who visitors can book with.
+                  </p>
+                  <button style={btnGhost} onClick={leaveForChat}>
+                    Don&apos;t wait — go to the chat (booking setup is under Booking)
+                  </button>
+                </>
+              )}
             </UserEntry>
           )}
+          {visited.includes("knowledge-running") && step !== "knowledge-running" && (
+            <Bubble who="user">{summaries["knowledge-running"] ?? "Done."}</Bubble>
+          )}
+        </>
+      )}
+
+      {shown("review-services") && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={foundServices
+                  ? "Now booking. Here are the services I found on your site — check each price and length, hide any you don't take bookings for, then hit Done."
+                  : "Now booking. What can visitors book with you? Add each service with its price and length — or hit Done to set this up later under Booking."}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {answer("review-services", (
+            <UserEntry maxWidth={620}>
+              <ServicesSetupCard services={services} onChange={setServiceRows} onDone={saveServices} busy={busy} />
+            </UserEntry>
+          ))}
+        </>
+      )}
+
+      {shown("review-providers") && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={foundStaff
+                  ? "Saved. These are the people visitors can book with — fix any names, drop anyone who doesn't take bookings, and tell me whether visitors pick who they see."
+                  : "Saved. Who do visitors book with? Add your providers by name — or leave this empty if it doesn't matter who takes the booking."}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {answer("review-providers", (
+            <UserEntry maxWidth={620}>
+              <ProvidersSetupCard
+                staff={staffDrafts}
+                staffSelection={staffSelection}
+                onChange={setStaffRows}
+                onSelection={setStaffSelection}
+                onDone={saveProviders}
+                busy={busy}
+              />
+            </UserEntry>
+          ))}
         </>
       )}
 

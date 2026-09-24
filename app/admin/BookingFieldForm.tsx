@@ -4,23 +4,19 @@ import { useState } from "react";
 import { saveAppointmentFieldAction } from "./actions";
 import { PendingButton } from "./PendingButton";
 import { field as fieldStyle, btn, Label } from "./ui";
-import {
-  FIELD_TYPES,
-  formatOptionLines,
-  isChoiceType,
-  type AppointmentFieldRow,
-} from "@/lib/appointmentTypes";
+import { FIELD_TYPES, isChoiceType, type AppointmentFieldRow } from "@/lib/appointmentTypes";
+import { RowsEditor, SelectField, type RowColumn, type RowValues } from "./booking/RowsEditor";
 
 /**
  * One booking question's editor — also the "new question" form when `field`
  * is left out. A client component for one reason: what a question needs
- * depends on its type, so choosing "Pick one" has to bring up the options box
+ * depends on its type, so choosing "Pick one" has to bring up the choices
  * without a save in between. It still posts to the same server action as a
  * plain form.
  *
- * A menu is typed the way a price list reads — one option per line, parts
- * split by "|", a "# Section" line above a group — because the people editing
- * this are salon and shop owners, not form builders.
+ * A menu's choices are rows — section, option, price, a length dropdown, a
+ * note — written back into the "# Section" / "name | price | duration" lines
+ * the server has always parsed (lib/appointmentTypes.ts parseOptionLines).
  *
  * `catalog` is the full question list (this one included), so the "Only ask
  * when…" picker can offer every OTHER question as the condition.
@@ -43,11 +39,40 @@ const TYPE_LABELS: Record<string, string> = {
   waiver: "Waiver / consent",
 };
 
-const OPTIONS_PLACEHOLDER = `# Manicures
-Basic Manicure | $25 | 30 min
-Gel Manicure | $35 | 45 min | Includes removal
-# Add-ons
-French tips | $5`;
+const OPTION_COLUMNS: RowColumn[] = [
+  { key: "section", label: "Section", placeholder: "Manicures", width: 130 },
+  { key: "label", label: "Option", placeholder: "Gel manicure", required: true },
+  { key: "price", label: "Price", placeholder: "$35", width: 90 },
+  { key: "duration", label: "Length", kind: "minutes", placeholder: "—" },
+  { key: "description", label: "Note", placeholder: "Optional" },
+];
+
+/** Rows → the "# Section" / "name | price | duration | note" lines parseOptionLines reads. */
+function optionLines(rows: RowValues[]): string {
+  const lines: string[] = [];
+  let section: string | null = null;
+  for (const r of rows) {
+    const g = (r.section ?? "").trim();
+    if (g !== section) {
+      lines.push(`# ${g}`);
+      section = g;
+    }
+    const parts = [r.label.trim(), (r.price ?? "").trim(), r.duration ? `${r.duration} min` : "", (r.description ?? "").trim()];
+    while (parts.length > 1 && !parts[parts.length - 1]) parts.pop();
+    lines.push(parts.join(" | "));
+  }
+  return lines.join("\n");
+}
+
+/** A stored option's duration text ("45 min", "1 hr 30 min") as the minutes the dropdown holds. */
+function minutesOf(duration: string | undefined): string {
+  const t = (duration ?? "").toLowerCase();
+  if (!t) return "";
+  const h = t.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?)/);
+  const m = t.match(/(\d+)\s*(?:minutes?|mins?)/);
+  const total = Math.round((h ? Number.parseFloat(h[1]) * 60 : 0) + (m ? Number.parseInt(m[1], 10) : 0));
+  return total > 0 ? String(total) : "";
+}
 
 export function BookingFieldForm({
   field,
@@ -74,24 +99,24 @@ export function BookingFieldForm({
             style={fieldStyle}
           />
         </div>
-        <div>
-          <Label>Type</Label>
-          <select
-            name="type"
-            value={type}
-            onChange={(e) => setType(e.target.value)}
-            style={{ ...fieldStyle, width: "auto" }}
-          >
-            {FIELD_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {TYPE_LABELS[t] ?? t}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingBottom: 8 }}>
-          <input type="checkbox" name="required" defaultChecked={field?.required} /> Required
-        </label>
+        <SelectField
+          name="type"
+          label="Type"
+          value={type}
+          onChange={setType}
+          options={FIELD_TYPES.map((t) => ({ value: t, label: TYPE_LABELS[t] ?? t }))}
+          width="auto"
+        />
+        <SelectField
+          name="required"
+          label="Answer"
+          defaultValue={field?.required ? "on" : "off"}
+          options={[
+            { value: "off", label: "Optional" },
+            { value: "on", label: "Required" },
+          ]}
+          width="auto"
+        />
         <PendingButton pendingLabel={field ? "Saving…" : "Adding…"} style={btn as React.CSSProperties}>
           {field ? "Save" : "Add question"}
         </PendingButton>
@@ -99,20 +124,21 @@ export function BookingFieldForm({
 
       {isChoiceType(type) ? (
         <div>
-          <Label>Options — one per line: name | price | duration | description</Label>
-          <textarea
+          <RowsEditor
             name="options"
-            required
-            rows={Math.min(14, Math.max(5, (config.options?.length ?? 0) + 2))}
-            defaultValue={formatOptionLines(config.options)}
-            placeholder={OPTIONS_PLACEHOLDER}
-            style={{ ...fieldStyle, fontFamily: "ui-monospace, monospace", fontSize: 13, resize: "vertical" }}
+            label="The choices"
+            columns={OPTION_COLUMNS}
+            initial={(config.options ?? []).map((o) => ({
+              section: o.group ?? "",
+              label: o.label,
+              price: o.price ?? "",
+              duration: minutesOf(o.duration),
+              description: o.description ?? "",
+            }))}
+            addLabel="+ Add a choice"
+            serialize={optionLines}
+            hint={`Only the option is needed. Prices and lengths show beside each choice${type === "multi_select" ? " and add up to a running total as visitors pick" : ""}; a section groups the choices under a heading.`}
           />
-          <p style={{ fontSize: 12, fontStyle: "italic", margin: "-4px 0 8px", color: "var(--on-surface)" }}>
-            Only the name is needed. Prices and durations show beside each option
-            {type === "multi_select" ? " and add up to a running total as visitors pick" : ""}; a
-            line starting with # begins a section.
-          </p>
           <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6 }}>
             <input type="checkbox" name="allowOther" defaultChecked={config.allowOther} /> Let visitors
             type something that isn&apos;t listed

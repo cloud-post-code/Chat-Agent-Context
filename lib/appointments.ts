@@ -11,25 +11,19 @@ import {
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
-import { LEGACY_PICKER_HEAD, SERVICE_PICKER_KEY, servicePickerField } from "./bookingMenu";
-import { onboardingIngestKind } from "./ingestionSources";
-import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 import { indexAppointment } from "./retrieval/origins";
-import { dropOrigin } from "./retrieval/indexer";
 import { sanitizeBookingSettings } from "./booking/types";
 import { addMinutes } from "./booking/time";
 
 /**
- * The appointment store: the per-tenant booking toggle, the field catalog the
- * wizard asks from, and the appointments themselves. Data only — the booking
- * card is hydrated in lib/cards.ts and rendered in app/cards/Cards.tsx; the
- * admin Calendar panel reads listAppointments.
+ * The intake-question store: the per-tenant booking toggle and the field
+ * catalog the booking flow asks from (lib/booking/store.ts trims it to the
+ * questions the flow has no step of its own for). Data only — the booking
+ * card is hydrated in lib/cards.ts and rendered in app/cards/booking/.
  *
- * Every validation the visitor-facing submit needs lives in
- * createAppointment, because the client wizard is untrusted: disabled means
- * rejected, required means required, the past is unbookable, and the unique
- * (userId, startsAt) constraint — not a read-then-write check — decides who
- * wins a race for the same instant.
+ * `createAppointment` is the intake-only write path an order that names a
+ * time uses (lib/orders.ts); the visitor's booking flow itself writes through
+ * lib/booking/store.ts createBooking.
  */
 
 // Shapes live in lib/appointmentTypes.ts (import-free, so the client Calendar
@@ -42,13 +36,6 @@ export {
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
-
-export type AppointmentRow = {
-  id: string;
-  startsAt: Date;
-  answers: Record<string, string>;
-  createdAt: Date;
-};
 
 /** Seeded on first enable; from there the tenant owns the catalog. */
 export const DEFAULT_APPOINTMENT_FIELDS: ReadonlyArray<
@@ -78,16 +65,6 @@ function toFieldRow(f: {
   };
 }
 
-/**
- * The service question onboarding used to write: a text box whose label
- * listed what fit of the menu. Recognized only while it is still exactly what
- * was generated — the seeded key, still a text box, still the generated
- * opening words — so a question the tenant has since made their own is never
- * touched.
- */
-const isLegacyPicker = (f: AppointmentFieldRow) =>
-  f.key === SERVICE_PICKER_KEY && f.type === "short_text" && f.label.startsWith(LEGACY_PICKER_HEAD);
-
 const isDefaultField = (f: AppointmentFieldRow) =>
   DEFAULT_APPOINTMENT_FIELDS.some(
     (d) => d.key === f.key && d.label === f.label && d.type === f.type && d.required === f.required,
@@ -100,86 +77,19 @@ const isBareDefaults = (fields: AppointmentFieldRow[]) =>
 /**
  * Nobody has edited this form, so onboarding may rebuild it: it is empty, or
  * every question is one onboarding wrote (`generated`), or it is still the
- * defaults — with or without the legacy picker older onboardings added. One
- * admin save, delete or reorder ends that (`claimForm`).
+ * defaults. One admin save, delete or reorder ends that (`claimForm`).
  */
 export function isUntouchedForm(fields: AppointmentFieldRow[]): boolean {
   if (fields.every((f) => f.config.generated)) return true;
-  const rest = fields.filter((f) => !isLegacyPicker(f));
-  return fields.length - rest.length <= 1 && rest.length >= 2 && rest.every(isDefaultField);
-}
-
-/** The services on file as the menu question; null when there are none. */
-async function servicesMenu(userId: string) {
-  const source = await prisma.source.findFirst({
-    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
-    orderBy: { updatedAt: "desc" },
-    select: { rawText: true },
-  });
-  return servicePickerField(parseServiceCatalog(source?.rawText));
-}
-
-/**
- * Present a legacy picker as the menu it was standing in for, built from the
- * services on file. On read, not as a data migration: the catalog is text
- * only this code can parse, and a read-time rule fixes every tenant's form
- * the moment it deploys. Everything downstream — the card, the validator, the
- * admin editor — reads this one config, so they all agree on what is being
- * asked; the first admin Save writes the menu down and the rule lets go.
- */
-async function upgradeLegacyPicker(userId: string, fields: AppointmentFieldRow[]): Promise<AppointmentFieldRow[]> {
-  if (!fields.some(isLegacyPicker)) return fields;
-  const picker = await servicesMenu(userId);
-  // No services on file: the text box is still the best question available.
-  if (!picker) return fields;
-  return fields.map((f) =>
-    isLegacyPicker(f) ? { ...f, label: picker.label, type: picker.type, config: picker.config } : f,
-  );
-}
-
-const GENERATED = JSON.stringify({ generated: true });
-
-/**
- * Bare defaults with services on file: booking is on by default, so the three
- * defaults were written before onboarding knew the services, and nothing ever
- * revisited them. The menu takes the place of "What would you like to talk
- * about?". Written down rather than presented — unlike the legacy picker, the
- * menu's key ("service") is not the key of the row it replaces ("reason"), and
- * an admin deleting or saving the question they are shown must be acting on a
- * row that exists. Once, idempotently; the rows stay `generated`, so onboarding
- * can still rebuild the form. True when it wrote.
- */
-async function adoptServicesMenu(userId: string, fields: AppointmentFieldRow[]): Promise<boolean> {
-  if (!isBareDefaults(fields)) return false;
-  const picker = await servicesMenu(userId);
-  const reason = fields.find((f) => f.key === "reason");
-  if (!picker || !reason) return false;
-  const menu = {
-    label: picker.label,
-    type: picker.type,
-    required: picker.required,
-    order: reason.order,
-    config: JSON.stringify({ ...picker.config, generated: true }),
-  };
-  await prisma.$transaction([
-    prisma.appointmentField.deleteMany({ where: { userId, key: "reason" } }),
-    prisma.appointmentField.updateMany({ where: { userId }, data: { config: GENERATED } }),
-    prisma.appointmentField.upsert({
-      where: { userId_key: { userId, key: picker.key } },
-      update: menu,
-      create: { userId, key: picker.key, ...menu },
-    }),
-  ]);
-  return true;
+  return fields.length >= 2 && fields.every(isDefaultField);
 }
 
 const storedFields = async (userId: string) =>
   (await prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } })).map(toFieldRow);
 
 export async function getBookingConfig(userId: string): Promise<BookingConfig> {
-  const [profile, stored] = await Promise.all([getProfile(userId), storedFields(userId)]);
-  const fields = (await adoptServicesMenu(userId, stored)) ? await storedFields(userId) : stored;
-  return { enabled: profile.bookingEnabled, fields: await upgradeLegacyPicker(userId, fields) };
+  const [profile, fields] = await Promise.all([getProfile(userId), storedFields(userId)]);
+  return { enabled: profile.bookingEnabled, fields };
 }
 
 /** Toggle booking; the first enable seeds the default fields so the wizard
@@ -358,12 +268,6 @@ export async function createAppointment(
   }
 }
 
-/** Cancel = delete: the slot frees up and the knowledge entry is retracted. */
-export async function cancelAppointment(userId: string, id: string): Promise<void> {
-  await prisma.appointment.deleteMany({ where: { userId, id } });
-  await dropOrigin(userId, "appointment", id).catch(() => {});
-}
-
 export function safeAnswers(raw: string): Record<string, string> {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -376,17 +280,4 @@ export function safeAnswers(raw: string): Record<string, string> {
   } catch {
     return {};
   }
-}
-
-export async function listAppointments(userId: string): Promise<AppointmentRow[]> {
-  const rows = await prisma.appointment.findMany({
-    where: { userId },
-    orderBy: { startsAt: "asc" },
-  });
-  return rows.map((r) => ({
-    id: r.id,
-    startsAt: r.startsAt,
-    answers: safeAnswers(r.answers),
-    createdAt: r.createdAt,
-  }));
 }
