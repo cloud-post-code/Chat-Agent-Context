@@ -1,13 +1,15 @@
 /**
  * Primary proof for services-card (see PROOF.md).
- * Run: npx tsx docs/features/services-card/proof.ts
+ * Run: npx tsx --tsconfig docs/features/services-card/tsconfig.proof.json docs/features/services-card/proof.ts
  *
  * Writes services through the real onboarding extractor (its llm seam doubled),
  * then drives the real visitor brain with a scripted model client and asserts
- * the `services` card it hydrates — content, booking config, gating — plus the
- * catalog format round-trip, legacy records, the onboarding planner's services
- * kind, and that the booking the card leads to really lands the service as an
- * answer. Throwaway users are deleted at the end.
+ * the `services` card it hydrates — content, the booking it carries
+ * (`{fields, flow}`), gating — plus the catalog format round-trip, legacy
+ * records, the onboarding planner's services kind, the server-rendered
+ * booking thread Book opens with the service already chosen, and that the
+ * booking really lands the tapped service. Throwaway users are deleted at
+ * the end.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -79,14 +81,17 @@ const SERVICES = [
 ];
 const EXTRACTION = {
   services: SERVICES,
-  booking: { takesAppointments: true, requirements: [{ label: "Your phone number", type: "phone", required: true }] },
+  booking: { takesAppointments: true, channels: ["online"] },
 };
 const PAGES = [page("https://example.invalid/services", "<h1>Services</h1><p>Nails.</p>")];
 
 type ServicesBlock = {
   type: "services";
   items: { id: string; name: string; description: string }[];
-  booking: { fields: { key: string; label: string }[]; serviceKey: string | null } | null;
+  booking: {
+    fields: { key: string; label: string; role: string; screen: number }[];
+    flow: { services: { id: string; name: string }[]; preselect: { serviceId: string | null } } | null;
+  } | null;
 };
 
 async function main() {
@@ -101,9 +106,13 @@ async function main() {
   const { writeUiCard, parseSampleBlock, listUiCards } = await import("../../../lib/uiCards");
   const { parseDraft } = await import("../../../lib/cardBuilder");
   const { sanitizeCardPlan, generateOnboardingCards } = await import("../../../lib/onboarding/cards");
-  const { setBookingEnabled, deleteAppointmentField, createAppointment, listAppointments } =
-    await import("../../../lib/appointments");
+  const { setBookingEnabled, saveAppointmentField } = await import("../../../lib/appointments");
+  const { availability, createBooking, listBookings } = await import("../../../lib/booking/store");
+  const { sanitizeSelection } = await import("../../../lib/booking/types");
   const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const React = (await import("react")).default;
+  const { BookingThread } = await import("../../../app/cards/booking/BookingThread");
 
   const made: string[] = [];
   const mkUser = async (tag: string) => {
@@ -204,35 +213,34 @@ async function main() {
     check("a sweep page under the same ingest mark is not read as services",
       (await listServices(userA.id)).length === 3);
 
-    // ── 3. Hydration: services + the live booking config ──
-    // Onboarding seeded the form (name, email, the service picker, phone) and booking is on by default.
+    // ── 3. Hydration: services + the live booking flow and the tenant's own form ──
+    // Booking is on by default; the site had no booking form to copy, so the
+    // form is whatever the tenant writes — here one phone question.
+    await saveAppointmentField(userA.id, { key: "your_phone_number", label: "Your phone number", type: "phone", required: true, role: "phone" });
     const blockA = (await servicesBlock(userA.id)) as ServicesBlock | null;
-    check("servicesBlock hydrates a services block", blockA?.type === "services" && blockA.items.length === 3);
+    check("servicesBlock hydrates a services block from the Service rows the extractor seeded", blockA?.type === "services" && blockA.items.length === 3 && blockA.items[1].name === "St. Harrowgate signature pedicure", JSON.stringify(blockA?.items));
     check(
-      "booking rides in the block with the tenant's live fields",
-      !!blockA?.booking && blockA.booking.fields.map((f) => f.key).join(",") === "name,email,service,your_phone_number",
-      JSON.stringify(blockA?.booking?.fields.map((f) => f.key)),
+      "booking rides in the block as {fields, flow}: the tenant's own form, role-tagged, and the live flow",
+      !!blockA?.booking && blockA.booking.fields.map((f) => `${f.key}:${f.role}@${f.screen}`).join() === "your_phone_number:phone@1" && blockA.booking.flow?.services.length === 3,
+      JSON.stringify(blockA?.booking?.fields),
     );
-    check("the chosen service pre-answers the seeded picker", blockA?.booking?.serviceKey === "service");
-
-    await deleteAppointmentField(userA.id, "service");
-    const noPicker = (await servicesBlock(userA.id)) as ServicesBlock | null;
-    check("with no service or reason question, nothing is pre-answered",
-      !!noPicker?.booking && noPicker.booking.serviceKey === null, JSON.stringify(noPicker?.booking));
+    check("the card's items are the flow's services, so Book can preselect by id", !!blockA?.booking?.flow && blockA.items.every((i) => blockA.booking!.flow!.services.some((s) => s.id === i.id)));
+    check("nothing is pre-answered into a question: the service is a step of the flow, not a field", !!blockA?.booking && !blockA.booking.fields.some((f) => f.key === "service" || f.key === "reason"));
+    const threadHtml = renderToStaticMarkup(React.createElement(BookingThread, { slug: "proof", fields: blockA!.booking!.fields as never, flow: blockA!.booking!.flow as never, preselectServiceId: blockA!.items[1].id }));
+    const $t = cheerio.load(threadHtml);
+    check("Book outside a chat opens a booking thread with the service already chosen: the shell is on the server, no step yet, no crash", $t("[data-booking-thread]").length === 1 && $t("[data-booking-step]").length === 0 && !/Step \d+ of/.test(threadHtml), threadHtml.slice(0, 200));
 
     const userR = await mkUser("r");
     await extractServicesAndBooking(PAGES as never, userR.id, quiet, {
-      llm: llmOf({ services: SERVICES, booking: { takesAppointments: false, requirements: [] } }) as never,
+      llm: llmOf({ services: SERVICES, booking: { takesAppointments: false, channels: [] } }) as never,
     });
-    await deleteAppointmentField(userR.id, "service");
-    await prisma.appointmentField.create({
-      // Reworded, so this is a form the tenant has edited: untouched defaults with
-      // services on file are handed the menu instead (booking-form-planner).
-      data: { userId: userR.id, key: "reason", label: "What can we help you with?", type: "long_text", required: false, order: 9 },
-    });
+    const noForm = (await servicesBlock(userR.id)) as ServicesBlock | null;
+    check("with no form on file the block still books through the flow: fields empty, flow present",
+      !!noForm?.booking && noForm.booking.fields.length === 0 && noForm.booking.flow?.services.length === 3, JSON.stringify(noForm?.booking?.fields));
+    await saveAppointmentField(userR.id, { key: "reason", label: "What can we help you with?", type: "long_text", required: false });
     const viaReason = (await servicesBlock(userR.id)) as ServicesBlock | null;
-    check("without the picker, the generic reason question takes the service",
-      viaReason?.booking?.serviceKey === "reason", JSON.stringify(viaReason?.booking));
+    check("a question the tenant writes by hand rides in the block as it is (role none, its own screen)",
+      viaReason?.booking?.fields.map((f) => `${f.key}:${f.role}@${f.screen}`).join() === "reason:none@1", JSON.stringify(viaReason?.booking?.fields));
 
     await setBookingEnabled(userA.id, false);
     const off = (await servicesBlock(userA.id)) as ServicesBlock | null;
@@ -266,7 +274,7 @@ async function main() {
       check("with the row, show_services is offered to the model", offered.includes("show_services"), offered.join(","));
       check("a show_services call yields one services card event", cards.length === 1);
       check("the card carries the real services and booking",
-        cards[0]?.items[1]?.name === "St. Harrowgate signature pedicure" && !!cards[0]?.booking,
+        cards[0]?.items[1]?.name === "St. Harrowgate signature pedicure" && !!cards[0]?.booking?.flow,
         JSON.stringify(cards[0]));
       const toolResult = JSON.stringify(seenParams[1]?.messages ?? []);
       check("the model is told the card rendered", toolResult.includes("Card rendered to the user."));
@@ -343,21 +351,19 @@ async function main() {
     check("the starter question now carries show_services",
       attached?.cardTool === "show_services" && attached.cardInput === null, JSON.stringify(attached));
 
-    // ── 7. The booking the card leads to: the service lands as an ordinary answer ──
+    // ── 7. The booking the card leads to: the tapped service is the booking's service ──
+    await saveAppointmentField(userP.id, { key: "your_phone_number", label: "Your phone number", type: "phone", required: true, role: "phone" });
     const blockP = (await servicesBlock(userP.id)) as ServicesBlock;
-    const key = blockP.booking!.serviceKey!;
-    const when = new Date(Date.now() + 36 * 3600_000);
-    when.setMinutes(0, 0, 0);
-    const booked = await createAppointment(userP.id, {
-      startsAt: when.toISOString(),
-      answers: { name: "Proof Visitor", email: "visitor@example.invalid", your_phone_number: "555-0100", [key]: blockP.items[1].name },
-    });
-    check("the wizard's submit shape (service pre-answered) books through the existing path", booked.ok, JSON.stringify(booked));
-    const appts = await listAppointments(userP.id);
-    // A menu question stores the pick with the price the visitor was shown
-    // ("… ($64)"), a text question stores it bare — either way it must name it.
-    check("the appointment records which service was tapped",
-      (appts[0]?.answers[key] ?? "").startsWith("St. Harrowgate signature pedicure"), JSON.stringify(appts[0]?.answers));
+    const tapped = blockP.items[1];
+    const earliest = (await availability(userP.id, { serviceId: tapped.id })).earliest;
+    check("the tapped service has a bookable slot", !!earliest, JSON.stringify(earliest));
+    const booked = await createBooking(userP.id, sanitizeSelection({
+      serviceId: tapped.id, startsAt: earliest?.startsAt, answers: { your_phone_number: "555-0100" },
+    }));
+    check("the Book tap's submit shape (service preselected by id, the form's answers) books through createBooking", booked.ok && booked.serviceName === tapped.name, JSON.stringify(booked));
+    const appts = await listBookings(userP.id);
+    check("the booking records which service was tapped, and the phone by its role",
+      appts[0]?.serviceName === "St. Harrowgate signature pedicure" && appts[0]?.customer.phone === "555-0100", JSON.stringify(appts[0]));
   } finally {
     for (const id of made) await prisma.user.delete({ where: { id } }).catch(() => {});
     await prisma.$disconnect();

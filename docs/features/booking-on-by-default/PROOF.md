@@ -1,4 +1,4 @@
-# Proof — Booking on by default, seeded from services extraction, on Calendar
+# Proof — Booking on by default, the form the site's own, settings on their panel
 
 ## Primary proof command
 ```
@@ -6,18 +6,19 @@ npx tsx --tsconfig docs/features/booking-on-by-default/tsconfig.proof.json docs/
 ```
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only. The repo
 builds with `jsx: preserve` for Next, under which tsx renders no component —
-the proof renders `CalendarPanel` for real, so it needs the automatic runtime.
+the proof renders the real admin panels, so it needs the automatic runtime.
 Path aliases still come from the extended root tsconfig.)
 Runs against the local dev Postgres (`.env` `DATABASE_URL`; the script loads
-`.env` itself, the `onboarding-booking-extraction/proof.ts` precedent). Seeds
-throwaway users, drives the real `extractServicesAndBooking` with fixture
-`Page`s and a scripted `llm` double — the one injectable seam — and asserts the
-rows actually written, then deletes everything it made.
+`.env` itself). Seeds throwaway users, drives the real
+`extractServicesAndBooking` with fixture `Page`s, a scripted `llm` (services)
+and `formLlm` (the form transcription) — the two injectable seams — with the
+browser's `readForm` answering null so the linked page's HTML is read
+statically, asserts the rows actually written, then deletes everything it
+made.
 
 Panel placement (section C) is asserted structurally, not visually: the proof
-imports `adminPanelKeys` and the dashboard's panel registry and checks the keys
-and their contents, so a regression that detaches the settings from the
-Calendar fails the command rather than needing a human to look.
+imports `adminPanelKeys` and renders the real panels, so a regression fails
+the command rather than needing a human to look.
 
 ## Assertions (all must pass)
 
@@ -29,91 +30,57 @@ Calendar fails the command rather than needing a human to look.
    `bookingEnabled = false` still reads `false` after the migration path runs.
    The migration changes the column default, never existing rows.
 3. **Off still means off** — `setBookingEnabled(user, false)` then
-   `createAppointment` is rejected with the disabled error, and
+   `createBooking` is rejected with the disabled error, and
    `getBookingConfig().enabled` is `false`. The toggle is not one-way.
 
-### B. Form seeded from the extraction
-4. **Red — the current gate produces nothing** — with an extraction reporting
-   services but `requirements: []`, the pre-change code seeds zero
-   `AppointmentField` rows. This is the reported bug: booking on, form empty.
-5. **Never zero questions** — after the services stage with that same
-   requirement-less extraction, the catalog is non-empty and contains the
-   `DEFAULT_APPOINTMENT_FIELDS` floor (`name`, `email`).
-6. **Seeded even when `takesAppointments` is false** — an extraction with
-   `takesAppointments: false` and no requirements still leaves a usable
-   catalog. Enablement no longer gates the form.
-7. **Extracted requirements become questions** — with requirements present,
-   each one exists as a field with its extracted `type` and `required`
-   preserved, and an off-whitelist type degrades to `short_text`.
-8. **Service picker generated** — when services were extracted, exactly one
-   additional field asks which service is being booked, its label contains the
-   extracted service names, and its type is `short_text`.
-9. **Service picker ordering** — its `order` places it before the extracted
-   requirements and after the defaults.
-10. **Label survives the 120-char cap** — an extraction with many long service
-    names produces a picker label at or under the cap that does not end
-    mid-service-name, and the field saves without `saveAppointmentField`
-    returning an error.
-11. **No services, no picker** — an extraction with zero services seeds the
-    defaults only, and `reason` is KEPT (nothing more specific replaced it).
-12. **`reason` dropped only when replaced** — with a service picker present,
-    `reason` is absent; assertion 11 is its counterpart.
-13. **Existing catalog untouched** — a user with one hand-authored field runs
-    the stage and still has exactly that one field, unedited.
-14. **Idempotent** — running the stage twice does not duplicate fields; the
-    catalog after run two equals the catalog after run one, keys and order.
-15. **Tenant isolation** — a second user's extraction seeds only their own
-    fields; user A's service names never appear in user B's catalog.
-16. **Best-effort** — a `saveAppointmentField` failure mid-seed does not throw
-    out of the stage; the services knowledge written earlier survives.
+### B. The form: nothing seeded, the site's own form copied
+5. **Enable seeds nothing** — a fresh tenant has booking on and an empty
+   form; turning booking off and on again writes no question.
+6. **No booking form on the site** — services found, no booking link: the
+   stage reports `formFound: false`, `formHow: "none"`, no transcriber call;
+   the form stays empty; the services are seeded as `Service` rows; the
+   booking card books through the services with no questions at all.
+7. **The site's own form is copied** — a homepage linking a plain HTML form:
+   the stage reads it from the page's HTML (`formHow: "static"`), transcribes
+   it, and writes its questions in order with their marks and roles
+   (`Your name*` → `name`, `Phone` → `phone`), all marked `generated`.
+11. **A site that says nothing** — no services, no form: nothing written,
+    nothing thrown, and no booking card is drawn (nothing to ask or sell).
+13. **A hand-written form is the tenant's** — one hand-authored question,
+    then the stage with the form pages: the form is exactly as it was, and
+    the log says the site's form was not copied over a form edited by hand.
+14. **Idempotent** — running the stage twice on a still-generated form
+    leaves keys, order, labels and screens identical.
+15. **Tenant isolation** — one tenant's copied form never reaches another's.
+16. **Best-effort** — a failing field write mid-stage does not throw out of
+    the stage; the report says no rows were written; the services knowledge
+    written earlier survives; no half-written form is left behind.
 
-### C. Settings live on the Calendar
-17. **Calendar always present** — `adminPanelKeys` includes a `calendar` entry
-    for a tenant with booking ON and for one with booking OFF. Previously the
-    off case had none.
-18. **`booking` retired as a separate panel** — `adminPanelKeys` returns no
-    standalone `booking` key, and the dashboard's Agent Behavior sub-tabs no
-    longer list it.
-19. **Settings render inside the Calendar panel** — the Calendar panel's
-    content includes the booking toggle and the question catalog: rendering it
-    for a tenant produces both the enable/disable control and a field row per
-    catalog question.
-20. **Grid hidden when off, settings shown** — with booking off the Calendar
-    panel still renders the toggle, and does not render the month grid.
-21. **Canned reference still resolves** — a canned answer naming the old
-    booking panel resolves to the Calendar rather than drawing nothing.
+### C. Settings › Booking
+17. **Always present** — `adminPanelKeys` includes `booking` for a tenant
+    with booking ON and for one with booking OFF (it holds the switch).
+18. **The combined calendar is retired** — no `calendar` key either way.
+19. **The settings render the toggle** — `BookingSettings` for an ON tenant
+    renders "turn booking off".
+20. **Grid hidden when off, toggle shown** — with booking off the settings
+    still render "turn booking on", and `AppointmentsPanel` does not render
+    the month grid but points at the booking tab; with booking on the grid
+    shows.
 
 ### D. Cleanup
 22. Every seeded user, profile, field, appointment, source, and chunk row
     returns to the pre-run baseline.
 
-## Red expectation
-Before implementation the script fails at assertions 1, 5, 6, 8, 17, and 18:
-`bookingEnabled` reads `false` on a fresh profile, the requirement-less
-extraction seeds zero fields, no service picker field exists, and
-`adminPanelKeys` returns a `booking` key with no `calendar` key when booking is
-off.
+## Retired
+The seeded-defaults contract (a `name`/`email` floor, a generated service
+picker, its ordering, `reason` kept or dropped, colliding requirement labels)
+is gone with the planner: enabling seeds nothing, and the only questions
+onboarding writes are the business's own, copied from its site's form
+(`docs/features/custom-booking-form`).
 
 ## Secondary checks (not proof)
 - `npx tsc --noEmit` clean.
-- `$HOME/.claude/scripts/gate` PASS.
 - `npx prisma migrate diff` shows the default change and no data mutation.
-- A real onboarding run ends with the Calendar tab present, booking on, and a
-  service-named question in the catalog.
 
-## Addendum — collision regression (B13b)
-
-Found during live verification, not by the original contract. `saveAppointmentField`
-upserts on a key derived from the label, so seeding several questions in one
-pass could silently overwrite its own earlier writes: a model requirement
-labeled "Service" derives `service` and replaced the generated picker with the
-bare word, losing every service name; "Name" likewise overwrote the "Your name"
-default. Nine writes produced seven rows.
-
-Seeding is now additive — the first question to claim a key keeps it — and
-`keyFromLabel` is exported from `lib/appointments.ts` so the collision check
-uses the same derivation as the write, instead of a copy that could drift.
-
-Assertions B13b cover it: the picker survives a colliding requirement, the
-default survives, non-colliding requirements are still seeded, and every seeded
-key is unique.
+## Run record
+- 2026-09-25 — `All checks passed.`, 31 assertions (A 5, B 17, C 7, D 1).

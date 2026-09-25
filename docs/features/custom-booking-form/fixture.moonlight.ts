@@ -1,7 +1,7 @@
 /**
  * The four screens the fake widget (reader.html) renders — MoonLight Nails'
- * GoCheckIn flow in miniature (see docs/features/booking-form-planner/
- * truth.moonlight.ts for the real one) — as the reader snapshots them, and
+ * GoCheckIn flow in miniature (see ./truth.moonlight.ts for the real one) —
+ * as the reader snapshots them, and
  * the FormSpec the transcriber is expected to return for that snapshot.
  * Written by hand: the proof holds the reader and the sanitizer to it.
  */

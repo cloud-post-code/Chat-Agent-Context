@@ -1,17 +1,19 @@
 /**
  * Primary proof for booking-on-by-default (see PROOF.md).
- * Run: npx tsx docs/features/booking-on-by-default/proof.ts
+ * Run: npx tsx --tsconfig docs/features/booking-on-by-default/tsconfig.proof.json docs/features/booking-on-by-default/proof.ts
  *
  * Three sections, one command:
  *   A. bookingEnabled defaults on, without flipping existing tenants.
- *   B. The services stage always leaves a usable, service-aware form.
- *   C. Appointment settings live on the Calendar panel, which is always there.
+ *   B. Enabling seeds nothing; the services stage copies the site's own form
+ *      when there is one, and leaves a form the tenant wrote alone.
+ *   C. Appointment settings live on their panel, which is always there.
  *
- * The `llm` seam is the only doubled boundary (the onboarding-booking-extraction
- * precedent); every write below is the real path. Panel placement is asserted
- * structurally — keys from adminPanelKeys, contents from the rendered React
- * tree — so a regression fails this command instead of needing a human to look.
- * Throwaway users are deleted at the end.
+ * The `llm` and `formLlm` seams of `extractServicesAndBooking` are the only
+ * doubled boundaries (the browser's `readForm` answers null so the loaded
+ * page's HTML is read); every write below is the real path. Panel placement
+ * is asserted structurally — keys from adminPanelKeys, contents from the
+ * rendered React tree — so a regression fails this command instead of
+ * needing a human to look. Throwaway users are deleted at the end.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -44,78 +46,58 @@ const page = (url: string, body: string) => {
 // Distinctive strings so a DB match can only come from this proof.
 const SVC_1 = "Quillhaven kiln retrofits";
 const SVC_2 = "Harrowgate flue surveys";
+
+/** A site that names its services and never links a booking form. */
 const PAGES = [
   page("https://example.invalid/services", `<h1>Services</h1><p>${SVC_1}. ${SVC_2}.</p>`),
   page("https://example.invalid/book", "<p>Book online.</p>"),
 ];
 
-/** Services found, but the site never spells out what a booking asks for.
- *  This is the common case that currently seeds nothing at all. */
-const NO_REQS = {
+/** A site whose homepage links its own booking form — a plain HTML form the
+ *  static reader can see when the browser can't. */
+const FORM_PAGES = [
+  page("https://example.invalid/", `<h1>Kilns</h1><p>${SVC_1}. ${SVC_2}.</p><a href="/book">Book an appointment</a>`),
+  page(
+    "https://example.invalid/book",
+    '<h1>Book</h1><form><label for="n">Your name *</label><input id="n" type="text" required><label for="p">Phone</label><input id="p" type="tel"><button type="submit">Send</button></form>',
+  ),
+];
+
+/** The transcription the scripted formLlm returns for FORM_PAGES: the form verbatim. */
+const FORM_SPEC = {
+  found: true,
+  steps: [{ kind: "questions", title: "Book", screen: 1 }, { kind: "review", title: "", screen: 1 }],
+  fields: [
+    { label: "Your name", type: "short_text", required: true, options: [], allowOther: false, role: "name", screen: 1, placeholder: "", help: "" },
+    { label: "Phone", type: "phone", required: false, options: [], allowOther: false, role: "phone", screen: 1, placeholder: "", help: "" },
+  ],
+  services: [],
+  staff: [],
+  anyStaffOffered: false,
+};
+
+/** Services found; the site says it takes bookings online. */
+const SERVICES = {
   services: [
     { name: SVC_1, description: "Full retrofit of aging kilns." },
     { name: SVC_2, description: "Statutory flue inspection." },
   ],
-  booking: { takesAppointments: true, requirements: [] },
-};
-
-/** Services plus explicit requirements. */
-const WITH_REQS = {
-  services: [{ name: SVC_1, description: "Full retrofit of aging kilns." }],
-  booking: {
-    takesAppointments: true,
-    requirements: [
-      { label: "Your phone number", type: "phone", required: true },
-      { label: "Gate code for the property", type: "dropdown", required: false },
-    ],
-  },
-};
-
-/** Requirement labels that derive to keys already claimed: "Name" -> name
- *  (the default) and "Service" -> service (the generated picker). Seeding
- *  upserts on key, so without a guard these silently overwrite both. */
-const COLLIDING = {
-  services: [{ name: SVC_1, description: "Full retrofit of aging kilns." }],
-  booking: {
-    takesAppointments: true,
-    requirements: [
-      { label: "Name", type: "short_text", required: true },
-      { label: "Service", type: "short_text", required: true },
-      { label: "Contact phone number", type: "phone", required: true },
-    ],
-  },
+  booking: { takesAppointments: true, channels: ["online"] },
 };
 
 /** The site never says it takes bookings, and names no services. */
 const NOTHING = {
   services: [],
-  booking: { takesAppointments: false, requirements: [] },
+  booking: { takesAppointments: false, channels: [] },
 };
-
-/** Many long service names — every one must survive whole, as an option. */
-const LONG_SERVICES = {
-  services: Array.from({ length: 12 }, (_, i) => ({
-    name: `Extremely Elaborate Service Number ${i + 1} With A Very Long Name`,
-    description: "",
-  })),
-  booking: { takesAppointments: true, requirements: [] },
-};
-
-const LABEL_CAP = 120;
-
-/** The names a choice question offers; empty for any other question. */
-const optionNames = (f?: { config: { options?: { label: string }[] } }) =>
-  (f?.config.options ?? []).map((o) => o.label);
 
 async function main() {
   const { prisma, getProfile } = await import("../../../lib/db");
   const { extractServicesAndBooking } = await import("../../../lib/onboarding/services");
-  const {
-    getBookingConfig,
-    setBookingEnabled,
-    saveAppointmentField,
-    createAppointment,
-  } = await import("../../../lib/appointments");
+  const { getBookingConfig, setBookingEnabled, saveAppointmentField, isUntouchedForm } = await import("../../../lib/appointments");
+  const { createBooking } = await import("../../../lib/booking/store");
+  const { sanitizeSelection } = await import("../../../lib/booking/types");
+  const { bookingBlock } = await import("../../../lib/cards");
   const { adminPanelKeys } = await import("../../../lib/adminBrain");
 
   let seq = 0;
@@ -130,6 +112,12 @@ async function main() {
       },
     });
   const scriptedLlm = (result: unknown) => async () => result as Record<string, unknown>;
+  let formCalls = 0;
+  const formLlm = async () => {
+    formCalls++;
+    return JSON.stringify(FORM_SPEC);
+  };
+  const noBrowser = async () => null;
   const quiet = () => {};
   const made: string[] = [];
   const newUser = async (tag: string) => {
@@ -137,6 +125,7 @@ async function main() {
     made.push(u.id);
     return u;
   };
+  const keysOf = async (userId: string) => (await getBookingConfig(userId)).fields.map((f) => f.key);
 
   try {
     // ══ A. Booking on by default ══════════════════════════════════════════
@@ -167,13 +156,13 @@ async function main() {
 
     // Off still means off, end to end.
     await setBookingEnabled(userOff.id, false);
-    const rejected = await createAppointment(userOff.id, {
-      startsAt: new Date(Date.now() + 86_400_000).toISOString(),
-      answers: {},
-    });
+    const rejected = await createBooking(
+      userOff.id,
+      sanitizeSelection({ serviceId: null, startsAt: new Date(Date.now() + 86_400_000).toISOString(), answers: {} }),
+    );
     check(
       "A3 booking off rejects a submission",
-      rejected.ok === false,
+      rejected.ok === false && /isn't available/.test(rejected.ok ? "" : rejected.error),
       JSON.stringify(rejected),
     );
     check(
@@ -181,219 +170,87 @@ async function main() {
       (await getBookingConfig(userOff.id)).enabled === false,
     );
 
-    // ══ B. The form is seeded from the extraction ═════════════════════════
-    // B5/B6: services found, zero requirements — the case that seeded nothing.
-    const userNoReqs = await newUser("noreqs");
-    await extractServicesAndBooking(PAGES, userNoReqs.id, quiet, {
-      llm: scriptedLlm(NO_REQS),
-    });
-    const cfgNoReqs = await getBookingConfig(userNoReqs.id);
-    const keysNoReqs = cfgNoReqs.fields.map((f) => f.key);
-    check(
-      "B5 a requirement-less extraction still seeds a usable catalog",
-      cfgNoReqs.fields.length > 0,
-      keysNoReqs.join(","),
-    );
-    check(
-      "B5 the defaults floor is present",
-      keysNoReqs.includes("name") && keysNoReqs.includes("email"),
-      keysNoReqs.join(","),
-    );
+    // ══ B. The form: nothing seeded, the site's own form copied ═══════════
+    // B5: the flag is the whole of "on". Enabling — fresh, or again after an
+    // off — writes no question.
+    check("B5 a fresh tenant has booking on and an empty form", (await keysOf(userDefault.id)).length === 0);
+    await setBookingEnabled(userDefault.id, false);
+    await setBookingEnabled(userDefault.id, true);
+    check("B5 enabling seeds nothing", (await keysOf(userDefault.id)).length === 0);
 
-    // B8/B9/B12: the generated service picker. Since booking-menu-fields the
-    // services are the question's OPTIONS (a pick-any menu), not names packed
-    // into a text box's label.
-    const picker = cfgNoReqs.fields.find((f) => f.key === "service");
-    check(
-      "B8 a service picker question is generated",
-      picker !== undefined,
-      JSON.stringify(cfgNoReqs.fields.map((f) => f.label)),
-    );
-    check(
-      "B8 the picker names the extracted services",
-      optionNames(picker).includes(SVC_1) && optionNames(picker).includes(SVC_2),
-      JSON.stringify(picker?.config),
-    );
-    check("B8 the picker is a pick-any menu", picker?.type === "multi_select", picker?.type);
-    check(
-      "B8 exactly one picker exists",
-      cfgNoReqs.fields.filter((f) => optionNames(f).includes(SVC_1)).length === 1,
-    );
-    check(
-      "B9 the picker sorts after the defaults",
-      !!picker &&
-        picker.order >
-          Math.max(
-            ...cfgNoReqs.fields.filter((f) => ["name", "email"].includes(f.key)).map((f) => f.order),
-          ),
-      JSON.stringify(cfgNoReqs.fields.map((f) => [f.key, f.order])),
-    );
-    check(
-      "B12 reason is dropped once a picker replaces it",
-      picker !== undefined && !keysNoReqs.includes("reason"),
-      keysNoReqs.join(","),
-    );
+    // B6: services found, no booking form on the site — services are seeded,
+    // the form stays empty, and the card still books through the services.
+    const userNoForm = await newUser("noform");
+    const noForm = await extractServicesAndBooking(PAGES, userNoForm.id, quiet, { llm: scriptedLlm(SERVICES), formLlm, readForm: noBrowser });
+    check("B6 with no booking link the stage finds no form and copies nothing", noForm.report.formFound === false && noForm.report.formHow === "none" && noForm.report.seededFields === 0 && formCalls === 0, JSON.stringify(noForm.report));
+    check("B6 the form stays empty", (await keysOf(userNoForm.id)).length === 0, (await keysOf(userNoForm.id)).join());
+    check("B6 the services are seeded as Service rows", noForm.report.seededServices === 2, JSON.stringify(noForm.report));
+    const blockNoForm = await bookingBlock(userNoForm.id);
+    check("B6 the card books through the services with no questions at all", blockNoForm?.type === "booking" && blockNoForm.fields.length === 0 && blockNoForm.flow?.services.map((s) => s.name).join() === `${SVC_1},${SVC_2}`, JSON.stringify(blockNoForm?.flow?.services.map((s) => s.name)));
 
-    // B6: takesAppointments false must not gate the form either.
+    // B7: the site's own form is copied verbatim.
+    const userForm = await newUser("form");
+    const copied = await extractServicesAndBooking(FORM_PAGES, userForm.id, quiet, { llm: scriptedLlm(SERVICES), formLlm, readForm: noBrowser });
+    check("B7 a linked booking form is read from the page's HTML and transcribed", copied.report.formFound === true && copied.report.formHow === "static" && copied.report.seededFields === 2 && formCalls === 1, JSON.stringify(copied.report));
+    const formRows = (await getBookingConfig(userForm.id)).fields;
+    check("B7 the questions are the form's own, in order, with its marks and roles", formRows.map((f) => `${f.label}${f.required ? "*" : ""}:${f.type}:${f.role}`).join() === "Your name*:short_text:name,Phone:phone:phone", JSON.stringify(formRows));
+    check("B7 they are marked as onboarding's, so a re-read may refresh them", isUntouchedForm(formRows) && formRows.every((f) => f.config.generated));
+
+    // B11: a site that says nothing seeds nothing and breaks nothing.
     const userNothing = await newUser("nothing");
-    await extractServicesAndBooking(PAGES, userNothing.id, quiet, {
-      llm: scriptedLlm(NOTHING),
-    });
-    const cfgNothing = await getBookingConfig(userNothing.id);
-    const keysNothing = cfgNothing.fields.map((f) => f.key);
-    check(
-      "B6 takesAppointments=false still leaves a usable catalog",
-      cfgNothing.fields.length > 0,
-      keysNothing.join(","),
-    );
-    check(
-      "B11 no services means no picker",
-      cfgNothing.fields.length > 0 && !cfgNothing.fields.some((f) => f.key === "service"),
-      keysNothing.join(","),
-    );
-    check(
-      "B11 reason is kept when nothing more specific replaced it",
-      keysNothing.includes("reason"),
-      keysNothing.join(","),
-    );
+    const nothing = await extractServicesAndBooking(PAGES, userNothing.id, quiet, { llm: scriptedLlm(NOTHING), formLlm, readForm: noBrowser });
+    check("B11 no services, no form: nothing written, nothing thrown", nothing.report.services === 0 && nothing.report.seededServices === 0 && (await keysOf(userNothing.id)).length === 0);
+    check("B11 …and with nothing to ask or sell, no booking card is drawn", (await bookingBlock(userNothing.id)) === null);
 
-    // B7/B9: extracted requirements, with types, ordered after the picker.
-    const userReqs = await newUser("reqs");
-    await extractServicesAndBooking(PAGES, userReqs.id, quiet, {
-      llm: scriptedLlm(WITH_REQS),
-    });
-    const cfgReqs = await getBookingConfig(userReqs.id);
-    const phone = cfgReqs.fields.find((f) => f.label === "Your phone number");
-    const treatment = cfgReqs.fields.find((f) => f.label === "Gate code for the property");
-    check(
-      "B7 an extracted requirement keeps its type and required flag",
-      phone?.type === "phone" && phone?.required === true,
-      JSON.stringify(phone),
-    );
-    check(
-      "B7 an off-whitelist type degrades to short_text",
-      treatment?.type === "short_text",
-      JSON.stringify(treatment),
-    );
-    const pickerReqs = cfgReqs.fields.find((f) => optionNames(f).includes(SVC_1));
-    check(
-      "B9 the picker sorts before the extracted requirements",
-      !!pickerReqs && !!phone && pickerReqs.order < phone.order,
-      JSON.stringify(cfgReqs.fields.map((f) => [f.key, f.order])),
-    );
-
-    // B10: long names cost the label nothing — it no longer carries them.
-    const userLong = await newUser("long");
-    await extractServicesAndBooking(PAGES, userLong.id, quiet, {
-      llm: scriptedLlm(LONG_SERVICES),
-    });
-    const cfgLong = await getBookingConfig(userLong.id);
-    const longPicker = cfgLong.fields.find((f) => f.key === "service");
-    check("B10 a picker was still seeded", longPicker !== undefined);
-    check(
-      "B10 the label is within the 120-char cap",
-      !!longPicker && longPicker.label.length <= LABEL_CAP,
-      `${longPicker?.label.length}`,
-    );
-    check(
-      "B10 every service survives whole, as an option",
-      optionNames(longPicker).length === LONG_SERVICES.services.length &&
-        LONG_SERVICES.services.every((sv) => optionNames(longPicker).includes(sv.name)),
-      JSON.stringify(optionNames(longPicker)),
-    );
-
-    // B13: a catalog the tenant already owns is never touched.
+    // B13: a form the tenant wrote is theirs — the site's form is never
+    // copied over it.
     const userOwned = await newUser("owned");
-    await saveAppointmentField(userOwned.id, {
-      key: "company",
-      label: "Company",
-      type: "short_text",
-      required: true,
-    });
-    await extractServicesAndBooking(PAGES, userOwned.id, quiet, {
-      llm: scriptedLlm(NO_REQS),
-    });
+    await saveAppointmentField(userOwned.id, { key: "company", label: "Company", type: "short_text", required: true });
+    const events: string[] = [];
+    await extractServicesAndBooking(FORM_PAGES, userOwned.id, (m) => events.push(m), { llm: scriptedLlm(SERVICES), formLlm, readForm: noBrowser });
     const cfgOwned = await getBookingConfig(userOwned.id);
     check(
-      "B13 an existing catalog is left exactly as it was",
-      cfgOwned.fields.length === 1 && cfgOwned.fields[0].key === "company",
+      "B13 a hand-written form is left exactly as it was",
+      cfgOwned.fields.length === 1 && cfgOwned.fields[0].key === "company" && cfgOwned.fields[0].label === "Company",
       JSON.stringify(cfgOwned.fields),
     );
+    check("B13 …and the log says why", events.some((e) => /edited by hand/.test(e)), events.join(" | "));
 
-    // B13b: a colliding requirement label must not overwrite a seeded
-    // question. Regression: an extracted "Service" replaced the generated
-    // picker with the bare word, losing the service names entirely.
-    const userClash = await newUser("clash");
-    await extractServicesAndBooking(PAGES, userClash.id, quiet, {
-      llm: scriptedLlm(COLLIDING),
-    });
-    const cfgClash = await getBookingConfig(userClash.id);
-    const clashPicker = cfgClash.fields.find((f) => f.key === "service");
-    check(
-      "B13b a colliding requirement does not overwrite the service picker",
-      optionNames(clashPicker).includes(SVC_1),
-      JSON.stringify(clashPicker),
-    );
-    check(
-      "B13b a colliding requirement does not overwrite a default",
-      cfgClash.fields.find((f) => f.key === "name")?.label === "Your name",
-      JSON.stringify(cfgClash.fields.find((f) => f.key === "name")),
-    );
-    check(
-      "B13b non-colliding requirements are still seeded",
-      cfgClash.fields.some((f) => f.label === "Contact phone number" && f.type === "phone"),
-      cfgClash.fields.map((f) => f.label).join(" | "),
-    );
-    check(
-      "B13b every seeded key is unique",
-      new Set(cfgClash.fields.map((f) => f.key)).size === cfgClash.fields.length,
-      cfgClash.fields.map((f) => f.key).join(","),
-    );
-
-    // B14: idempotent.
-    const before = JSON.stringify(
-      (await getBookingConfig(userNoReqs.id)).fields.map((f) => [f.key, f.order, f.label]),
-    );
-    await extractServicesAndBooking(PAGES, userNoReqs.id, quiet, {
-      llm: scriptedLlm(NO_REQS),
-    });
-    const after = JSON.stringify(
-      (await getBookingConfig(userNoReqs.id)).fields.map((f) => [f.key, f.order, f.label]),
-    );
+    // B14: idempotent while the form is still onboarding's.
+    const before = JSON.stringify(formRows.map((f) => [f.key, f.order, f.label, f.screen]));
+    await extractServicesAndBooking(FORM_PAGES, userForm.id, quiet, { llm: scriptedLlm(SERVICES), formLlm, readForm: noBrowser });
+    const after = JSON.stringify((await getBookingConfig(userForm.id)).fields.map((f) => [f.key, f.order, f.label, f.screen]));
     check("B14 running the stage twice changes nothing", before === after, `${before} vs ${after}`);
 
     // B15: tenant isolation.
     check(
-      "B15 one tenant's services never reach another's catalog",
-      !(await getBookingConfig(userReqs.id)).fields.some((f) => optionNames(f).includes(SVC_2)) &&
-        !(await getBookingConfig(userNothing.id)).fields.some((f) => optionNames(f).includes(SVC_1)),
+      "B15 one tenant's form never reaches another's",
+      (await keysOf(userNoForm.id)).length === 0 && (await keysOf(userNothing.id)).length === 0 && (await keysOf(userForm.id)).join() === "your_name,phone",
     );
 
-    // B16: best-effort — a seeding failure must not abort the stage or lose
-    // the services knowledge written before it.
+    // B16: best-effort — a form write failure must not abort the stage or
+    // lose the services knowledge written before it.
     const userBoom = await newUser("boom");
-    const realCount = prisma.appointmentField.count.bind(prisma.appointmentField);
     let threw = false;
-    // Make the very first field write fail, mid-seed.
-    const realUpsert = prisma.appointmentField.upsert.bind(prisma.appointmentField);
-    (prisma.appointmentField as unknown as { upsert: unknown }).upsert = async () => {
+    // Make the copied rows' write fail, mid-stage.
+    const realCreate = prisma.appointmentField.create.bind(prisma.appointmentField);
+    (prisma.appointmentField as unknown as { create: unknown }).create = () => {
       throw new Error("proof-induced field write failure");
     };
+    let boomReport: { seededFields: number; formFound: boolean } | null = null;
     try {
-      await extractServicesAndBooking(PAGES, userBoom.id, quiet, {
-        llm: scriptedLlm(NO_REQS),
-      });
+      boomReport = (await extractServicesAndBooking(FORM_PAGES, userBoom.id, quiet, { llm: scriptedLlm(SERVICES), formLlm, readForm: noBrowser })).report;
     } catch {
       threw = true;
     } finally {
-      (prisma.appointmentField as unknown as { upsert: unknown }).upsert = realUpsert;
+      (prisma.appointmentField as unknown as { create: unknown }).create = realCreate;
     }
-    check("B16 a seeding failure does not throw out of the stage", threw === false);
+    check("B16 a form write failure does not throw out of the stage; the report says no rows were written", threw === false && boomReport?.formFound === true && boomReport.seededFields === 0, JSON.stringify(boomReport));
     check(
       "B16 services knowledge written before the failure survives",
       (await prisma.chunk.count({ where: { userId: userBoom.id, originKind: "source" } })) > 0,
     );
-    void realCount;
+    check("B16 …and no half-written form is left behind", (await keysOf(userBoom.id)).length === 0);
 
     // ══ C. Settings › Booking is always present ═══════════════════════════
     const onKeys = await adminPanelKeys(userDefault.id);
@@ -414,8 +271,8 @@ async function main() {
       onKeys.map((k) => k.key).join(","),
     );
 
-    // C19/C20: BookingSettings renders the toggle and catalog; the
-    // Appointments grid only shows when booking is on. Real components.
+    // C19/C20: BookingSettings renders the toggle; the Appointments grid only
+    // shows when booking is on. Real components.
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
     const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
@@ -428,16 +285,12 @@ async function main() {
       "C19 Booking settings render the booking toggle",
       /booking/i.test(settingsOn) && /turn booking off/i.test(settingsOn),
     );
-    check(
-      "C19 Booking settings render the question catalog",
-      cfgOn.fields.every((f) => settingsOn.includes(f.label)),
-      cfgOn.fields.map((f) => f.label).join(" | "),
-    );
     const htmlOn = renderToStaticMarkup(
       React.createElement(AppointmentsPanel, {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
+        confirmAction: noopAction,
         bookingEnabled: cfgOn.enabled,
       }),
     );
@@ -451,6 +304,7 @@ async function main() {
         rows: [],
         fieldLabels: {},
         cancelAction: noopAction,
+        confirmAction: noopAction,
         bookingEnabled: cfgOff.enabled,
       }),
     );

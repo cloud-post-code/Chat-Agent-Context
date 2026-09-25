@@ -7,7 +7,7 @@ npx tsx --tsconfig docs/features/booking-flow/tsconfig.proof.json docs/features/
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only — section D
 renders the real card; the `booking-menu-fields` precedent.) Runs against the
 local dev Postgres (`.env` `DATABASE_URL`, loaded by the script). Section C
-creates two throwaway users and deletes them at the end. **Zero model calls.**
+creates three throwaway users and deletes them at the end. **Zero model calls.**
 
 ## Assertions (all must pass)
 
@@ -32,12 +32,16 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
    http meeting link refused; capacity and per-service prices kept; capacity
    defaults to one room.
 7. Tenant rules: booking channels keep the known ones once and confirmation
-   is instant or request; unknown timezone falls back; an odd slot interval falls back
-   to 30; lead time and advance window clamped; first name can't be turned
-   off or made optional; a configurable field keeps its wording; every
-   customer key present once; promo codes upper-cased and a >100% one
-   dropped; memberships get ids; tip presets past 100% dropped; **the public
-   rules carry no promo codes**; defaults are weekday nine to five.
+   is instant or request; unknown timezone falls back; an odd slot interval
+   falls back to 30; lead time and advance window clamped; the customer is
+   read out of the form's role-tagged answers (`customerFromAnswers`): a
+   `first_name` field is an ordinary field that names nobody until answered,
+   a `name` answer splits into first and last and the first field per role
+   wins; the stored flow keeps its shape only (kinds whitelisted, titles
+   flat, a questions step needs a screen); promo codes upper-cased and a
+   >100% one dropped; memberships get ids; tip presets past 100% dropped;
+   **the public rules carry no promo codes**; defaults are weekday nine to
+   five.
 8. A submitted selection is normalized: de-duplicated add-ons, integer
    quantity, empty provider = anyone, known customer keys only, recurrence
    count capped, promo code normalized, answers pass through.
@@ -78,6 +82,9 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
    names, all-closed = null; Austin, TX is Central; no state is unknown.
 
 ### C. The store (`lib/booking/store.ts`), real Postgres
+0. Nothing is seeded on enable: the fixture writes the name and email
+   questions itself (`saveAppointmentField` with `role`, `screen`,
+   `generated`), and they are the whole form, still onboarding's to rewrite.
 1. Settings round-trip through the sanitizer.
 2. Services, providers and locations save and read back whole (add-ons,
    variants, deposit, an https image); services reorder.
@@ -100,44 +107,57 @@ creates two throwaway users and deletes them at the end. **Zero model calls.**
 8. A weekly series books three, a week apart, tagged as one series; a series
    that can't complete books nothing.
 9. Cancelling frees the provider's slot and leaves the owner's list.
-10. The old intake-only wizard still books, and the same instant twice is
-    refused.
-11. Existing tenants: a picker-only tenant gets a service step built from
-    the menu — written as real `Service` rows the owner can now edit — priced
-    and timed from the menu's own words, with a gallery photo matched by
-    caption; name, email and the picker leave the intake; the old required
-    name/email fold onto the customer step; booking one works and the old
-    readers still see the pick with its price.
-12. A tenant whose extractor wrote menu items gets services with the site's
-    price, length, description and the model's own image match.
+10. A booking answered through the form alone (no customer object) names the
+    customer by role.
+11. A hand-written form with a menu question: every field, contact ones
+    included, is in `getBookingFlow().fields` in the stored order; name and
+    email are ordinary role-tagged fields, still required; the menu is the
+    owner's own — no service is derived from it, the flow sells nothing and
+    the card asks it as a question; each hand-written field sits on a screen
+    of its own; booking through that form works with no service row at all,
+    and the owner sees the pick with its price and the customer by role.
+12. A required menu with no pick is refused by the form's own label.
 13. Refresh from the site (`enrichServices`): an unpriced service gets its
     price, description, add-on and a photo from the pages; a service the
     site names that the owner lacks is added; a price the owner set is never
     overwritten.
 14. A phone-only site (the real services stage with a scripted model): the
     channels are recorded, confirmation becomes a request the owner confirms,
-    a phone number is required, the card is told the business's number and
-    the mode, and an owner's own choice outlives a later site read.
+    the card is told the business's number and the mode, an owner's own
+    choice outlives a later site read, and a site with no booking link copies
+    no form (the tenant's form stays empty).
 
 ### D. The card (`app/cards/Cards.tsx`), static render
-1. The service step opens with a tile per service — the imaged one draws
-   its photo, the others a placeholder; prices read as the business would
-   say them; durations, the deposit and mode badges; category chips; no
-   network needed; a step counter; the business's number as a tap-to-call
-   link ("Prefer to call?").
-2. An old stored block (no flow) still draws its first question at once.
-3. The services card shows thumbnails, prices and a Book button per service.
+1. A booking block outside a chat draws its own thread shell; no step is
+   asked before the browser takes over and there is no step counter; no
+   network needed; the business's number as a tap-to-call link ("Prefer to
+   call?"); no preview banner for a visitor, one for the owner. The service
+   step opens with a tile per service — the imaged one draws its photo, the
+   others a placeholder; prices read as the business would say them;
+   durations, the deposit and mode badges; category chips; a finished
+   booking locks the card.
+2. An old stored block (no flow) renders nothing until the fetch — no crash,
+   no question, no step counter — and when no flow comes back the one line
+   says booking is unavailable.
+3. The services card shows thumbnails, prices and a Book button per service;
+   Book outside a chat opens a booking thread of its own with the service
+   already chosen (the shell is in place on the server).
+4. A migrated tenant walks today's order; the first screen is the old
+   details step; the options step appears once a service with options is
+   chosen; a block from before roles and screens reads as one question per
+   screen.
+5. A business whose form asks for details first: that screen is the first
+   card asked, its fields together, required ones starred, with the screen's
+   own heading, placeholder and help line; no Back button and no step
+   counter; Next waits for the required answers; Update on a step already
+   answered; a locked step keeps its answers in view.
 
 ## Result
-172 assertions, all passing. `booking-menu-fields` (86), `booking-on-by-default`,
-`services-card` and `starter-tabs` still green. `tsc --noEmit` and `next lint`
-clean for the whole repo.
-
-Pre-existing, unrelated to this feature (identical on `main`):
-`appointment-booking` (3 assertions assume booking defaults off, changed by
-booking-on-by-default) and `onboarding-booking-extraction` (6, same cause);
-`a2a-agent-interface` and `canned-answers-and-brain` error at seeding a
-`Project` without a `user` (the multi-tenant conversion).
+190 assertions, all passing (2026-09-25). Rewritten for the picker-free form:
+no default seeding, no `customerFields`, no legacy bridge — the form is the
+tenant's own, contact details are role-tagged fields, and a booking is
+`createBooking` alone. `tsc --noEmit` and `next lint` clean for the whole
+repo.
 
 ## Verified live (dev server, `/a/demo-salon`, Chromium via Playwright, zero model calls)
 A seeded salon (five services with photos, two providers with photos, three
