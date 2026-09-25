@@ -285,6 +285,40 @@ export class Crawler {
     return page;
   }
 
+  /**
+   * Drive one page in the browser: `fn` gets a live Playwright page in a fresh
+   * context (its own cookies and storage, so a booking widget's session never
+   * leaks into the site crawl) and may click through it — this is how the form
+   * reader (formReader.ts) walks a widget's screens. Held to the same url
+   * policy as loads: the site's own origin or a public https host. Shares the
+   * tab limiter with renders. Never throws: null once closed, on a refused url,
+   * or when the browser or `fn` fails, with the reason reported through onEvent.
+   */
+  async drive<T>(url: string, fn: (page: import("playwright").Page) => Promise<T>): Promise<T | null> {
+    if (!this.resolve(url) && !isSafeExternalUrl(url)) {
+      this.onEvent?.(`Not driving ${url.slice(0, 120)}: not a public https page`);
+      return null;
+    }
+    if (this.closed) return null;
+    return this.limit(async () => {
+      if (this.closed) return null;
+      let context: import("playwright").BrowserContext | null = null;
+      try {
+        const browser = await this.launch();
+        if (this.closed) return null;
+        context = await browser.newContext();
+        const page = await context.newPage();
+        return await fn(page);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
+        this.onEvent?.(`Could not drive ${url.slice(0, 120)}: ${msg}`);
+        return null;
+      } finally {
+        await context?.close().catch(() => {});
+      }
+    });
+  }
+
   /** Fetch an on-domain non-HTML resource (feeds, sitemaps). Null on failure. */
   async loadText(url: string): Promise<string | null> {
     const abs = this.resolve(url);

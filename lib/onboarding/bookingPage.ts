@@ -9,13 +9,13 @@ import type { Page } from "./crawl";
  */
 
 /** Hosts that are booking products: a link to one is a booking link whatever it says. */
-const BOOKING_HOSTS =
+export const BOOKING_HOSTS =
   /(^|\.)(gocheckin\.net|vagaro\.com|squareup\.com|square\.site|booksy\.com|fresha\.com|acuityscheduling\.com|as\.me|calendly\.com|mindbodyonline\.com|schedulicity\.com|setmore\.com|simplybook\.me|glossgenius\.com|styleseat\.com|opentable\.com|resy\.com|exploretock\.com|housecallpro\.com|jobber\.com|getjobber\.com|zenoti\.com|boulevard\.io|joinblvd\.com|genbook\.com|appointy\.com|cal\.com)$/i;
 // A trade's booking is a request: "Get a Quote", "Request Estimate".
 const BOOKING_WORDS =
   /\b(book(ing|ings)?|appointments?|schedul(e|ing)|reserv(e|ation|ations)|(get|request|free)[\w\s]{0,12}(quote|estimate)|(quote|estimate)[\s-]?(request|form)?)\b/i;
 /** Form products a business embeds its booking or quote form from. */
-const FORM_HOSTS =
+export const FORM_HOSTS =
   /(^|\.)(jotform\.com|typeform\.com|cleangenie\.com|leadconnectorhq\.com|msgsndr\.com|hsforms\.com|cognitoforms\.com|wufoo\.com|paperform\.co|tally\.so)$/i;
 /** A platform selling itself — "Powered by", ambassador and referral links — not a business's page on it. */
 const PLATFORM_ADVERT = /^\/(industries|features|pricing|blog|about|partners?|lp)?(\/|$)|[?&]utm_campaign=/i;

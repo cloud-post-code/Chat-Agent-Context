@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Fake booking widget</title>
+<!--
+  A four-screen stand-in for a GoCheckIn-style booking widget, for reader-proof.ts:
+  service tiles with prices → staff list → date grid with time slots → the questions
+  screen. Screens are toggled with a CLASS (not inline styles) so the static
+  snapshot still sees every input while the browser sees one screen at a time.
+  The "Book appointment" button must never be clicked: it sets window.__booked.
+-->
+<style>
+  body { font-family: sans-serif; margin: 24px; }
+  .screen { display: none; }
+  .screen.active { display: block; }
+  .tiles { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+  .tile { cursor: pointer; border: 1px solid #ccc; padding: 8px 12px; border-radius: 6px; }
+  .tile.selected { border-color: #000; background: #eef; }
+  ul.staff { list-style: none; padding: 0; }
+  ul.staff li { margin: 4px 0; }
+  .calendar { display: grid; grid-template-columns: repeat(7, 36px); gap: 4px; margin-bottom: 12px; }
+  .day { width: 36px; height: 36px; cursor: pointer; }
+  .day.past { color: #aaa; }
+  .slots { margin-bottom: 12px; }
+  .slot { cursor: pointer; margin: 2px; padding: 4px 8px; }
+  .slot.selected { background: #eef; border-color: #000; }
+  label { display: block; margin-top: 12px; }
+  .req { color: #c00; }
+  .policy { font-size: 0.9em; color: #333; }
+</style>
+</head>
+<body>
+<script>
+  window.__booked = false;
+  window.__clicks = [];
+</script>
+
+<section class="screen active" id="s1">
+  <h2>Select Service</h2>
+  <h3>Manicure</h3>
+  <div class="tiles">
+    <div class="tile">Basic Manicure <span>$22.00</span></div>
+    <div class="tile">Gel Manicure <span>$35.00</span></div>
+    <div class="tile">Gel manicure + removal <span>$38.00</span></div>
+  </div>
+  <h3>PEDICURE</h3>
+  <div class="tiles">
+    <div class="tile">BASIC PEDICURE <span>$36.00</span></div>
+    <div class="tile">SPA PEDICURE <span>$68.00</span></div>
+    <div class="tile">Kid Pedicure <span>$25.00</span></div>
+  </div>
+  <button type="button" id="next1" disabled>Next</button>
+</section>
+
+<section class="screen" id="s2">
+  <h2>Select Staff</h2>
+  <ul class="staff">
+    <li class="tile">Any available staff</li>
+    <li class="tile">Katherine</li>
+    <li class="tile">Vivian</li>
+  </ul>
+  <button type="button" id="next2" disabled>Next</button>
+</section>
+
+<section class="screen" id="s3">
+  <h2>Select Date/Time</h2>
+  <div class="calendar" id="calendar"></div>
+  <div class="slots" id="slots" hidden>
+    <button type="button" class="slot">9:00 AM</button>
+    <button type="button" class="slot">9:15 AM</button>
+    <button type="button" class="slot">9:30 AM</button>
+    <button type="button" class="slot">9:45 AM</button>
+  </div>
+  <button type="button" id="next3" disabled>Continue</button>
+</section>
+
+<section class="screen" id="s4">
+  <h2>How do we say hello?</h2>
+  <form id="hello">
+    <label for="name">Full Name <span class="req">*</span></label>
+    <input id="name" type="text" required>
+    <label for="phone">Phone Number *</label>
+    <input id="phone" type="tel" placeholder="(555) 555-5555">
+    <label for="email">Email</label>
+    <input id="email" type="email">
+    <label for="notes">Appointment Notes</label>
+    <textarea id="notes" rows="3"></textarea>
+    <p class="policy">Cancellation policy: Please give us at least 24 hours notice if you need to cancel or reschedule. Appointments cancelled with less than 24 hours notice or no-shows may be charged 50% of the service price.</p>
+    <label><input type="checkbox" id="agree" required> I agree to the cancellation policy</label>
+    <button type="submit" id="book">Book appointment</button>
+  </form>
+</section>
+
+<script>
+  (function () {
+    var show = function (id) {
+      document.querySelectorAll(".screen").forEach(function (s) { s.classList.remove("active"); });
+      document.getElementById(id).classList.add("active");
+    };
+    var pick = function (tiles, next) {
+      tiles.forEach(function (t) {
+        t.addEventListener("click", function () {
+          tiles.forEach(function (x) { x.classList.remove("selected"); });
+          t.classList.add("selected");
+          window.__clicks.push(t.textContent.trim());
+          document.getElementById(next).disabled = false;
+        });
+      });
+    };
+    pick(Array.prototype.slice.call(document.querySelectorAll("#s1 .tile")), "next1");
+    pick(Array.prototype.slice.call(document.querySelectorAll("#s2 .tile")), "next2");
+    document.getElementById("next1").addEventListener("click", function () { show("s2"); });
+    document.getElementById("next2").addEventListener("click", function () { show("s3"); });
+
+    var cal = document.getElementById("calendar");
+    for (var d = 1; d <= 30; d++) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "day" + (d <= 10 ? " past" : "");
+      b.textContent = String(d);
+      if (d <= 10) b.disabled = true;
+      b.addEventListener("click", function () {
+        window.__clicks.push("day " + this.textContent);
+        document.getElementById("slots").hidden = false;
+      });
+      cal.appendChild(b);
+    }
+    document.querySelectorAll(".slot").forEach(function (s) {
+      s.addEventListener("click", function () {
+        document.querySelectorAll(".slot").forEach(function (x) { x.classList.remove("selected"); });
+        s.classList.add("selected");
+        window.__clicks.push("slot " + s.textContent);
+        document.getElementById("next3").disabled = false;
+      });
+    });
+    document.getElementById("next3").addEventListener("click", function () { show("s4"); });
+
+    var book = function (e) {
+      e.preventDefault();
+      window.__booked = true;
+      window.__clicks.push("BOOK");
+    };
+    document.getElementById("book").addEventListener("click", book);
+    document.getElementById("hello").addEventListener("submit", book);
+  })();
+</script>
+</body>
+</html>
