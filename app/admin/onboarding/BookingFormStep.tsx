@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { btn, btnGhost, panel } from "../ui";
 import { card as a2uiCard, cf as a2uiField } from "@/app/cards/styles";
-import { BookingFlowCard } from "@/app/cards/booking/BookingFlowCard";
+import { BookingThread } from "@/app/cards/booking/BookingThread";
 import { diffSteps, type BookingFormSummary, type FormStep } from "@/lib/booking/steps";
 
 /**
@@ -153,7 +153,7 @@ export function BookingFormStep({
                   </strong>
                   <button style={btnGhost} onClick={() => setTrying(false)}>Hide</button>
                 </div>
-                <BookingFlowCard
+                <BookingThread
                   key={version}
                   slug={form.slug}
                   fields={form.fields}
