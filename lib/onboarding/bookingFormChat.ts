@@ -27,7 +27,7 @@ import {
   saveBookingSettings,
   saveService,
 } from "@/lib/booking/store";
-import { pricingFromText, pricingLabel } from "@/lib/booking/types";
+import { pricingFromText, pricingLabel, sanitizeFlow, type FlowStep } from "@/lib/booking/types";
 import { describeBookingSteps, type BookingFormSummary } from "@/lib/booking/steps";
 
 /**
@@ -35,8 +35,9 @@ import { describeBookingSteps, type BookingFormSummary } from "@/lib/booking/ste
  * services stage built, says in plain words what is missing or wrong, and the
  * model changes the form for real through the same store the Booking panels
  * write to — questions (contact details among them, told apart by their
- * `role`), which questions share a screen, who-do-you-want-to-see,
- * services — then the form is read back and shown again. Sibling of
+ * `role`), which questions share a screen, the order of the steps and of the
+ * questions, screen titles, who-do-you-want-to-see, services — then the form
+ * is read back and shown again. Sibling of
  * lib/adminBrain.ts (same injectable ModelClient, same bounded tool loop);
  * nothing here knows about HTTP.
  *
@@ -100,11 +101,19 @@ export function describeFormForModel(form: BookingFormSummary): string {
     : "(none — the form has no service step)";
   const staff = flow.staff.length ? flow.staff.map((s) => s.name).join(", ") : "(none)";
   const byKey = new Map(fields.map((f) => [f.key, f]));
+  // Every step with its id, so the model can name it: `1. [service] Pick a
+  // service`, `4. [screen:1] "How do we say hello?" — first_name*, phone*, email`.
   const order = form.steps
     .map((s, i) => {
       const keys = s.kind === "question" && s.question ? [s.question.key] : s.kind === "screen" ? (s.fields ?? []).map((f) => f.key) : [];
-      const lines = keys.map((k) => byKey.get(k)).filter((f): f is AppointmentFieldRow => !!f).map((f) => `  ${describeField(f)}`);
-      const head = `${i + 1}. ${s.title}${s.kind === "screen" ? ` (screen ${s.screen}, ${keys.length} questions together)` : s.kind === "question" ? ` (screen ${s.screen})` : ""}`;
+      const rows = keys.map((k) => byKey.get(k)).filter((f): f is AppointmentFieldRow => !!f);
+      const lines = rows.map((f) => `  ${describeField(f)}`);
+      const head =
+        s.kind === "screen"
+          ? `${i + 1}. [${s.id}] "${s.title}" — ${rows.map((f) => `${f.key}${f.required ? "*" : ""}`).join(", ")} (screen ${s.screen}, ${keys.length} questions together)`
+          : s.kind === "question"
+            ? `${i + 1}. [${s.id}] "${s.title}" (screen ${s.screen})`
+            : `${i + 1}. [${s.id}] ${s.title}`;
       return [head, ...lines].join("\n");
     })
     .join("\n");
@@ -113,7 +122,7 @@ export function describeFormForModel(form: BookingFormSummary): string {
     `SERVICES:\n${services}`,
     `PROVIDERS a visitor can pick: ${staff}; provider choice is ${flow.rules.staffSelection}`,
     `Confirmation: ${flow.rules.confirmation === "request" ? "a request the business confirms" : "instant"}`,
-    `THE FORM, step by step, in the order the visitor meets it (every question with its key under its step):\n${fields.length ? order : `${order}\n(no questions yet — the form asks nothing beyond the steps above)`}`,
+    `THE FORM, step by step, in the order the visitor meets it (each step with its id in [brackets]; every question with its key under its step):\n${fields.length ? order : `${order}\n(no questions yet — the form asks nothing beyond the steps above)`}`,
   ].join("\n\n");
 }
 
@@ -140,6 +149,11 @@ const SYSTEM_RULES = [
   "  gives; if they give none, leave the price out (it shows as \"varies\") rather than inventing one.",
   "- Providers: set_staff_selection changes whether visitors pick a person; adding people is done",
   "  under Booking › Providers — say so if asked.",
+  "- The order is the owner's: `set_step_order` moves whole steps (by the ids in brackets),",
+  "  `move_question` one question, `set_screen_title` names a screen.",
+  "- If the form has no questions yet, the owner is describing it from scratch: create every",
+  "  question they name, in the order given, all on ONE screen unless they say otherwise (set the",
+  "  right role for name/email/phone), then ask at most ONE short question back.",
   "- Several changes in one message: make them all, in one go.",
   "- If a request is genuinely ambiguous, ask ONE short question and change nothing.",
   "- If something cannot be done from here (e.g. payments), say so in one sentence.",
@@ -220,6 +234,43 @@ function formTools(): Anthropic.Tool[] {
         type: "object",
         properties: { keys: { type: "array", items: { type: "string" }, description: "Every question key, in the new order" } },
         required: ["keys"],
+      },
+    },
+    {
+      name: "move_question",
+      description: "Move one question in the order: before or after another question (by key), or first. The screen it is on does not change.",
+      input_schema: {
+        type: "object",
+        properties: {
+          key: { type: "string", description: "The question to move" },
+          before: { type: "string", description: "Key of the question it should come before" },
+          after: { type: "string", description: "Key of the question it should come after" },
+          first: { type: "boolean", description: "true: ask it before all other questions" },
+        },
+        required: ["key"],
+      },
+    },
+    {
+      name: "set_screen_title",
+      description: "Name a screen of questions: the heading the customer sees above the questions asked together on it.",
+      input_schema: {
+        type: "object",
+        properties: {
+          screen: { type: "integer", description: "The screen number (as the steps list it)" },
+          title: { type: "string", description: "The heading, written to the customer; empty to remove it" },
+        },
+        required: ["screen", "title"],
+      },
+    },
+    {
+      name: "set_step_order",
+      description: "Set the order of the whole form's steps by their ids: service, provider, location, time, screen:<n> (a screen of questions; q:<key> also names the screen that question is on) and review. Steps left out keep their place after the named ones; review is always last.",
+      input_schema: {
+        type: "object",
+        properties: {
+          steps: { type: "array", items: { type: "string" }, description: "The step ids, in the new order" },
+        },
+        required: ["steps"],
       },
     },
     {
@@ -337,6 +388,21 @@ function screenFrom(v: unknown, fields: ReadonlyArray<Pick<AppointmentFieldRow, 
   return n !== undefined && n >= 1 ? n : undefined;
 }
 
+/**
+ * The flow step a step id names: `service|provider|location|time|review`,
+ * `screen:<n>`, or `q:<key>` for the screen that question is on; a screen's
+ * (or review's) title is carried over from the current flow. Null for an id
+ * that names nothing (`options`, an unknown key, a screen with no field).
+ */
+function flowStepFromId(id: string, fields: ReadonlyArray<Pick<AppointmentFieldRow, "key" | "screen">>, current: FlowStep[]): FlowStep | null {
+  if (id === "service" || id === "provider" || id === "location" || id === "time" || id === "review") {
+    return current.find((s) => s.kind === id) ?? { kind: id };
+  }
+  const screen = id.startsWith("screen:") ? int(id.slice(7)) : id.startsWith("q:") ? fields.find((f) => f.key === id.slice(2))?.screen : undefined;
+  if (screen === undefined || !fields.some((f) => f.screen === screen)) return null;
+  return current.find((s) => s.kind === "questions" && s.screen === screen) ?? { kind: "questions", screen };
+}
+
 async function execute(userId: string, name: string, input: Record<string, unknown>): Promise<Outcome> {
   switch (name) {
     case "add_question": {
@@ -403,6 +469,58 @@ async function execute(userId: string, name: string, input: Record<string, unkno
       if (!keys.length) return { result: "No keys given; order unchanged." };
       await reorderAppointmentFields(userId, keys);
       return { result: "Questions reordered.", change: "Reordered the questions" };
+    }
+    case "move_question": {
+      const key = str(input.key, 60);
+      const { fields } = await getBookingConfig(userId);
+      const cur = fields.find((f) => f.key === key);
+      if (!cur) return { result: `No question with key "${key}".` };
+      const keys = fields.map((f) => f.key).filter((k) => k !== key);
+      const before = str(input.before, 60);
+      const after = str(input.after, 60);
+      let at: number;
+      if (input.first === true) at = 0;
+      else if (before && keys.includes(before)) at = keys.indexOf(before);
+      else if (after && keys.includes(after)) at = keys.indexOf(after) + 1;
+      else return { result: "Say where it goes: before or after which question (by key), or first. Nothing moved." };
+      keys.splice(at, 0, key);
+      await reorderAppointmentFields(userId, keys);
+      const where = at === 0 ? "first" : `after “${fields.find((f) => f.key === keys[at - 1])?.label ?? keys[at - 1]}”`;
+      return { result: `Moved "${cur.label}" ${where}.`, change: `Moved the question “${cur.label}” ${where}` };
+    }
+    case "set_screen_title": {
+      const screen = int(input.screen);
+      const title = str(input.title, 120);
+      const { fields } = await getBookingConfig(userId);
+      if (screen === undefined || !fields.some((f) => f.screen === screen)) return { result: `No screen ${input.screen} — the screens in use are ${[...new Set(fields.map((f) => f.screen))].join(", ") || "none"}.` };
+      const settings = await getBookingSettings(userId);
+      const flow = sanitizeFlow(settings.flow, fields).map((s): FlowStep => {
+        if (s.kind !== "questions" || s.screen !== screen) return s;
+        const named: FlowStep = { kind: s.kind, screen: s.screen };
+        return title ? { ...named, title } : named;
+      });
+      await saveBookingSettings(userId, { flow });
+      return title
+        ? { result: `Screen ${screen} is now titled "${title}".`, change: `Titled screen ${screen} “${title}”` }
+        : { result: `Screen ${screen} has no title now.`, change: `Removed the title of screen ${screen}` };
+    }
+    case "set_step_order": {
+      const ids = (Array.isArray(input.steps) ? input.steps : []).map((k) => str(k, 60)).filter(Boolean);
+      if (!ids.length) return { result: "No step ids given; order unchanged." };
+      const { fields } = await getBookingConfig(userId);
+      const settings = await getBookingSettings(userId);
+      const current = sanitizeFlow(settings.flow, fields);
+      const named: FlowStep[] = [];
+      for (const id of ids) {
+        const step = flowStepFromId(id, fields, current);
+        if (step) named.push(step);
+      }
+      if (!named.length) return { result: "None of those ids name a step; order unchanged. Use the ids in brackets in the step list." };
+      // Unknown ids are ignored; steps left out are appended (engine steps, then
+      // unmentioned screens, then review) by sanitizeFlow, keeping their titles.
+      const flow = sanitizeFlow([...named, ...current], fields);
+      await saveBookingSettings(userId, { flow });
+      return { result: `Steps reordered: ${flow.map((s) => (s.kind === "questions" ? `screen:${s.screen}` : s.kind)).join(" → ")}.`, change: "Reordered the form's steps" };
     }
     case "set_staff_selection": {
       const mode = str(input.mode, 10);

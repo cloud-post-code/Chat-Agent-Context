@@ -14,6 +14,11 @@ import { diffSteps, type BookingFormSummary, type FormStep } from "@/lib/booking
  * what is missing or wrong. Each message is applied for real
  * (/api/admin/onboarding/booking-form → lib/onboarding/bookingFormChat.ts) and
  * the form is read back and shown again, with what changed marked.
+ *
+ * A form with no questions yet (onboarding found nothing to copy) opens
+ * empty: the engine steps alone, a line asking what the owner needs to know
+ * from a customer, the chat focused — the preview waits for the first
+ * question.
  */
 
 export type FormRound = { user: string; reply: string; changes: string[] };
@@ -61,6 +66,12 @@ export function BookingFormStep({
       cancelled = true;
     };
   }, []);
+
+  // An empty form is described from scratch: the chat is where the owner starts.
+  const empty = !!form && form.enabled && form.empty;
+  useEffect(() => {
+    if (empty) inputRef.current?.focus();
+  }, [empty]);
 
   /** Swap in a re-read form, marking what moved. */
   function adopt(next: BookingFormSummary) {
@@ -143,8 +154,14 @@ export function BookingFormStep({
         <>
           <StepList steps={form.steps} marks={marks} />
 
-          {/* Try it: the real card, remounted on every change. */}
-          <div style={{ margin: "14px 0" }}>
+          {form.empty && (
+            <p style={{ fontSize: 14, margin: "10px 0 14px" }}>
+              No questions yet — tell me what you need to know from a customer.
+            </p>
+          )}
+
+          {/* Try it: the real card, remounted on every change; hidden until the form asks something. */}
+          <div style={{ margin: "14px 0", display: form.empty ? "none" : undefined }}>
             {trying ? (
               <div ref={cardRef}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
@@ -168,17 +185,15 @@ export function BookingFormStep({
             )}
           </div>
 
-          {form.empty && (
-            <p style={{ fontSize: 13, fontStyle: "italic", opacity: 0.75, margin: "0 0 8px" }}>No questions yet.</p>
-          )}
-
           {/* The chat: what's missing, what to change. */}
           <div style={{ ...a2uiCard, background: "transparent", color: "inherit", padding: 12 }}>
             <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
-              What&apos;s missing or wrong?
+              {form.empty ? "What do you need to know from a customer?" : "What's missing or wrong?"}
             </strong>
             <p style={{ fontSize: 13, margin: "4px 0 10px", opacity: 0.75 }}>
-              Say it in plain words — I&apos;ll change the form and show it to you again.
+              {form.empty
+                ? "Tell me the questions in order — I'll build the form and show it to you."
+                : "Say it in plain words — I'll change the form and show it to you again."}
             </p>
             {rounds.map((r, i) => (
               <div key={i} className="onboard-phase-in" style={{ marginBottom: 10 }}>
@@ -208,7 +223,9 @@ export function BookingFormStep({
               rows={2}
               value={draft}
               disabled={sending || busy}
-              placeholder="e.g. Ask how many guests are coming. Make the phone number optional. Add a $20 beard trim."
+              placeholder={form.empty
+                ? "e.g. Name, phone, and whether it's a first visit"
+                : "e.g. Ask how many guests are coming. Make the phone number optional. Add a $20 beard trim."}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -218,7 +235,7 @@ export function BookingFormStep({
               }}
             />
             <button style={btn} onClick={send} disabled={sending || busy || !draft.trim()}>
-              {sending ? "Applying…" : "Change the form"}
+              {sending ? "Applying…" : form.empty ? "Build the form" : "Change the form"}
             </button>
           </div>
         </>

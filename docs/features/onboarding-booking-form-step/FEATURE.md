@@ -41,9 +41,16 @@ the form builder.
   inside knowledge.
 
 ### The step (`app/admin/onboarding/BookingFormStep.tsx`)
-- The assistant says what it built ("I built your booking form from your site
-  — 12 services and 3 questions"), or that it found no services, or that it
-  couldn't read them; on the manual path it introduces the form.
+- The assistant's opener (`bookingIntro` in `OnboardingFlow.tsx`) says what
+  the read found. A form copied from the site (`report.formFound === true`,
+  or — for a job from before that flag — `seededFields > 0`): "I copied your
+  booking form from your site — 4 questions on 2 screens, in the same order.
+  Try it, then tell me what to change." (the screens clause only when
+  `formScreens` is reported). No form found, a failed read, or the manual
+  path: "I couldn't find a booking form on your site to copy, so it's empty.
+  What do you need to know from a customer to book them? Tell me the
+  questions in order and I'll build it." `formFound` and `formScreens` are
+  read as optional from `stepBooking.report`.
 - **The steps**: a numbered list in the business's own order
   (`flow.rules.flow`, resolved by `sanitizeFlow` exactly as the card's planner
   resolves it) — pick a service (count, sections), options and add-ons (when
@@ -58,7 +65,17 @@ the form builder.
   screen (First name*, Last name*, Email*, Phone*, Text me appointment
   reminders) as the first screen step. `lib/booking/steps.ts` (pure) describes
   them from the same `BookingFlow` and fields the card draws, so the list is
-  the card. A form with no fields says "No questions yet." above the chat.
+  the card.
+- **The empty form** (onboarding found no form to copy): the step list shows
+  only the engine steps, then the line "No questions yet — tell me what you
+  need to know from a customer."; the "Try it" preview is hidden until the
+  form has a question; the chat box is focused, headed "What do you need to
+  know from a customer?", with the placeholder "e.g. Name, phone, and whether
+  it's a first visit" and a "Build the form" button. The model is told the
+  form has no questions yet and builds every question the owner names, in
+  the order given, on one screen (roles set for name / email / phone), then
+  asks at most one short question back. Once a question exists the step is
+  the ordinary one.
 - **Try the form**: the real `BookingFlowCard` in a new `preview` mode — every
   step is real (live availability from the hours, the real quote), confirming
   draws the real confirmation screen but books nothing, and the card can be
@@ -66,9 +83,11 @@ the form builder.
 - **The chat**: a text box ("What's missing or wrong?"). Each message goes to
   `POST /api/admin/onboarding/booking-form` and one round of
   `lib/onboarding/bookingFormChat.ts` runs: the model, told the form as it
-  stands (services with ids, providers, then the steps in order with every
-  field under its step — key, wording, type, required, role, screen, options,
-  placeholder), makes the change with tools and answers in a sentence.
+  stands (services with ids, providers, then the steps in order, each with its
+  id in brackets — `1. [service] Pick a service`, `4. [screen:1] "How do we say
+  hello?" — first_name*, phone*, email` — and every field under its step: key,
+  wording, type, required, role, screen, options, placeholder), makes the
+  change with tools and answers in a sentence.
   The reply and the list of changes appear in the step's chat, the form is
   re-read and shown again with new and changed steps marked (and removed ones
   named), and the preview card remounts on the new form.
@@ -90,11 +109,32 @@ owner's choice), `add_service` / `edit_service` / `remove_service` (price only
 as stated; none → "varies"). There is no separate customer-details tool:
 `set_customer_field` is gone.
 
+The order is the owner's, and three tools move it:
+- `move_question {key, before?, after?, first?}` moves one question before or
+  after another (by key) or first — `reorderAppointmentFields` — without
+  changing its screen. No destination, or an unknown key, moves nothing.
+- `set_screen_title {screen, title}` names a screen of questions: the
+  `questions` step for that screen in `sanitizeFlow(settings.flow, fields)`
+  gets the title (an empty title removes it) and the flow is saved; a screen
+  no field is on changes nothing.
+- `set_step_order {steps: string[]}` sets the order of whole steps by the ids
+  the step list shows: `service | provider | location | time | screen:<n> |
+  review`, and `q:<key>` for the screen that question is on. Unknown ids
+  (`options`, a screen with no field) are ignored; steps left out keep their
+  place after the named ones; review is always last (`sanitizeFlow` appends
+  the missing engine steps and screens). Screen and review titles are carried
+  over from the current flow. Saved as `{flow}`.
+
 Rules the model is given: name, email and phone are ordinary questions with a
 `role` so the calendar knows which answer is which — add or change them with
 the question tools and set the role, keep the owner's wording, and several
 questions can share a screen; never add a question the form already asks;
 pick the right question type; keep labels short and written to the customer;
+the order is the owner's (`set_step_order` moves whole steps, `move_question`
+one question, `set_screen_title` names a screen); if the form has no questions
+yet the owner is describing it from scratch — create every question they name,
+in the order given, all on one screen unless they say otherwise, with the right
+role for name / email / phone, then ask at most one short question back;
 several changes in one message are all made; an ambiguous request gets one
 question and no change; never invent services, prices, staff or options.
 
