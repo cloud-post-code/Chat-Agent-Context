@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
@@ -166,7 +167,6 @@ function toProjectCard(p: {
   };
 }
 
-const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 const MAX_TITLE = 80;
 
 function sanitizeIds(v: unknown): string[] | undefined {

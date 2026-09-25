@@ -20,8 +20,14 @@ prisma-free modules from here (see the test in `tests/arch/`).
 | menu, cart, orders | `menu.ts`, `menuTypes.ts`, `orders.ts` |
 | A2A protocol | `a2a/` (`rpc.ts` dispatch, `run.ts` over `brain.ts`) |
 | llms.txt | `llms.ts` |
+| shared helpers (text, money, duration, images, async) | `util/` — the only place for generic helpers; `util/index.ts` holds the request helpers (`clientIp`, `siteOrigin`, `safeJson`) |
 
 ## Invariants
+- No new local copy of `str` / `flat` / `slugify` / `parsePrice` / `durationMinutes` /
+  `sniffImageType` / `sleep` / `textOf` / `pad2`: import them from `lib/util/*`,
+  `lib/claude.ts` (`textOf`) or `lib/booking/time.ts` (`pad2`). `authSecret()` in
+  `lib/auth.ts` is the one HMAC key accessor. `str`/`flat` take `(value, max)`: never
+  pass them point-free to `.map` (the index would become the cap) — write `(v) => flat(v)`.
 - Every tenant-scoped read or write takes `userId`. No query without it.
 - `brain.ts` is the one brain; web chat and A2A are transports over it.
 - Model calls take an injectable `deps.client` so proofs can double the model.

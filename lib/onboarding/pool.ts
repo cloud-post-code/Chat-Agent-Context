@@ -1,3 +1,4 @@
+import { sleep } from "@/lib/util/async";
 import { createLimiter, type Limiter } from "@/lib/pool";
 
 export { createLimiter, createPacer, mapPool, type Limiter } from "@/lib/pool";
@@ -30,7 +31,6 @@ export function onboardingConcurrency(): number {
   return Math.min(n, MAX_CONCURRENCY);
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /** Rate-limited (429) or overloaded (529): worth waiting out, not a real failure. */
 function isRateLimit(err: unknown): boolean {

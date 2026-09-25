@@ -1,3 +1,4 @@
+import { str as strMax } from "@/lib/util/text";
 import type { Crawler, Page } from "./crawl";
 import { HEADING_FONTS } from "@/lib/fonts";
 import { normalizeExtractedTheme } from "@/lib/theme";
@@ -49,8 +50,7 @@ Rules:
 Respond with ONLY this JSON, no other text:
 {"company_name":"","company_phone_number":"","company_email":""}`;
 
-const str = (v: unknown, max = 300): string =>
-  typeof v === "string" ? v.trim().slice(0, max) : "";
+const str = (v: unknown, max = 300): string => strMax(v, max);
 
 /** Core business info from the homepage plus likely contact/about pages. */
 export async function extractCoreInfo(

@@ -1,3 +1,4 @@
+import { authSecret } from "@/lib/auth";
 import { cookies } from "next/headers";
 import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -17,13 +18,9 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 const COOKIE = "blake_ingest_edit";
 const LABEL = "ingest-edit";
 
-function secret(): string {
-  return process.env.AUTH_SECRET || "dev-insecure-secret-change-me";
-}
-
 /** The signed edit token — distinct label, so ≠ the admin cookie value. */
 export function editToken(): string {
-  const mac = createHmac("sha256", secret()).update(LABEL).digest("hex");
+  const mac = createHmac("sha256", authSecret()).update(LABEL).digest("hex");
   return `${LABEL}.${mac}`;
 }
 

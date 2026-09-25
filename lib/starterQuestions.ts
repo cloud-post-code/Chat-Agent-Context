@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { claude, claudeModel } from "@/lib/claude";
+import { claude, claudeModel, textOf } from "@/lib/claude";
 import { normalizeQuestion } from "@/lib/canned";
 import { CHIP_COUNT, CHIP_WORDS, chipLabel, clampLabel } from "@/lib/chipLabel";
 
@@ -71,18 +71,6 @@ no punctuation, first word capitalized. The ${QUESTION_COUNT} labels cover diffe
 Rules: each question is short (under 70 characters), plain text, no emojis, no
 numbering. Reply with ONLY a JSON array of ${QUESTION_COUNT} objects:
 [{"label": "...", "question": "..."}]`;
-
-/** The text blocks of a completion, joined. */
-function textOf(content: unknown[]): string {
-  return content
-    .filter((b): b is { type: "text"; text: string } => {
-      const block = b as { type?: string; text?: string };
-      return block.type === "text" && typeof block.text === "string";
-    })
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
 
 /**
  * Parse the model's reply into clean, deduplicated questions. An item is

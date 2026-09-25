@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { claude, cardBuilderModel } from "@/lib/claude";
+import { claude, cardBuilderModel, textOf } from "@/lib/claude";
 import { prisma, getProfile, getPersonaConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
 import { CARD_TOOLS, type CardTool } from "@/lib/canned";
@@ -686,12 +686,6 @@ function toolUsesOf(content: unknown[]): ToolUse[] {
     (b): b is ToolUse =>
       !!b && typeof b === "object" && (b as { type?: string }).type === "tool_use",
   );
-}
-
-function textOf(content: unknown[]): string {
-  return content
-    .map((b) => (b && typeof b === "object" && "text" in b ? String((b as { text: unknown }).text) : ""))
-    .join("");
 }
 
 function draftToJson(d: CardDraft): string {

@@ -1,3 +1,5 @@
+import { sniffImageType } from "@/lib/util/images";
+import { capTags } from "@/lib/util/text";
 import type { Crawler, Page } from "./crawl";
 import { saveBytes } from "@/lib/uploads";
 import { llmExtractVision, type VisionImage, type VisionMediaType } from "./knowledgeLlm";
@@ -145,18 +147,6 @@ export function collectImageCandidates(crawler: Crawler, pages: Page[]): Candida
 
 type Downloaded = Candidate & { bytes: Buffer; mediaType: VisionMediaType };
 
-/** The type the BYTES say they are — servers mislabel content-type, and the
- *  vision API rejects an image whose media_type doesn't match its bytes. */
-function sniffImageType(bytes: Buffer): VisionMediaType | null {
-  if (bytes.length < 12) return null;
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) return "image/png";
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
-  if (bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-      bytes.subarray(8, 12).toString("ascii") === "WEBP") return "image/webp";
-  return null;
-}
-
 /** Fetch candidate bytes the model can look at; the rest are dropped. */
 async function downloadCandidates(
   crawler: Crawler,
@@ -185,21 +175,6 @@ const capStr = (v: unknown, max: number): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /** 3-8 lowercase, trimmed, deduped tag words — never throws on odd model output. */
-const capTags = (v: unknown): string[] => {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const t of v) {
-    if (typeof t !== "string") continue;
-    const tag = t.trim().toLowerCase();
-    if (!tag || seen.has(tag)) continue;
-    seen.add(tag);
-    out.push(tag);
-    if (out.length >= 8) break;
-  }
-  return out;
-};
-
 /**
  * The model pass over one batch of downloaded images: keep/exclude, a
  * model-written caption for each kept image, and its subject for diversity.

@@ -1,3 +1,4 @@
+import { flat } from "@/lib/util/text";
 import type { User } from "@prisma/client";
 import { prisma, getProfile, getPersonaConfig } from "./db";
 import { listServices, type ServiceCard } from "./cards";
@@ -103,8 +104,6 @@ export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
     isFounder: founder?.id === userId,
   };
 }
-
-const flat = (s: string) => s.replace(/\s+/g, " ").trim();
 
 /** The one-line summary the blockquote carries. */
 function summaryLine(f: LlmsFacts): string {

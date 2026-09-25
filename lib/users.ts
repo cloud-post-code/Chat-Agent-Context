@@ -1,3 +1,4 @@
+import { slugify as slugifyText } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { hashPassword } from "@/lib/auth";
 import { seedStarterIngestionSources } from "@/lib/ingestionSources";
@@ -18,14 +19,7 @@ const RESERVED_SLUGS = new Set([
 
 /** Lowercase alnum-and-dash slug from a display name; never empty. */
 export function slugify(name: string): string {
-  const slug = name
-    .toLowerCase()
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 40);
-  return slug || "agent";
+  return slugifyText(name) || "agent";
 }
 
 /** A slug no other user owns, suffixing -2, -3, … on collision. */

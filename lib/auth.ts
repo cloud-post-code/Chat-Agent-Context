@@ -15,7 +15,8 @@ import type { User } from "@prisma/client";
 const COOKIE = "agent_session";
 const SESSION_MAX_AGE_S = 60 * 60 * 24 * 30; // 30 days
 
-function secret(): string {
+/** The HMAC key for every signed token the app issues (sessions, edit tokens, OAuth state). */
+export function authSecret(): string {
   return process.env.AUTH_SECRET || "dev-insecure-secret-change-me";
 }
 
@@ -57,7 +58,7 @@ export function verifyPassword(password: string, stored: string): boolean {
 // ── Sessions (HMAC-signed cookie: userId.expiresAtMs.mac) ──
 
 function mac(payload: string): string {
-  return createHmac("sha256", secret()).update(payload).digest("hex");
+  return createHmac("sha256", authSecret()).update(payload).digest("hex");
 }
 
 function signSession(userId: string, expiresAtMs: number): string {

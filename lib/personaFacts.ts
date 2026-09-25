@@ -1,3 +1,5 @@
+import { slugify } from "@/lib/util/text";
+import { textOf } from "@/lib/claude";
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "./claude";
 
@@ -74,16 +76,6 @@ const BRIEF =
   `- At most ${MAX_FACTS} entries. Fewer is fine.\n` +
   `Return ONLY the JSON object, no prose or fences.`;
 
-/** Filename-safe id fragment. Empty when `topic` has no usable characters. */
-export function slugify(topic: string): string {
-  return topic
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48)
-    .replace(/-+$/, "");
-}
-
 /**
  * Coerce whatever came back into usable entries. Never trusts the shape: the
  * model can return a bare array, missing keys, numbers for strings, duplicate
@@ -102,7 +94,7 @@ export function sanitizeFacts(json: unknown): PersonaFact[] {
     const r = item as Record<string, unknown>;
     const topic = String(r?.topic ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
     const text = String(r?.text ?? "").replace(/\s+/g, " ").trim();
-    const slug = slugify(topic);
+    const slug = slugify(topic, 48);
     // A slug is the storage id, so an unusable topic drops the entry outright
     // rather than getting a positional fallback that shifts on the next save.
     if (!slug || text.length < 10 || seen.has(slug)) continue;
@@ -111,17 +103,6 @@ export function sanitizeFacts(json: unknown): PersonaFact[] {
     if (out.length >= MAX_FACTS) break;
   }
   return out;
-}
-
-/** Text blocks only, structurally typed so an injected fake client works. */
-function textOf(content: unknown[]): string {
-  return content
-    .filter((b): b is { type: "text"; text: string } => {
-      const x = b as { type?: unknown; text?: unknown };
-      return x?.type === "text" && typeof x.text === "string";
-    })
-    .map((b) => b.text)
-    .join("");
 }
 
 /**

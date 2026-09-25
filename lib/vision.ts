@@ -1,3 +1,4 @@
+import { capTags } from "@/lib/util/text";
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "./claude";
 
@@ -62,21 +63,6 @@ export async function describeImageForDesign(bytes: Buffer, ext: string): Promis
     return "";
   }
 }
-
-const capTags = (v: unknown): string[] => {
-  if (!Array.isArray(v)) return [];
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const t of v) {
-    if (typeof t !== "string") continue;
-    const tag = t.trim().toLowerCase();
-    if (!tag || seen.has(tag)) continue;
-    seen.add(tag);
-    out.push(tag);
-    if (out.length >= 8) break;
-  }
-  return out;
-};
 
 /**
  * Description plus facets, for a photo the gallery filter can later address

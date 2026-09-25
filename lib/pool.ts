@@ -1,3 +1,4 @@
+import { sleep } from "@/lib/util/async";
 /**
  * Small concurrency primitives: a semaphore, an ordered bounded map, and a
  * start-spacing pacer. No imports and no policy — how many run at once, and
@@ -59,7 +60,6 @@ export async function mapPool<T, R>(
   return out;
 }
 
-const sleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
 /**
  * Optional spacing between the STARTS of paced calls, shared by whatever runs

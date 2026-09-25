@@ -11,6 +11,11 @@ import { pricingFromText, formatMoney as bookingFormatMoney } from "@/lib/bookin
  * records what each one returns TODAY for the same inputs, so merging them is
  * a no-behaviour-change refactor and any disagreement is a decision, not an
  * accident. Update the snapshot only when a behaviour change is intended.
+ *
+ * 2026-09-25 (cleanup Phase 2): priceAmount and priceAmountFromLabel now sit on
+ * lib/util/money.ts's parsePrice. Intended differences from the first pin:
+ * "+$40" is exact (an add-on delta, not a floor), "Free" reads as 0 rather
+ * than null, and "$1,200" reads as 1200 rather than 1.
  */
 const PRICE_INPUTS = [
   "", "35", "$35", "$35.50", "$40+", "+$40", "from $25", "From $25", "starting at $30", "$30-$45", "$30–$45",

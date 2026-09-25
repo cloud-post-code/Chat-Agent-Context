@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { parseSocialLinks, type SocialLink } from "@/lib/socialLinks";
 
@@ -60,8 +61,6 @@ function defaultTitle(platforms: string[] | undefined, items: SocialLink[]): str
   }
   return "Follow us";
 }
-
-const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 /**
  * Load just the social_links column, never upserting: hasSocialLinks and

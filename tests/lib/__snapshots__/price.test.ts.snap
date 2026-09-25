@@ -242,7 +242,7 @@ exports[`price parsers (pinned) > agree or disagree per input, as recorded 1`] =
     },
     "priceAmount": {
       "amount": 40,
-      "exact": false,
+      "exact": true,
       "symbol": "$",
     },
     "priceAmountFromLabel": 40,
@@ -495,7 +495,7 @@ exports[`price parsers (pinned) > agree or disagree per input, as recorded 1`] =
       "exact": true,
       "symbol": "",
     },
-    "priceAmountFromLabel": null,
+    "priceAmountFromLabel": 0,
     "priceFromText": "",
     "pricingFromText": {
       "kind": "free",
@@ -565,7 +565,7 @@ exports[`price parsers (pinned) > agree or disagree per input, as recorded 1`] =
       "exact": true,
       "symbol": "$",
     },
-    "priceAmountFromLabel": 1,
+    "priceAmountFromLabel": 1200,
     "priceFromText": "$1,200",
     "pricingFromText": {
       "amount": 1200,

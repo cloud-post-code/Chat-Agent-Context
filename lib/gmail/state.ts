@@ -1,3 +1,4 @@
+import { authSecret } from "@/lib/auth";
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 /**
@@ -15,13 +16,9 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 const MAX_AGE_MS = 10 * 60 * 1000;
 
-function secret(): string {
-  return process.env.AUTH_SECRET || "dev-insecure-secret-change-me";
-}
-
 export function issueState(now: number = Date.now()): string {
   const value = `${now}.${randomBytes(12).toString("hex")}`;
-  const mac = createHmac("sha256", secret()).update(value).digest("hex");
+  const mac = createHmac("sha256", authSecret()).update(value).digest("hex");
   return `${value}.${mac}`;
 }
 
@@ -30,7 +27,7 @@ export function verifyState(state: string | null, now: number = Date.now()): boo
   const idx = state.lastIndexOf(".");
   if (idx < 0) return false;
   const value = state.slice(0, idx);
-  const expected = createHmac("sha256", secret()).update(value).digest("hex");
+  const expected = createHmac("sha256", authSecret()).update(value).digest("hex");
   const a = Buffer.from(state.slice(idx + 1));
   const b = Buffer.from(expected);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return false;

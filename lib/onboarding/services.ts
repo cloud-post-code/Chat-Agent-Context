@@ -1,3 +1,4 @@
+import { str as strMax } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { writeFormSpec } from "@/lib/booking/formSpec";
 import { replaceMenu } from "@/lib/menu";
@@ -59,8 +60,7 @@ export type ServicesExtract = {
 /** Services read per business. */
 const MAX_SERVICES = 60;
 
-const str = (v: unknown, max = 2000): string =>
-  typeof v === "string" ? v.trim().slice(0, max) : "";
+const str = (v: unknown, max = 2000): string => strMax(v, max);
 
 /** Model output → typed, capped, whitelist-enforced data. Never throws. */
 export function sanitizeServices(raw: Record<string, unknown> | null): ServicesExtract {
