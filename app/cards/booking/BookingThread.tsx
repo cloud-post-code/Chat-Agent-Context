@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ChatBubble } from "@/app/ChatBubble";
+import { Bubble as ChatBubble } from "@/app/ChatBubble";
 import { LocalChatThreadProvider, useChatThread } from "@/app/ChatThread";
 import type { StoredMsg } from "@/lib/chatStore";
 import type { BookingFlow } from "@/lib/booking/types";
@@ -51,7 +51,7 @@ export function BookingThread({
   return (
     <LocalChatThreadProvider slug={slug} initial={[]}>
       {(msgs) => (
-        <BookingSessionsProvider slug={null} preview={preview}>
+        <BookingSessionsProvider slug={slug} preview={preview}>
           <ThreadColumn
             slug={slug}
             msgs={msgs}
