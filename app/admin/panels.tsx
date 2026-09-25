@@ -742,9 +742,8 @@ export async function buildAdminPanels(
   };
   for (const t of contentTabs) flat[t.key] = t.content;
 
-  // Rows for Appointments/Home come from the richer booking store
-  // (service/staff/location/customer/pricing/status) rather than the old
-  // the booking store (listBookings).
+  // Rows for Appointments/Home come from the booking store (listBookings:
+  // service/staff/location/customer/pricing/status).
   const appointmentRows = bookings.map((a) => ({
     id: a.id,
     startsAt: a.startsAt,

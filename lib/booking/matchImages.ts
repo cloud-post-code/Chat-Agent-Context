@@ -1,5 +1,5 @@
 /**
- * Match a name (a legacy service, a staff member…) against a set of
+ * Match a name (a service, a staff member…) against a set of
  * captioned photos by word overlap, so a gallery photo the tenant already
  * uploaded can stand in for a picture nobody attached directly.
  *
