@@ -46,6 +46,17 @@ null), `snapshotStatic` reads the one screen cheerio already loaded — the
 same label resolution over the parsed HTML, plus a booking-or-form-widget
 `<iframe>` named as one more thing found there.
 
+Finding the booking page reads every page discovery loaded, not just the
+homepage: `findBookingLink` (`bookingPage.ts`) takes the whole page list and
+returns the highest-scoring link across all of them, so a "Book" link that
+only sits on a services or contact page is still found. When no page carries
+one, `findSiblingSubdomain` looks for a link to another subdomain of the
+business's own domain (a "shop." or "book." storefront that the homepage nav
+names in non-booking words) and `discoverServicePages` loads that one page
+too — on the business's own domain, through the same `loadExternal` path the
+offsite widget already uses — before concluding there is nothing to book
+through. `bookingFormUrl` scans the same full list.
+
 Two things a real visitor's browser has that a cold automated one doesn't,
 and that a widget can key off to refuse rendering: `readBookingForm` sends
 the `referer` of the page the link was actually found on (normally the site's
