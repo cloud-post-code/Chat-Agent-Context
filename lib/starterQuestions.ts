@@ -21,7 +21,7 @@ import { CHIP_COUNT, CHIP_WORDS, chipLabel, clampLabel } from "@/lib/chipLabel";
  */
 
 /** The Anthropic client narrowed to the one call this module makes. */
-export type StarterClient = {
+type StarterClient = {
   messages: {
     create(params: {
       model: string;

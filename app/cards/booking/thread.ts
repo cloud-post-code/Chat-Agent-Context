@@ -42,7 +42,7 @@ import { visitorTimezone, type BookingSessionState, type BookingSessionStore, ty
  */
 
 /** The DOM id the card of one step carries, so an Edit link can scroll to it. */
-export function stepDomId(sessionId: string, id: StepId): string {
+function stepDomId(sessionId: string, id: StepId): string {
   return `booking-${sessionId}-${id}`;
 }
 
@@ -76,7 +76,7 @@ function whenText(startsAt: string, tz: string): string {
 }
 
 /** The one line a finished step says back, as the visitor's own words in the thread. */
-export function summaryLine(step: CardStep, state: BookingSessionState): string {
+function summaryLine(step: CardStep, state: BookingSessionState): string {
   const { flow, selection: sel } = state;
   const currency = flow?.business.currency ?? "USD";
   const service = flow?.services.find((s) => s.id === sel.serviceId) ?? null;
@@ -156,7 +156,7 @@ export function summaryLine(step: CardStep, state: BookingSessionState): string 
 }
 
 /** Every answered step's line, folded into one — what the model reads. */
-export function bookingSoFar(state: BookingSessionState): string {
+function bookingSoFar(state: BookingSessionState): string {
   if (!state.flow) return "Booking so far: nothing picked yet";
   const steps = planSteps(state.flow, state.fields, state.selection);
   const lines = steps.filter((s) => state.answered.includes(stepId(s))).map((s) => summaryLine(s, state));

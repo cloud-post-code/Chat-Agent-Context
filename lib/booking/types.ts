@@ -141,7 +141,7 @@ export const LOCATION_KINDS = ["business", "virtual", "mobile"] as const;
 /** business: a branch. virtual: online. mobile: we come to you (a service area). */
 export type LocationKind = (typeof LOCATION_KINDS)[number];
 
-export type ServiceArea = {
+type ServiceArea = {
   /** Postal codes served, exact match after trimming/uppercasing. */
   postalCodes: string[];
   /** Travel radius in miles from the location's address. */
@@ -198,7 +198,7 @@ export type Customer = CustomerContact;
  * the chosen service has variants, add-ons or a quantity.
  */
 export const FLOW_KINDS = ["service", "provider", "location", "time", "questions", "review"] as const;
-export type FlowKind = (typeof FLOW_KINDS)[number];
+type FlowKind = (typeof FLOW_KINDS)[number];
 
 export type FlowStep = {
   kind: FlowKind;
@@ -223,7 +223,7 @@ export type PromoCode = {
 
 export type Membership = { id: string; name: string; discountPercent: number };
 
-export type ServiceFee = { kind: "none" | "fixed" | "percent"; amount?: number; label?: string };
+type ServiceFee = { kind: "none" | "fixed" | "percent"; amount?: number; label?: string };
 
 /** How the business says it takes bookings, in its own site's words. */
 export const BOOKING_CHANNELS = ["online", "phone", "email", "walk_in"] as const;
@@ -457,7 +457,7 @@ function withNote(p: Pricing, src: Record<string, unknown>): Pricing {
   return p;
 }
 
-export function sanitizeHoursRanges(raw: unknown): HoursRange[] {
+function sanitizeHoursRanges(raw: unknown): HoursRange[] {
   const out: HoursRange[] = [];
   for (const r of list(raw)) {
     const src = obj(r);
@@ -468,7 +468,7 @@ export function sanitizeHoursRanges(raw: unknown): HoursRange[] {
   return out.sort((a, b) => a.start.localeCompare(b.start)).slice(0, 4);
 }
 
-export function sanitizeWeeklyHours(raw: unknown): WeeklyHours {
+function sanitizeWeeklyHours(raw: unknown): WeeklyHours {
   const src = obj(raw);
   const out = {} as WeeklyHours;
   for (const d of DAY_KEYS) out[d] = sanitizeHoursRanges(src[d]);
@@ -476,7 +476,7 @@ export function sanitizeWeeklyHours(raw: unknown): WeeklyHours {
 }
 
 /** Null when nothing usable was given — "use the business hours". */
-export function sanitizeOptionalHours(raw: unknown): WeeklyHours | null {
+function sanitizeOptionalHours(raw: unknown): WeeklyHours | null {
   if (raw === null || raw === undefined || typeof raw !== "object") return null;
   const hours = sanitizeWeeklyHours(raw);
   return DAY_KEYS.some((d) => hours[d].length > 0) ? hours : null;
@@ -512,7 +512,7 @@ export function sanitizeAddons(raw: unknown): ServiceAddon[] {
   return out;
 }
 
-export function sanitizeVariants(raw: unknown): ServiceVariant[] {
+function sanitizeVariants(raw: unknown): ServiceVariant[] {
   const out: ServiceVariant[] = [];
   const seen = new Set<string>();
   for (const v of list(raw)) {
@@ -576,7 +576,7 @@ export function sanitizeServiceConfig(raw: unknown): ServiceConfig {
 }
 
 /** An image the card may draw: one of ours, or an https URL. */
-export function isImageRef(s: string): boolean {
+function isImageRef(s: string): boolean {
   return /^\/api\/uploads\/[a-f0-9-]+\.(jpg|png|webp|gif)$/i.test(s) || /^https:\/\/\S+$/i.test(s);
 }
 
@@ -593,7 +593,7 @@ export type StaffConfig = Pick<
   | "durationOverrides"
 >;
 
-export function sanitizeTimeOff(raw: unknown): TimeOff[] {
+function sanitizeTimeOff(raw: unknown): TimeOff[] {
   const out: TimeOff[] = [];
   for (const t of list(raw)) {
     const src = obj(t);
@@ -639,7 +639,7 @@ export type LocationConfig = Pick<
   "hours" | "serviceArea" | "meetingLink" | "note" | "capacity" | "priceOverrides"
 >;
 
-export function sanitizeServiceArea(raw: unknown): ServiceArea {
+function sanitizeServiceArea(raw: unknown): ServiceArea {
   const src = obj(raw);
   const out: ServiceArea = {
     postalCodes: strings(src.postalCodes, 500, 12).map((z) => z.toUpperCase().replace(/\s+/g, "")),
@@ -666,7 +666,7 @@ export function sanitizeLocationConfig(raw: unknown): LocationConfig {
   };
 }
 
-export function sanitizePromoCodes(raw: unknown): PromoCode[] {
+function sanitizePromoCodes(raw: unknown): PromoCode[] {
   const out: PromoCode[] = [];
   const seen = new Set<string>();
   for (const p of list(raw)) {
@@ -689,7 +689,7 @@ export function sanitizePromoCodes(raw: unknown): PromoCode[] {
   return out;
 }
 
-export function sanitizeMemberships(raw: unknown): Membership[] {
+function sanitizeMemberships(raw: unknown): Membership[] {
   const out: Membership[] = [];
   const seen = new Set<string>();
   for (const m of list(raw)) {
@@ -785,7 +785,7 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
 }
 
 /** Shape only: kinds whitelisted, titles flat, screens positive integers. No field knowledge. */
-export function sanitizeFlowShape(raw: unknown): FlowStep[] {
+function sanitizeFlowShape(raw: unknown): FlowStep[] {
   const out: FlowStep[] = [];
   for (const item of list(raw).slice(0, 80)) {
     const src = obj(item);
@@ -805,7 +805,7 @@ export function sanitizeFlowShape(raw: unknown): FlowStep[] {
 }
 
 /** Today's order: service → provider → location → time → each screen → review. */
-export function defaultFlow(fields: ReadonlyArray<{ screen: number }>): FlowStep[] {
+function defaultFlow(fields: ReadonlyArray<{ screen: number }>): FlowStep[] {
   const screens = [...new Set(fields.map((f) => f.screen))];
   return [
     { kind: "service" },

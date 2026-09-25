@@ -31,7 +31,7 @@ export type TaskStateName =
   | "auth-required";
 
 /** Once a task is here it can no longer change, and a stream must close. */
-export const TERMINAL_STATES: readonly TaskStateName[] = [
+const TERMINAL_STATES: readonly TaskStateName[] = [
   "completed",
   "failed",
   "canceled",
@@ -76,9 +76,9 @@ export type Part =
   | { data: unknown; mediaType?: string; metadata?: Json }
   | { url: string; mediaType?: string; filename?: string; metadata?: Json };
 
-export type Json = Record<string, unknown>;
+type Json = Record<string, unknown>;
 
-export type Role = "ROLE_USER" | "ROLE_AGENT";
+type Role = "ROLE_USER" | "ROLE_AGENT";
 
 export type A2AMessage = {
   messageId: string;
@@ -100,7 +100,7 @@ export type Artifact = {
   extensions?: string[];
 };
 
-export type TaskStatus = {
+type TaskStatus = {
   state: string;
   message?: A2AMessage;
   /** ISO 8601 UTC (§5.6.1). */
@@ -134,7 +134,7 @@ export type StreamResponse =
 
 // ── Agent Card (§4.4.1) ───────────────────────────────────────────────────
 
-export type AgentInterface = {
+type AgentInterface = {
   url: string;
   /** Open string; officially JSONRPC | GRPC | HTTP+JSON. */
   protocolBinding: string;

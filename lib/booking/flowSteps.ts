@@ -53,7 +53,7 @@ export function locationChoiceReal(flow: BookingFlow, service: ServiceRow | null
 }
 
 /** Variants, add-ons or a quantity: the service has options to choose. */
-export function serviceNeedsOptions(service: ServiceRow, variantId: string | null): boolean {
+function serviceNeedsOptions(service: ServiceRow, variantId: string | null): boolean {
   const variant = service.variants.find((v) => v.id === variantId) ?? null;
   const pricing = effectivePricing(service, variant);
   return (
@@ -66,7 +66,7 @@ export function serviceNeedsOptions(service: ServiceRow, variantId: string | nul
 }
 
 /** The distinct screens the fields occupy, in field order. */
-export function fieldScreens(fields: ReadonlyArray<Pick<FlowField, "screen">>): number[] {
+function fieldScreens(fields: ReadonlyArray<Pick<FlowField, "screen">>): number[] {
   return [...new Set(fields.map((f) => f.screen))];
 }
 

@@ -211,7 +211,7 @@ type BuilderContent = Anthropic.MessageParam["content"];
 type BuilderMessage = { role: "user" | "assistant"; content: BuilderContent };
 
 /** Minimal client surface, injectable for tests (same pattern as answerDrafts). */
-export type BuilderClient = {
+type BuilderClient = {
   messages: {
     create(req: {
       model: string;

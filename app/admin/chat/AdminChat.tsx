@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { Markdown } from "@/app/Markdown";
 import type { ElementReveal, FocusedEdit, IngestProposal } from "@/lib/adminBrain";
 import { contrastOn } from "@/lib/theme";
-import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources";
+import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources.shared";
 import { applyThemeColorAction, approveIngestionAction, logout } from "../actions";
 import { PendingButton } from "../PendingButton";
 import { btnGhost, field } from "../ui";

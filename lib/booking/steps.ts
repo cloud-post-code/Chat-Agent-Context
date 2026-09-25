@@ -20,10 +20,10 @@ import type { AppointmentFieldRow, FieldRole } from "../appointmentTypes";
  * ordinary fields with a `role`; a screen holding several fields is one step.
  */
 
-export type FormStepKind = "service" | "options" | "provider" | "location" | "time" | "screen" | "question" | "review";
+type FormStepKind = "service" | "options" | "provider" | "location" | "time" | "screen" | "question" | "review";
 
 /** One field as a step lists it: the row's essentials plus its one-line description. */
-export type FormStepField = {
+type FormStepField = {
   key: string;
   label: string;
   type: string;

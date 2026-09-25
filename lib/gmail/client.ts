@@ -19,7 +19,7 @@ const OAUTH_AUTH = "https://accounts.google.com/o/oauth2/v2/auth";
 const OAUTH_TOKEN = "https://oauth2.googleapis.com/token";
 const GMAIL_API = "https://gmail.googleapis.com/gmail/v1/users/me";
 
-export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 
 /**
  * Messages pulled per sync. Each costs a metadata+body fetch.
@@ -28,11 +28,11 @@ export const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
  * a first sync is otherwise hundreds of sequential API calls inside one admin
  * request. Raise it once the flow is proven end to end.
  */
-export const MAX_MESSAGES_PER_SYNC = 10;
+const MAX_MESSAGES_PER_SYNC = 10;
 /** Body characters kept per message before the note extractor truncates further. */
 const MAX_BODY_CHARS = 4_000;
 
-export function gmailClientId(): string {
+function gmailClientId(): string {
   return (process.env.GOOGLE_GMAIL_CLIENT_ID ?? "").trim();
 }
 function gmailClientSecret(): string {
@@ -47,7 +47,7 @@ export function gmailConfigured(): boolean {
  * OAuth client, so it is derived from the request's own origin rather than
  * guessed from env — localhost and the deployed domain then both work.
  */
-export function gmailRedirectUri(origin: string): string {
+function gmailRedirectUri(origin: string): string {
   return `${origin.replace(/\/$/, "")}/api/admin/gmail/callback`;
 }
 

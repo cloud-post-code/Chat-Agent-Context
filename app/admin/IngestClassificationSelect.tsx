@@ -3,7 +3,7 @@ import {
   ENABLED_CLASSIFICATIONS,
   CLASSIFICATION_LABELS,
   type Classification,
-} from "@/lib/ingestionSources";
+} from "@/lib/ingestionSources.shared";
 import { field, Label } from "./ui";
 
 /**

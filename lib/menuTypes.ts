@@ -13,14 +13,14 @@
  * arithmetic; a line whose price can't be parsed makes the total a floor.
  */
 
-export const PRICE_TYPES = ["fixed", "starting_at", "market", "varies", "free"] as const;
-export type PriceType = (typeof PRICE_TYPES)[number];
+const PRICE_TYPES = ["fixed", "starting_at", "market", "varies", "free"] as const;
+type PriceType = (typeof PRICE_TYPES)[number];
 
-export const AVAILABILITIES = ["available", "unavailable", "limited", "unknown"] as const;
-export type Availability = (typeof AVAILABILITIES)[number];
+const AVAILABILITIES = ["available", "unavailable", "limited", "unknown"] as const;
+type Availability = (typeof AVAILABILITIES)[number];
 
-export const POPULARITIES = ["popular", "bestseller", "new", "staff_pick"] as const;
-export type Popularity = (typeof POPULARITIES)[number];
+const POPULARITIES = ["popular", "bestseller", "new", "staff_pick"] as const;
+type Popularity = (typeof POPULARITIES)[number];
 
 export const FULFILLMENTS = ["pickup", "delivery", "dine_in", "appointment", "shipping"] as const;
 export type Fulfillment = (typeof FULFILLMENTS)[number];
@@ -34,7 +34,7 @@ export const FULFILLMENT_LABELS: Record<Fulfillment, string> = {
 };
 
 /** One choice inside a modifier: "Large", "Add chicken (+$5)". */
-export type ModifierChoice = { label: string; price?: string };
+type ModifierChoice = { label: string; price?: string };
 
 /**
  * A set of choices an item is customized with — size, side, temperature,

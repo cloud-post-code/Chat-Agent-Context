@@ -26,7 +26,7 @@ export type RunEvent =
   | { kind: "artifact"; artifact: Artifact; lastChunk: boolean };
 
 /** Joins every text part of a message; other part kinds aren't input we accept. */
-export function messageText(message: A2AMessage): string {
+function messageText(message: A2AMessage): string {
   return message.parts
     .map((p) => ("text" in p ? p.text : ""))
     .filter(Boolean)

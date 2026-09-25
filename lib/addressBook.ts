@@ -21,19 +21,6 @@ export const TRUST_LABELS: Record<TrustTier, string> = {
   personal: "Personal",
 };
 
-/**
- * Trust tiers and ingestion classifications render the same four labels under
- * different slugs (`co-worker` vs `contact`, `close-friend` vs
- * `close-friends`). Rather than unify them — a rename across stored rows — the
- * mapping is stated once here so no call site has to assume it.
- */
-export const TRUST_FROM_CLASSIFICATION: Record<string, TrustTier> = {
-  public: "public",
-  contact: "co-worker",
-  "close-friends": "close-friend",
-  personal: "personal",
-};
-
 export type AddressBookRow = {
   id: string;
   name: string;

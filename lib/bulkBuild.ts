@@ -17,14 +17,14 @@ import type { Job } from "@/lib/onboarding/jobs";
  * default extract runner below imports it lazily instead.
  */
 
-export type UnattendedStage =
+type UnattendedStage =
   | "core" | "locations" | "social" | "images" | "theme" | "knowledge";
 
-export type StageData = Pick<
+type StageData = Pick<
   Job, "step1" | "stepLoc" | "stepSocial" | "stepImages" | "step2" | "stepBrand" | "chunkCount"
 >;
 
-export type ExtractHooks = {
+type ExtractHooks = {
   onStage: (stage: UnattendedStage, data: StageData) => Promise<void>;
   onStageError: (stage: UnattendedStage, err: unknown) => void;
   onEvent: (line: string) => void;

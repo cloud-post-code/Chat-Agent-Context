@@ -19,5 +19,10 @@
     "docs/features/**/*.ts",
     "tests/**",
     "types/**"
+  ],
+  "ignoreDependencies": [
+    "@types/cytoscape",
+    "eslint",
+    "eslint-config-next"
   ]
 }

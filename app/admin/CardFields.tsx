@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { CARD_TOOLS } from "@/lib/canned";
+import { CARD_TOOLS } from "@/lib/canned.tools";
 import { field, Label } from "./ui";
 
 /**

@@ -33,7 +33,7 @@ function initialDays(initial: WeeklyHours | null): DayState {
   }, {} as DayState);
 }
 
-export function WeeklyHoursEditor({
+function WeeklyHoursEditor({
   prefix,
   initial,
   optional = false,

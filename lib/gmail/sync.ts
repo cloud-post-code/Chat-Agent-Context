@@ -41,7 +41,7 @@ export type SyncResult = {
 };
 
 /** Contacts written per pass. Each costs one model call, so the pass is bounded. */
-export const MAX_CONTACTS_PER_SYNC = 200;
+const MAX_CONTACTS_PER_SYNC = 200;
 
 export async function syncSentContacts(opts: {
   userId: string;

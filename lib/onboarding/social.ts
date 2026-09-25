@@ -12,7 +12,7 @@ import { sanitizeSocialLinks, type SocialLink } from "@/lib/socialLinks";
  * accepts URLs copied exactly from the candidate list.
  */
 
-export const SOCIAL_SYSTEM_PROMPT = `You identify a business's own social media profiles among links found on its website. The input lists links from several pages; each page section is preceded by "=== <url>" and each link line reads: url | link text | aria-label.
+const SOCIAL_SYSTEM_PROMPT = `You identify a business's own social media profiles among links found on its website. The input lists links from several pages; each page section is preceded by "=== <url>" and each link line reads: url | link text | aria-label.
 
 Rules:
 - Report ONLY links that literally appear in the input. Never guess, construct, or complete a URL — every "url" you output must be copied exactly from an input line.

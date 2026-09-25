@@ -29,7 +29,7 @@ export type ContactNoteExtractor = (draft: ContactDraft) => Promise<ContactNote>
 export const EMPTY_NOTE: ContactNote = { summary: "", labels: [] };
 
 /** Body characters fed to the model per contact. Matches lib/scrape.ts. */
-export const MAX_NOTE_INPUT_CHARS = 12_000;
+const MAX_NOTE_INPUT_CHARS = 12_000;
 
 function formatDate(d: Date): string {
   return d.toISOString().slice(0, 10);

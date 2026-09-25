@@ -168,7 +168,6 @@ function revalidateAll() {
   // signed-in owners land — leaving it out meant a save anywhere in the admin
   // left the chat's revealed panels showing stale data.
   revalidatePath("/admin/chat");
-  revalidatePath("/projects");
   revalidatePath("/");
 }
 
@@ -673,28 +672,6 @@ export async function deletePhoto(formData: FormData) {
     await reindex(`photo ${id}`, () => dropOrigin(user.id, "photo", id));
   }
   revalidateAll();
-}
-
-// ── Contacts (submissions from the in-chat contact form) ──
-export async function toggleContactHandled(formData: FormData) {
-  const user = await requireUser();
-  const id = String(formData.get("id") ?? "");
-  const handled = String(formData.get("handled") ?? "") === "true";
-  if (id) {
-    await prisma.contact
-      .updateMany({ where: { id, userId: user.id }, data: { handled: !handled } })
-      .catch(() => {});
-  }
-  revalidatePath("/admin/dashboard");
-}
-
-export async function deleteContact(formData: FormData) {
-  const user = await requireUser();
-  const id = String(formData.get("id") ?? "");
-  if (id) {
-    await prisma.contact.deleteMany({ where: { id, userId: user.id } }).catch(() => {});
-  }
-  revalidatePath("/admin/dashboard");
 }
 
 function clampInt(raw: FormDataEntryValue | null, fallback: number, min: number, max: number): number {

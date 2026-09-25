@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
  * They're served back through app/api/uploads/[name]/route.ts.
  */
 
-export function uploadDir(): string {
+function uploadDir(): string {
   return process.env.UPLOAD_DIR || path.join(process.cwd(), "data", "uploads");
 }
 

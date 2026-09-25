@@ -44,7 +44,6 @@ Rules:
 Respond with ONLY this JSON, no other text:
 {"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"channels":[]}}`;
 
-export type { ServiceItem } from "@/lib/serviceCatalog";
 export type ServicesExtract = {
   /** A ServiceItem plus the menu facts (price, duration, category) and the
    *  long tail (addons, deposit, policy) the booking seeder

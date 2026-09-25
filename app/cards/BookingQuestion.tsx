@@ -51,7 +51,7 @@ const DROPDOWN_OVER = 8;
 const SCROLL_OVER = 6;
 
 /** Picks from either answer shape — a prefilled service arrives as bare text. */
-export function picksOf(a: Answer | undefined): string[] {
+function picksOf(a: Answer | undefined): string[] {
   if (Array.isArray(a)) return a;
   return a && a.trim() ? [a.trim()] : [];
 }
@@ -69,7 +69,7 @@ export function answerLines(f: BookingField, a: Answer | undefined): string[] {
 }
 
 /** "$40 · 1 hr 15 min" for a choice answer with anything to add up; else "". */
-export function answerTotal(f: BookingField, a: Answer | undefined): string {
+function answerTotal(f: BookingField, a: Answer | undefined): string {
   if (!isChoiceType(f.type)) return "";
   const total = selectionTotal(pickedOptions(f.config ?? {}, picksOf(a)));
   return [total.price, total.duration].filter(Boolean).join(" · ");

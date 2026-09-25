@@ -30,10 +30,10 @@ import {
 // Shapes live in lib/appointmentTypes.ts (import-free, so the client Calendar
 // can reach them); re-exported here so this stays the one import for the store.
 export {
-  FIELD_TYPES,
-  type FieldType,
-  type FieldConfig,
-  type FieldOption,
+  
+  
+  
+  
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
@@ -86,8 +86,6 @@ export async function setBookingEnabled(userId: string, enabled: boolean): Promi
   await getProfile(userId); // ensure the row exists
   await prisma.profile.update({ where: { userId }, data: { bookingEnabled: enabled } });
 }
-
-export { keyFromLabel };
 
 /** Create or update one field. Returns an error string, or null on success. */
 export async function saveAppointmentField(

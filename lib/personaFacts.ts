@@ -34,7 +34,7 @@ export type PersonaFact = {
  * The narrow slice of the SDK this module uses, so a proof can inject a fake
  * and count calls at the provider boundary instead of reaching the network.
  */
-export type FactClient = {
+type FactClient = {
   messages: {
     create(
       params: Anthropic.MessageCreateParamsNonStreaming,

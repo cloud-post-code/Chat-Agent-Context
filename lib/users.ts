@@ -10,7 +10,7 @@ import type { User } from "@prisma/client";
  */
 
 /** The migration's fixed id for the pre-existing single-admin's account. */
-export const FOUNDER_ID = "founder";
+const FOUNDER_ID = "founder";
 
 const RESERVED_SLUGS = new Set([
   "admin", "api", "signup", "login", "agent", "a", "directory", "founder",

@@ -18,7 +18,7 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * who has written a goal — even a disabled one — keeps exactly what they have.
  */
 
-export const GOALS_SYSTEM_PROMPT = `You read text from a business's website and write the goals for the AI chat agent that answers visitors on that site. A goal is an outcome THIS business wants out of a visitor conversation.
+const GOALS_SYSTEM_PROMPT = `You read text from a business's website and write the goals for the AI chat agent that answers visitors on that site. A goal is an outcome THIS business wants out of a visitor conversation.
 
 The text contains multiple pages, each preceded by "=== <url>", and then a SIGNALS section stating what the site actually supports.
 
@@ -80,7 +80,7 @@ export function sanitizeGoals(raw: Record<string, unknown> | null): string[] {
 }
 
 /** The corpus: the pages read, then the run's own findings as SIGNALS. */
-export function goalsCorpus(pages: Page[], signals: GoalSignals): string {
+function goalsCorpus(pages: Page[], signals: GoalSignals): string {
   const categories = signals.categories.filter(Boolean);
   return (
     `${llmCorpus(pages)}\n\n=== SIGNALS\n` +

@@ -343,7 +343,7 @@ pass the ids straight through to \`services\`/\`ids\`, instead of asking them to
  * instructing the model about cards it cannot draw is how you get an apology
  * instead of a card.
  */
-export function cardRulesSection(cards: CardGuidance[], opts: { hasBookingOrSocial: boolean } = { hasBookingOrSocial: false }): string {
+function cardRulesSection(cards: CardGuidance[], opts: { hasBookingOrSocial: boolean } = { hasBookingOrSocial: false }): string {
   const lines = cards
     .filter((c) => c.reason.trim())
     // Custom cards share one tool, so the key is part of the instruction:

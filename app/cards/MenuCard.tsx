@@ -210,7 +210,7 @@ function MenuRow({ item, first }: { item: MenuItemData; first: boolean }) {
 }
 
 /** The choices a modifier's defaults preselect, so a quick Add is a complete line. */
-export function defaultChoices(item: MenuItemData): LineChoice[] {
+function defaultChoices(item: MenuItemData): LineChoice[] {
   return item.modifiers
     .filter((m) => m.defaults.length)
     .map((m) => ({ modifier: m.name, picks: m.defaults.slice(0, m.max) }));

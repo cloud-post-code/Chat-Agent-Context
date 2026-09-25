@@ -166,7 +166,7 @@ function stripOrgTag(name: string): string {
  * Clean one display name as it appeared in a header. Returns "" for names that
  * carry no information — empty, or a mail client echoing the address back.
  */
-export function cleanName(raw: string, address: string): string {
+function cleanName(raw: string, address: string): string {
   let name = (raw ?? "").replace(/\s+/g, " ").trim();
   // Some clients quote the whole display name; mailparser usually unwraps this
   // but a raw header may not have been through it.
@@ -232,9 +232,9 @@ export function pickName(variants: string[], address: string): string {
 }
 
 /** Bodies kept per contact for the note prompt. Bounds prompt size. */
-export const MAX_BODIES_PER_CONTACT = 8;
+const MAX_BODIES_PER_CONTACT = 8;
 /** Subjects kept per contact for the note prompt. */
-export const MAX_SUBJECTS_PER_CONTACT = 25;
+const MAX_SUBJECTS_PER_CONTACT = 25;
 
 /**
  * Fold a batch of sent messages into one draft per distinct person.

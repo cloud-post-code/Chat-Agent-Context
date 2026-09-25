@@ -61,20 +61,6 @@ export const brand = {
   },
 } as const;
 
-/** Emit the palette as CSS variables for globals.css. */
-export function themeCssVars(): string {
-  const c = brand.color;
-  return `
-    --bg:${c.bg}; --bg-soft:${c.bgSoft}; --surface:${c.surface}; --border:${c.border};
-    --text:${c.text};
-    --primary:${c.primary}; --primary-soft:${c.primarySoft}; --accent:${c.accent};
-    --success:${c.success}; --danger:${c.danger};
-    --radius-sm:${brand.radius.sm}; --radius-md:${brand.radius.md};
-    --radius-lg:${brand.radius.lg}; --radius-pill:${brand.radius.pill};
-    --glow-primary:${brand.glow.primary}; --glow-accent:${brand.glow.accent};
-  `.trim();
-}
-
 /**
  * Corner-roundness presets. Each drives the --radius-* CSS tokens so the whole
  * site (buttons, cards, inputs) shares one curvature. Shown in the admin
@@ -85,7 +71,7 @@ export function themeCssVars(): string {
  * squares them off too: leaving them at 999px was the one thing the picker
  * could never restyle, so "Sharp" still rendered a page full of capsules.
  */
-export const RADIUS_PRESETS = {
+const RADIUS_PRESETS = {
   sharp: { label: "Sharp", sm: "2px", md: "3px", lg: "4px", pill: "3px" },
   rounded: { label: "Rounded (default)", sm: "8px", md: "14px", lg: "22px", pill: "999px" },
   pill: { label: "Pill (extra soft)", sm: "14px", md: "22px", lg: "32px", pill: "999px" },
@@ -273,7 +259,7 @@ function luminance(h: string): number {
 }
 
 /** True when a surface is light enough that it needs dark text on top. */
-export function isLight(h: string): boolean {
+function isLight(h: string): boolean {
   return luminance(h) > 0.45;
 }
 
@@ -626,11 +612,3 @@ export function themeOverrideCss(opts: {
   return `:root:root{${themeVarLines(opts)}}`;
 }
 
-/** The starter questions shown as chips under the chat box. No emojis. */
-export const starterQuestions = [
-  { q: "What's your background and past experience?" },
-  { q: "Tell me about yourself and how you see the world." },
-  { q: "How can I connect with you?" },
-  { q: "What are your recent projects?" },
-  { q: "Show me a bit about your life?" },
-];

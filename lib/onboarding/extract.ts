@@ -7,9 +7,7 @@ import { themeCorpus } from "./themeCorpus";
 import { DAYS, emptyHours, serializeHours } from "./hours";
 import type { Hours } from "./hours";
 
-export { DAYS, emptyHours, serializeHours } from "./hours";
-export type { Hours } from "./hours";
-
+export { DAYS, emptyHours } from "./hours";
 /**
  * Steps 1 and 2 of guided onboarding: model extraction over the crawled site.
  * Every field the site doesn't state stays EMPTY — the form is the user's to
@@ -41,7 +39,7 @@ export type ThemeExtract = {
   themeLogo: string;
 };
 
-export const CORE_SYSTEM_PROMPT = `You find a business's core contact details in text extracted from its website. The text contains multiple pages, each preceded by "=== <url>".
+const CORE_SYSTEM_PROMPT = `You find a business's core contact details in text extracted from its website. The text contains multiple pages, each preceded by "=== <url>".
 
 Rules:
 - Report ONLY what the text literally states. Never guess or infer; a detail the text does not state stays "".
@@ -100,7 +98,7 @@ export function mergeLocation(locations: Location[], loc: Location): void {
 
 // ── Theme ──
 
-export const THEME_SYSTEM_PROMPT = `You read what a website's rendered pages state about their visual theme. The input has a "RENDERED:" section (computed styles measured in a real browser: page background, text color, body font, prominent saturated fills with how many elements carry each, and control corner radius), a "CSS:" section (the site's own stylesheet text), and an "IMAGES:" section (one image per line: url | class | alt).
+const THEME_SYSTEM_PROMPT = `You read what a website's rendered pages state about their visual theme. The input has a "RENDERED:" section (computed styles measured in a real browser: page background, text color, body font, prominent saturated fills with how many elements carry each, and control corner radius), a "CSS:" section (the site's own stylesheet text), and an "IMAGES:" section (one image per line: url | class | alt).
 
 Rules:
 - Report ONLY what the input states. A value you cannot find stays "".
@@ -121,7 +119,6 @@ const HEX_VALUE = /^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/;
 
 const hexOr = (v: unknown): string | undefined =>
   typeof v === "string" && HEX_VALUE.test(v.trim()) ? v.trim() : undefined;
-
 
 /** Closest supported theme values, extracted by the model from the site's own
  *  CSS and image list, then validated against the app's supported values. */

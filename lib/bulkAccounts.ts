@@ -14,19 +14,19 @@ import type { User } from "@prisma/client";
 export const USERNAME_DOMAIN = "bulk.invalid";
 
 /** Lowercased hostname, "www." stripped. Throws on an unparseable url. */
-export function hostOf(url: string): string {
+function hostOf(url: string): string {
   const host = new URL(url).hostname.toLowerCase();
   return host.replace(/^www\./, "");
 }
 
 /** slugify() over the hostname — e.g. "acme-plumbing.com" -> "acme-plumbing-com". */
-export function usernameBase(url: string): string {
+function usernameBase(url: string): string {
   return slugify(hostOf(url));
 }
 
 /** The email a login identifier maps to: as-is if it already has an "@",
  *  else stitched onto the reserved bulk-account domain. */
-export function loginEmailFor(identifier: string): string {
+function loginEmailFor(identifier: string): string {
   const id = identifier.trim().toLowerCase();
   return id.includes("@") ? id : `${id}@${USERNAME_DOMAIN}`;
 }

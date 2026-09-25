@@ -54,6 +54,7 @@ Details: `docs/TESTING.md`.
 ## Scoped guides
 | Area | File |
 |---|---|
+| `lib/` module map, invariants, theme rules | `lib/CLAUDE.md` |
 | feature queue and proofs | `docs/features/CLAUDE.md` |
 | testing layers | `docs/TESTING.md` |
 | agent behaviour | `agent.md` |

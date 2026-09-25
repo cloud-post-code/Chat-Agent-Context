@@ -17,7 +17,7 @@ import {
  * computed here, never the ones the visitor's browser drew.
  */
 
-export type OrderContact = { name: string; phone: string; email: string };
+type OrderContact = { name: string; phone: string; email: string };
 
 export type OrderInput = {
   lines: CartLineInput[];

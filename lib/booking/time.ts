@@ -122,7 +122,3 @@ export function formatInZone(d: Date, tz: string, opts?: Intl.DateTimeFormatOpti
   }
 }
 
-/** Compare two DayKeys by their position in the week (mon first) — a small helper other modules reuse. */
-export function dayKeyIndex(k: DayKey): number {
-  return DAY_KEYS.indexOf(k);
-}

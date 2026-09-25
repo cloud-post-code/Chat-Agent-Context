@@ -125,7 +125,7 @@ export function CartProvider({ slug, children }: { slug: string; children: React
   return <CartContext.Provider value={store}>{children}</CartContext.Provider>;
 }
 
-export function useCartStore(): CartStore {
+function useCartStore(): CartStore {
   const ctx = useContext(CartContext);
   if (ctx) return ctx;
   if (!fallback) fallback = new CartStore(null);

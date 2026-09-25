@@ -8,8 +8,6 @@ import { inputStyle, linkBtn, liveBtn, sectionLabel, Tile } from "./ui";
 import { stepFrame } from "./ServiceStep";
 
 import { offeringLocations } from "@/lib/booking/flowSteps";
-export { offeringLocations, locationChoiceReal } from "@/lib/booking/flowSteps";
-
 function todaysHours(loc: LocationRow, flow: BookingFlow): string {
   const hours = loc.hours ?? flow.rules.hours;
   const weekday = zonedParts(new Date(), loc.timezone || flow.business.timezone).weekday;

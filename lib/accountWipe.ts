@@ -78,7 +78,7 @@ const UPLOAD_URL = /\/api\/uploads\/([a-f0-9-]+\.(?:jpg|png|webp|gif|pdf))/gi;
  * here. Filenames are per-upload UUIDs, so nothing found is shared with
  * another account.
  */
-export async function collectUploadFilenames(userId: string): Promise<Set<string>> {
+async function collectUploadFilenames(userId: string): Promise<Set<string>> {
   const where = { where: { userId } };
   const [photos, services, staff, rows] = await Promise.all([
     prisma.photo.findMany({ ...where, select: { filename: true } }),

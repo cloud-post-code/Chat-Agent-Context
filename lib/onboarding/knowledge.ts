@@ -38,7 +38,7 @@ export type BlogReport = {
   feedCount: number | null;
   paginationPages: string[];
 };
-export type TestimonialItem = {
+type TestimonialItem = {
   quote: string;
   author: string;
   title: string;

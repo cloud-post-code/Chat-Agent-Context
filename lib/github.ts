@@ -28,7 +28,7 @@ export type ProjectEnrichment = {
 };
 
 /** Pull the username out of a github.com profile URL, or accept a bare handle. */
-export function githubUsername(input: string): string | null {
+function githubUsername(input: string): string | null {
   const s = input.trim();
   if (!s) return null;
   // github.com/<user>  (optionally with protocol / trailing path)

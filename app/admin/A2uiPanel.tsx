@@ -3,7 +3,8 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { Cards } from "@/app/cards/Cards";
-import { parseSampleBlock, type UiCardRow } from "@/lib/uiCards";
+import { parseSampleBlock } from "@/lib/uiCards.parse";
+import type { UiCardRow } from "@/lib/uiCards";
 import { deleteCard } from "./actions";
 import { PendingButton } from "./PendingButton";
 import { SiteCardsButton, SiteCardsLog, useSiteCardsRun } from "./SiteCardsRun";
