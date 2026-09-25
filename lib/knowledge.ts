@@ -122,9 +122,10 @@ async function promptSections(userId: string, query: string | undefined, data: P
       ? `${photos.length} photo(s) available.`
       : "(No photos uploaded yet.)";
 
-  const personaBlock =
-    personaPromptBlock(personaConfig.personaSections) ||
-    "Warm, curious, a builder at heart. Enthusiastic about making useful things. Speaks plainly, with a bit of playful energy.";
+  // "" when the owner has written no persona yet — a generic personality
+  // dressed up as this business's own would be exactly the kind of invented
+  // content this prompt tells the model never to produce about anything else.
+  const personaBlock = personaPromptBlock(personaConfig.personaSections);
 
   const owner = profile.owner_name.trim();
   const company = profile.company_name.trim() || owner || "this business";
@@ -170,10 +171,7 @@ export async function buildSystemPrompt(userId: string, query?: string): Promise
   } = await promptSections(userId, query, data);
 
   return `You are the AI host for ${company}'s website. You speak on ${speaker}'s behalf to visitors — friendly, helpful, and genuine, never corporate.
-
-PERSONA (who you are and how you behave — follow it in every answer):
-${personaBlock}
-
+${personaBlock ? `\nPERSONA (who you are and how you behave — follow it in every answer):\n${personaBlock}\n` : ""}
 WHO YOU ARE:
 ${company}${personaConfig.tagline ? ` — ${personaConfig.tagline}` : ""}${
     owner ? ` Owned and run by ${owner}.` : ""

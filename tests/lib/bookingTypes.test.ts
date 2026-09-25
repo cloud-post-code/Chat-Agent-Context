@@ -117,10 +117,15 @@ describe("sanitizers", () => {
     expect(s.tips.presets).toEqual([10, 20]);
     expect("promoCodes" in T.publicRules(s)).toBe(false);
     expect(T.publicRules(s).hasPromoCodes).toBe(true);
+    // No hours stated: an empty week, never an invented one — nothing is
+    // offered as bookable until the business's real hours are known.
     const defaults = T.sanitizeBookingSettings({});
-    expect(defaults.hours.mon[0].start).toBe("09:00");
+    expect(defaults.hours.mon).toHaveLength(0);
     expect(defaults.hours.sat).toHaveLength(0);
     expect(defaults.confirmation).toBe("instant");
+    const stated = T.sanitizeBookingSettings({ hours: { mon: [{ start: "09:00", end: "17:00" }] } });
+    expect(stated.hours.mon[0].start).toBe("09:00");
+    expect(stated.hours.tue).toHaveLength(0);
     const ch = T.sanitizeBookingSettings({ channels: ["phone", "fax", "phone", "walk_in"], confirmation: "request", confirmationOwner: "yes" });
     expect(ch.channels).toEqual(["phone", "walk_in"]);
     expect(ch.confirmation).toBe("request");

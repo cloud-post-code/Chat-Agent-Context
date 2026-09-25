@@ -288,6 +288,9 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     // A hand-written form with a menu question: every field, contact ones
     // included, is what the card asks; no service is derived from the menu.
     await prisma.profile.upsert({ where: { userId: menuUser.id }, update: { bookingEnabled: true }, create: { userId: menuUser.id, bookingEnabled: true } });
+    // No hours stated means no bookable slots (lib/booking/types.ts no longer
+    // invents a Mon–Fri default), so this tenant needs its own.
+    await S.saveBookingSettings(menuUser.id, { hours: weekdays() });
     await Ap.saveAppointmentField(menuUser.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
     await Ap.saveAppointmentField(menuUser.id, { key: "email", label: "Your email", type: "email", required: true, role: "email" });
     await Ap.saveAppointmentField(menuUser.id, {

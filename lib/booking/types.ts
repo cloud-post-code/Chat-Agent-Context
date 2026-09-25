@@ -707,11 +707,6 @@ function sanitizeMemberships(raw: unknown): Membership[] {
 
 export const DEFAULT_TIMEZONE = "America/New_York";
 
-export function defaultWeeklyHours(): WeeklyHours {
-  const day: HoursRange[] = [{ start: "09:00", end: "17:00" }];
-  return { mon: day, tue: day, wed: day, thu: day, fri: day, sat: [], sun: [] };
-}
-
 export function isValidTimezone(tz: unknown): tz is string {
   if (typeof tz !== "string" || !tz) return false;
   try {
@@ -737,11 +732,14 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
     const label = flat(item.label, 60);
     holidays.push(label ? { date: item.date, label } : { date: item.date });
   }
-  const hours = sanitizeWeeklyHours(src.hours);
   return {
     timezone: isValidTimezone(src.timezone) ? src.timezone : DEFAULT_TIMEZONE,
     currency: /^[A-Z]{3}$/.test(String(src.currency ?? "")) ? String(src.currency) : "USD",
-    hours: DAY_KEYS.some((d) => hours[d].length) ? hours : defaultWeeklyHours(),
+    // An all-empty week is left as is: it means nobody has said what the
+    // business's real hours are yet, and offering slots against a guessed
+    // schedule (or an owner's deliberate "closed for now") is worse than
+    // offering none until the real hours are set.
+    hours: sanitizeWeeklyHours(src.hours),
     holidays: holidays.slice(0, 100),
     slotIntervalMinutes: [5, 10, 15, 20, 30, 45, 60, 90, 120].includes(int(src.slotIntervalMinutes, 5, 120, 30))
       ? int(src.slotIntervalMinutes, 5, 120, 30)

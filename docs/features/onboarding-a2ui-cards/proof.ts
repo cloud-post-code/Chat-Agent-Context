@@ -103,7 +103,7 @@ const DRAFT = {
   sampleBlock: JSON.stringify(DRAFT_BLOCK),
 };
 
-const SIGNALS_ON = { photos: 2, projects: 0, takesAppointments: true, contactChannels: ["email"], categories: ["services"] };
+const SIGNALS_ON = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: ["services"], hasKnowledge: true };
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
@@ -267,6 +267,13 @@ async function main() {
       5,
     );
     check("projects survives when projects exist", projectsKept.cards.length === 1);
+    const designedNoKnowledge = sanitizeCardPlan(
+      { cards: [{ kind: "designed", label: "Meet the team", reason: "When asked who runs it", brief: "the team", questions: [] }] },
+      { ...SIGNALS_ON, hasKnowledge: false },
+      5,
+    );
+    check("a designed card is dropped when nothing was ever actually extracted",
+      designedNoKnowledge.cards.length === 0, JSON.stringify(designedNoKnowledge));
 
     // ── 3. Sanitizer: caps, dedup, question numbers ──
     const many = sanitizeCardPlan(

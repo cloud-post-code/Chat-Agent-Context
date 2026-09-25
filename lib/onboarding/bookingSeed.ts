@@ -11,7 +11,6 @@ import {
   pricingFromText,
   sanitizeAddons,
   DEFAULT_TIMEZONE,
-  defaultWeeklyHours,
   type BookingChannel,
   type Pricing,
   type Deposit,
@@ -557,9 +556,16 @@ export async function seedSettings(
 
   try {
     const timezone = timezoneFromAddress(opts.address || "") ?? DEFAULT_TIMEZONE;
-    const hours = (opts.hours ? weeklyHoursFrom(opts.hours) : null) ?? defaultWeeklyHours();
-    await saveBookingSettings(userId, { timezone, hours });
-    log(`Booking: timezone set to ${timezone}`);
+    // No invented hours: a business whose site states none gets an empty
+    // week — no slots offered — rather than a guessed Mon–Fri 9–5 shown to
+    // visitors as if it were real.
+    const hours = opts.hours ? weeklyHoursFrom(opts.hours) : null;
+    await saveBookingSettings(userId, hours ? { timezone, hours } : { timezone });
+    log(
+      hours
+        ? `Booking: timezone set to ${timezone}`
+        : `Booking: timezone set to ${timezone} — no hours found on your site, so nothing will show as bookable until you set them`,
+    );
     return { seeded: true };
   } catch (err) {
     log(`Booking: couldn't set up booking settings — ${errMsg(err)}`);

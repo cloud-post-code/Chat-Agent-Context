@@ -117,8 +117,12 @@ and an order write path the server validates from the menu on file.
 - `CARD_TOOLS` gains `show_menu` and `show_cart`; sample types `menu` and
   `cart` are storable; the card builder accepts them as live-data routes.
 - The onboarding planner (and the site-cards planner) gains kind `menu`, gated
-  on items on file. It is told: plan `menu` when the business sells things a
-  visitor picks several of (dishes, products, treatments with add-ons); a plain
+  on items on file AND on at least one item carrying a real fulfillment other
+  than `appointment` (`CardSignals.menuOrderable`) — an appointment-only
+  service list stays `services`, whatever add-ons it has, since there is
+  nothing to check out without booking a visit. It is told: plan `menu` when
+  the business sells things a visitor picks several of and can buy on the
+  spot (dishes, products, treatments with add-ons sold on their own); a plain
   list booked one at a time keeps `services`; never both — `menu` wins.
 
 ## Scope
