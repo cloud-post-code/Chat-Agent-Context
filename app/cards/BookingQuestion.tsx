@@ -104,7 +104,7 @@ function TextInput({ field, value, onChange, onEnter, inputStyle }: InputProps) 
   const shared = {
     value: String(value ?? ""),
     onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => onChange(e.target.value),
-    placeholder: field.required ? "Required" : "Optional",
+    placeholder: field.config?.placeholder || (field.required ? "Required" : "Optional"),
     "aria-label": field.label,
     autoFocus: true,
   };
@@ -338,7 +338,7 @@ function NumberInput({ field, value, onChange, onEnter, inputStyle }: InputProps
         onKeyDown={(e) => e.key === "Enter" && onEnter()}
         inputMode="numeric"
         aria-label={field.label}
-        placeholder={field.required ? "Required" : "Optional"}
+        placeholder={field.config?.placeholder || (field.required ? "Required" : "Optional")}
         autoFocus
         style={{ ...inputStyle, width: 96, textAlign: "center" }}
       />
@@ -399,7 +399,7 @@ function AddressInput({ field, value, onChange, onEnter, inputStyle }: InputProp
       value={typeof value === "string" ? value : ""}
       onChange={(e) => onChange(e.target.value)}
       onKeyDown={(e) => e.key === "Enter" && onEnter()}
-      placeholder={field.required ? "Required" : "Optional"}
+      placeholder={field.config?.placeholder || (field.required ? "Required" : "Optional")}
       aria-label={field.label}
       autoFocus
       style={inputStyle}
