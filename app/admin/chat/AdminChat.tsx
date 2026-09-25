@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readNdjson } from "@/lib/client/ndjson";
 import { useRouter } from "next/navigation";
 import { Markdown } from "@/app/Markdown";
 import type { ElementReveal, FocusedEdit, IngestProposal } from "@/lib/adminBrain";
@@ -86,9 +87,6 @@ export function AdminChat({
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       let acc = "";
       const items: ChatItem[] = [];
       let wrote = false;
@@ -100,32 +98,16 @@ export function AdminChat({
           return copy;
         });
 
-      const flush = (chunk: string) => {
-        buffer += chunk;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const l of lines) {
-          if (!l.trim()) continue;
-          try {
-            const obj = JSON.parse(l);
-            if (obj.t === "text") acc += obj.v;
-            else if (obj.t === "panel") items.push({ kind: "panel", key: String(obj.v) });
-            else if (obj.t === "elements") items.push({ kind: "elements", reveal: obj.v });
-            else if (obj.t === "approve") items.push({ kind: "approve", proposal: obj.v });
-            else if (obj.t === "edit") items.push({ kind: "edit", edit: obj.v });
-            else if (obj.t === "goal") wrote = true;
-          } catch {
-            /* partial line — ignore */
-          }
-        }
-        apply();
+      const onEvent = (obj: { t: string; v?: unknown }) => {
+        if (obj.t === "text") acc += String(obj.v ?? "");
+        else if (obj.t === "panel") items.push({ kind: "panel", key: String(obj.v) });
+        else if (obj.t === "elements") items.push({ kind: "elements", reveal: obj.v as Extract<ChatItem, { kind: "elements" }>["reveal"] });
+        else if (obj.t === "approve") items.push({ kind: "approve", proposal: obj.v as Extract<ChatItem, { kind: "approve" }>["proposal"] });
+        else if (obj.t === "edit") items.push({ kind: "edit", edit: obj.v as Extract<ChatItem, { kind: "edit" }>["edit"] });
+        else if (obj.t === "goal") wrote = true;
       };
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        flush(decoder.decode(value, { stream: true }));
-      }
+      await readNdjson(res.body, onEvent, apply);
       // A tool wrote data mid-chat: refresh so every revealed panel shows it.
       if (wrote) router.refresh();
     } catch {

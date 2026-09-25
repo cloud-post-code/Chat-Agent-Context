@@ -18,7 +18,7 @@
  * serve them (ANTHROPIC_API_KEY / PROOF_BASE_URL set).
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 type Need = "db" | "model" | "http";
@@ -49,13 +49,25 @@ function proofPath(e: Entry): string | null {
 }
 
 function detectNeeds(file: string): Need[] {
-  // Read every script in the feature dir: a proof that dynamic-imports its
-  // sections (booking-flow/proof.sections.ts) needs what they need.
+  // The proof plus the sibling scripts it imports (booking-flow's
+  // proof.sections.ts) — not every file in the folder, since live.ts /
+  // crosscheck.ts are opt-in model runs the proof itself never touches.
   const dir = path.dirname(file);
-  const src = readdirSync(dir)
-    .filter((n) => /\.ts$/.test(n))
-    .map((n) => readFileSync(path.join(dir, n), "utf8"))
-    .join("\n");
+  const seen = new Set<string>();
+  const queue = [file];
+  let src = "";
+  while (queue.length) {
+    const f = queue.pop()!;
+    if (seen.has(f) || !existsSync(f)) continue;
+    seen.add(f);
+    const text = readFileSync(f, "utf8");
+    src += "\n" + text;
+    for (const m of text.matchAll(/(?:from|import)\s*\(?\s*["'](\.[^"']+)["']/g)) {
+      const base = path.resolve(path.dirname(f), m[1]);
+      if (!base.startsWith(dir + path.sep)) continue; // lib/ imports are the app, not the proof's needs
+      for (const cand of [base, base + ".ts", base + ".tsx"]) if (existsSync(cand)) queue.push(cand);
+    }
+  }
   const needs = new Set<Need>();
   if (/@\/lib\/db|lib\/db["']|new PrismaClient|prisma\./.test(src)) needs.add("db");
   if (/ANTHROPIC_API_KEY|--live|\bclaude\(\)|Anthropic\(/.test(src)) needs.add("model");

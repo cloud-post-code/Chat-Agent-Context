@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { readNdjson } from "@/lib/client/ndjson";
 import { useRouter } from "next/navigation";
 import { field, btn } from "./ui";
 
@@ -61,29 +62,17 @@ export function GithubImport() {
       });
       if (!res.ok || !res.body) throw new Error(`Import failed (${res.status}).`);
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const raw of lines) {
-          if (!raw.trim()) continue;
-          const msg = JSON.parse(raw);
-          if (msg.t === "start") {
-            total = msg.total;
-            skipped = msg.skipped;
-            setStatus({ kind: "running", total, skipped });
-          } else if (msg.t === "project") {
-            setImported((prev) => [...prev, msg.v as ImportedProject]);
-          } else if (msg.t === "error") {
-            throw new Error(String(msg.v));
-          }
+      await readNdjson<{ t: string; v?: unknown; total?: number; skipped?: number }>(res.body, (msg) => {
+        if (msg.t === "start") {
+          total = msg.total ?? 0;
+          skipped = msg.skipped ?? 0;
+          setStatus({ kind: "running", total, skipped });
+        } else if (msg.t === "project") {
+          setImported((prev) => [...prev, msg.v as ImportedProject]);
+        } else if (msg.t === "error") {
+          throw new Error(String(msg.v));
         }
-      }
+      });
       setStatus({ kind: "done", total, skipped });
       // Refresh the server-rendered project list below so it includes the new rows.
       router.refresh();

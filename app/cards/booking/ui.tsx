@@ -1,14 +1,14 @@
 "use client";
 
 /**
- * Shared A2UI bits for the booking flow card: the same idiom as
- * app/cards/Cards.tsx (inline styles, CSS variables, the `card`/`picked`
- * conventions) duplicated here rather than imported, so this directory never
- * has to import from Cards.tsx (which imports BookingFlowCard — importing
- * back would be a cycle).
+ * Shared A2UI bits for the booking cards. The idiom is app/cards/styles.ts
+ * (inline styles, CSS variables); what is identical is re-exported from
+ * there, and only the booking-specific variants (longhand borders that
+ * merge with `picked`, the 40px stepper) are defined here.
  */
 
 import type React from "react";
+export { liveBtn, textBtn } from "../styles";
 
 export const card: React.CSSProperties = {
   background: "var(--bg-soft)",
@@ -54,22 +54,6 @@ export const linkBtn: React.CSSProperties = {
   textDecoration: "none",
   cursor: "pointer",
   minHeight: 40,
-};
-
-export const liveBtn: React.CSSProperties = {
-  background: "var(--primary)",
-  color: "var(--on-primary)",
-  border: "none",
-};
-
-export const textBtn: React.CSSProperties = {
-  background: "none",
-  border: "none",
-  padding: 0,
-  fontSize: 13,
-  color: "var(--accent-on-bg-soft)",
-  textDecoration: "underline",
-  cursor: "pointer",
 };
 
 export const inputStyle: React.CSSProperties = {
