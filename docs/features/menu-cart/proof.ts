@@ -4,9 +4,10 @@
  *
  * Section A drives the pure rules. B–F run the real extractor (its llm seam
  * doubled), the real hydration, the real brain (its model client scripted),
- * the real order path and the real planner sanitizer against the local dev
- * Postgres under throwaway users. G renders the real cards to static markup.
- * Everything made is deleted at the end.
+ * the real order path (a timed order books through `createBooking` against
+ * the tenant's own role-tagged form) and the real planner sanitizer against
+ * the local dev Postgres under throwaway users. G renders the real cards to
+ * static markup. Everything made is deleted at the end.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -95,8 +96,12 @@ const EXTRACTION = {
     { name: BREAD, description: "Toasted with garlic butter.", price: "$6", duration: "", category: "Starters", menu: { dietaryTags: ["vegetarian"], quantityMax: 3, fulfillment: ["pickup", "delivery", "dine_in"] } },
     { name: SOUP, description: "Ask your server.", price: "", duration: "", category: "Starters", menu: { priceType: "market", availability: "unavailable" } },
   ],
-  booking: { takesAppointments: true, kind: "table", staff: [], phone: "required", email: "optional", notes: true, requirements: [] },
+  booking: { takesAppointments: true, channels: ["online"] },
 };
+
+const ALL_HOURS = { start: "00:00", end: "23:59" };
+/** Open round the clock, so a timed order a day from now always has a slot. */
+const ALWAYS_OPEN = { mon: [ALL_HOURS], tue: [ALL_HOURS], wed: [ALL_HOURS], thu: [ALL_HOURS], fri: [ALL_HOURS], sat: [ALL_HOURS], sun: [ALL_HOURS] };
 
 type MenuBlock = { type: "menu"; title: string; full: boolean; items: { key: string; name: string; category: string }[]; checkout: { fulfillment: string[]; contact: { phone: string; email: string } } };
 
@@ -111,7 +116,8 @@ async function main() {
   const { CARD_TOOLS, normalizeQuestion } = await import("../../../lib/canned");
   const { writeUiCard, parseSampleBlock } = await import("../../../lib/uiCards");
   const { sanitizeCardPlan } = await import("../../../lib/onboarding/cards");
-  const { listAppointments } = await import("../../../lib/appointments");
+  const { saveAppointmentField } = await import("../../../lib/appointments");
+  const { listBookings, saveBookingSettings } = await import("../../../lib/booking/store");
   const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
   const { SERVICES_SOURCE_TITLE } = await import("../../../lib/serviceCatalog");
   const { saveKnowledgeRecord } = await import("../../../lib/onboarding/knowledge");
@@ -203,9 +209,15 @@ async function main() {
 
     // ══ C. Hydration ═══════════════════════════════════════════════════════
     {
+      // The site had no booking form to copy, so the form is the tenant's
+      // own: one required phone question. Checkout asks what the form asks.
+      const noForm = (await M.menuBlock(u.id, {})) as MenuBlock;
+      check("C1 with no form on file, checkout asks for an email (the one contact it must have)", noForm.checkout.contact.email === "required" && noForm.checkout.contact.phone === "off", JSON.stringify(noForm.checkout));
+      await saveAppointmentField(u.id, { key: "phone", label: "Your phone number", type: "phone", required: true, role: "phone" });
+      await saveBookingSettings(u.id, { hours: ALWAYS_OPEN });
       const full = (await M.menuBlock(u.id, {})) as MenuBlock;
       check("C1 no filter → the full menu, titled Menu", full.type === "menu" && full.full && full.items.length === 4 && full.title === "Menu");
-      check("C1 …with checkout read from the menu and the booking form", full.checkout.fulfillment.join() === "pickup,delivery,dine_in" && full.checkout.contact.phone === "required", JSON.stringify(full.checkout));
+      check("C1 …with checkout read from the menu and the booking form's own phone/email questions", full.checkout.fulfillment.join() === "pickup,delivery,dine_in" && full.checkout.contact.phone === "required" && full.checkout.contact.email === "off", JSON.stringify(full.checkout));
       const picks = (await M.menuBlock(u.id, { keys: ["bramblewick-garlic-bread", "ghost", "bramblewick-chicken-parmigiana"], title: "For two" })) as MenuBlock;
       check("C2 keys → a curated list in the model's order, unknown keys dropped", !picks.full && picks.items.map((i) => i.name).join("|") === `${BREAD}|${PARM}` && picks.title === "For two");
       const vegan = (await M.menuBlock(u.id, { tags: ["vegan"] })) as MenuBlock;
@@ -273,27 +285,36 @@ async function main() {
       check("E2 dine-in without a time; a past time", /Pick a time/.test(await rej({ lines: [lines[1]], contact, fulfillment: "dine_in" })) && /future/.test(await rej({ lines: [lines[1]], contact, fulfillment: "dine_in", startsAt: "2000-01-01T10:00:00Z" })));
       check("E2 an empty cart", /empty/.test(await rej({ lines: [], contact, fulfillment: "pickup" })));
       // A timed order lands on the calendar too, through the real booking path
-      // (the extractor planned a "table" form: name, phone, email, party size…).
+      // (`createBooking`), answering the tenant's form by its fields' roles —
+      // here the one phone question seeded in section C.
       const soon = new Date(Date.now() + 86_400_000);
       soon.setMinutes(0, 0, 0);
       const timed = await O.createOrder(u.id, { lines: [lines[1]], contact: { ...contact, email: "diner@example.invalid" }, fulfillment: "dine_in", startsAt: soon.toISOString(), notes: "window seat" });
-      const fields = (await prisma.appointmentField.findMany({ where: { userId: u.id } })).map((f) => `${f.key}${f.required ? "*" : ""}`);
-      const appts = await listAppointments(u.id);
-      const required = fields.filter((f) => f.endsWith("*"));
-      const canBook = required.every((f) => /^(name|phone|email)\*$/.test(f));
-      check(`E3 a timed order is saved${canBook ? " and booked on the calendar" : " (form asks more than the order knows: no calendar entry)"}`, timed.ok && (canBook ? timed.appointmentId !== null && appts.some((a) => a.id === timed.appointmentId) : timed.appointmentId === null), `fields ${fields.join(",")} → ${JSON.stringify(timed)}`);
-      // A tenant whose form asks only what an order knows: the timed order books.
+      const appts = await listBookings(u.id);
+      const onCalendar = timed.ok && timed.appointmentId ? appts.find((a) => a.id === timed.appointmentId) : null;
+      check("E3 a timed order is saved and booked on the calendar, the phone landing on the phone-role field", timed.ok && !!onCalendar && onCalendar.customer.phone === "555-0100" && onCalendar.answers.phone === "555-0100", JSON.stringify(timed) + JSON.stringify(onCalendar));
+      // A tenant whose form asks name, phone, a menu and notes: the timed
+      // order answers every one of them by role and books.
       const salon = await mkUser("salon");
       await saveKnowledgeRecord(salon.id, { url: "https://salon.invalid/services", title: SERVICES_SOURCE_TITLE, kind: onboardingIngestKind("services"), rawText: formatServiceCatalog([{ name: "Quillmere Gel Manicure", description: "$40." }]) }, ["Quillmere Gel Manicure. $40."]);
+      await saveBookingSettings(salon.id, { hours: ALWAYS_OPEN });
       await prisma.appointmentField.createMany({ data: [
-        { userId: salon.id, key: "name", label: "Your name", type: "short_text", required: true, order: 0 },
-        { userId: salon.id, key: "phone", label: "Your phone number", type: "phone", required: true, order: 1 },
-        { userId: salon.id, key: "service", label: "Which services would you like?", type: "multi_select", required: true, order: 2, config: JSON.stringify({ options: [{ label: "Quillmere Gel Manicure", price: "$40" }], allowOther: true }) },
-        { userId: salon.id, key: "notes", label: "Anything we should know?", type: "long_text", required: false, order: 3 },
+        { userId: salon.id, key: "name", label: "Your name", type: "short_text", required: true, order: 0, role: "name", screen: 1 },
+        { userId: salon.id, key: "phone", label: "Your phone number", type: "phone", required: true, order: 1, role: "phone", screen: 1 },
+        { userId: salon.id, key: "service", label: "Which services would you like?", type: "multi_select", required: true, order: 2, role: "none", screen: 2, config: JSON.stringify({ options: [{ label: "Quillmere Gel Manicure", price: "$40" }], allowOther: true }) },
+        { userId: salon.id, key: "notes", label: "Anything we should know?", type: "long_text", required: false, order: 3, role: "notes", screen: 3 },
       ] });
       const booked = await O.createOrder(salon.id, { lines: [{ key: "quillmere-gel-manicure", quantity: 2, choices: [], note: "" }], contact: { name: "Proof Client", phone: "555-0101" }, startsAt: soon.toISOString(), notes: "first visit" });
-      const booking = booked.ok && booked.appointmentId ? (await listAppointments(salon.id)).find((a) => a.id === booked.appointmentId) : null;
-      check("E3 …and on a form the order can answer, it books through the real path with the picks and notes", !!booking && /Quillmere Gel Manicure/.test(booking.answers.service ?? "") && /2 × Quillmere Gel Manicure/.test(booking.answers.notes ?? "") && booking.answers.phone === "555-0101", JSON.stringify(booked) + JSON.stringify(booking?.answers));
+      const booking = booked.ok && booked.appointmentId ? (await listBookings(salon.id)).find((a) => a.id === booked.appointmentId) : null;
+      check("E3 …and on a form with a menu and notes, it books through the real path with the picks and notes", !!booking && /Quillmere Gel Manicure/.test(booking.answers.service ?? "") && /2 × Quillmere Gel Manicure/.test(booking.answers.notes ?? "") && booking.answers.phone === "555-0101" && booking.customer.firstName === "Proof" && booking.customer.lastName === "Client", JSON.stringify(booked) + JSON.stringify(booking));
+      // A form that asks what an order can't answer gets no calendar entry;
+      // the order itself is still saved.
+      const strict = await mkUser("strict");
+      await saveKnowledgeRecord(strict.id, { url: "https://strict.invalid/services", title: SERVICES_SOURCE_TITLE, kind: onboardingIngestKind("services"), rawText: formatServiceCatalog([{ name: "Quillmere Gel Manicure", description: "$40." }]) }, ["Quillmere Gel Manicure. $40."]);
+      await saveBookingSettings(strict.id, { hours: ALWAYS_OPEN });
+      await saveAppointmentField(strict.id, { key: "party", label: "Party size", type: "number", required: true, config: { min: 1, max: 8 } });
+      const unbooked = await O.createOrder(strict.id, { lines: [{ key: "quillmere-gel-manicure", quantity: 1, choices: [], note: "" }], contact: { name: "Proof Client", phone: "555-0101" }, startsAt: soon.toISOString() });
+      check("E3 …while a form asking more than the order knows saves the order with no calendar entry", unbooked.ok && unbooked.appointmentId === null && (await listBookings(strict.id)).length === 0, JSON.stringify(unbooked));
       const count = await O.listOrders(u.id);
       check("E3 orders list newest first", count.length === 2 && count[0].startsAt !== null);
       await O.deleteOrder(u.id, count[1].id);

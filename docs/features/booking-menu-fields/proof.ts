@@ -3,10 +3,15 @@
  * Run: npx tsx --tsconfig docs/features/booking-menu-fields/tsconfig.proof.json docs/features/booking-menu-fields/proof.ts
  *
  * Section A exercises the pure rules. Sections B–D run the real store, the
- * real card hydration and the real onboarding stage against the local dev
- * Postgres under throwaway users (the scripted `llm` is the one doubled
- * boundary). Section E renders the real wizard to static markup and asserts
- * the controls the visitor is handed. Everything made is deleted at the end.
+ * real card hydration, the real booking transaction and the real onboarding
+ * stage against the local dev Postgres under throwaway users (the scripted
+ * `llm` is the one doubled boundary). Section E renders the real screen card
+ * to static markup and asserts the controls the visitor is handed.
+ * Everything made is deleted at the end.
+ *
+ * The menu is a question the OWNER writes — a select / multi_select with
+ * priced options — and the card draws it with those prices. Nothing plans or
+ * seeds a picker any more, and nothing is rewritten on read.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -49,10 +54,12 @@ const tomorrowAt = (h: number, m = 0) => {
   d.setHours(h, m, 0, 0);
   return d.toISOString();
 };
+const ALL_HOURS = { start: "00:00", end: "23:59" };
+const ALWAYS_OPEN = { mon: [ALL_HOURS], tue: [ALL_HOURS], wed: [ALL_HOURS], thu: [ALL_HOURS], fri: [ALL_HOURS], sat: [ALL_HOURS], sun: [ALL_HOURS] };
 
 async function main() {
   const T = await import("../../../lib/appointmentTypes");
-  const M = await import("../../../lib/bookingMenu");
+  const M = await import("../../../lib/serviceCatalog");
 
   // ══ A. The pure rules ═══════════════════════════════════════════════════
   {
@@ -147,36 +154,21 @@ async function main() {
     check("A4 yes/no takes nothing else", !T.resolveAnswer(yn, "maybe").ok);
   }
   {
+    // The menu facts read out of prose (lib/serviceCatalog.ts) — what the
+    // services seeder uses for a Service row's price, never a picker's.
     check("A5 one stated amount is the price", M.priceFromText("Classic gel polish. $35, about 45 minutes.") === "$35");
     check("A5 'starting at' is a floor", M.priceFromText("Full sets starting at $60") === "$60+");
     check("A5 several amounts are a floor at the lowest", M.priceFromText("Short $45, long $30") === "$30+");
     check("A5 no amount, no price", M.priceFromText("Ask us about pricing") === "");
     check("A5 one stated duration", M.durationFromText("Classic gel polish. $35, about 45 minutes.") === "45 minutes");
     check("A5 two durations are not guessed between", M.durationFromText("30 minutes or 1 hour") === "");
-    const opts = M.serviceOptions([
-      { name: GEL, description: "Long-wear gel polish with cuticle care. $35, 45 minutes.", category: "Manicures" },
-      { name: BASIC, description: "$25", price: "$20", category: "Manicures" },
-      { name: PEDI, description: "", category: "Pedicures" },
-      { name: FRENCH, description: "", category: "Manicures" },
-    ]);
-    check("A5 price and duration are read out of a description", opts[0].price === "$35" && opts[0].duration === "45 minutes", JSON.stringify(opts[0]));
-    check("A5 a stated price beats one found in prose", opts.find((o) => o.label === BASIC)?.price === "$20");
-    check("A5 a description that is only a price is not repeated", opts.find((o) => o.label === BASIC)?.description === undefined);
-    check(
-      "A5 sections stay together, in the menu's order",
-      opts.map((o) => o.group).join(",") === "Manicures,Manicures,Manicures,Pedicures",
-      opts.map((o) => `${o.group}:${o.label}`).join(" | "),
-    );
-    const flatMenu = M.serviceOptions([{ name: GEL, description: "", category: "All" }, { name: PEDI, description: "", category: "All" }]);
-    check("A5 a single section is no section", flatMenu.every((o) => o.group === undefined));
-    check("A5 no services, no picker", M.servicePickerField([]) === null);
   }
 
-  // ══ B–D. The store, the card block, onboarding ══════════════════════════
+  // ══ B–D. The store, the card block, the booking, onboarding ═════════════
   const { prisma } = await import("../../../lib/db");
-  const { getBookingConfig, saveAppointmentField, createAppointment, listAppointments } = await import(
-    "../../../lib/appointments"
-  );
+  const { getBookingConfig, saveAppointmentField } = await import("../../../lib/appointments");
+  const { createBooking, listBookings, saveBookingSettings, listServices } = await import("../../../lib/booking/store");
+  const { sanitizeSelection } = await import("../../../lib/booking/types");
   const { bookingBlock } = await import("../../../lib/cards");
   const { extractServicesAndBooking, sanitizeServices } = await import("../../../lib/onboarding/services");
   const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
@@ -197,11 +189,14 @@ async function main() {
     made.push(u.id);
     return u;
   };
+  const book = (userId: string, startsAt: string, answers: Record<string, unknown>) =>
+    createBooking(userId, sanitizeSelection({ serviceId: null, startsAt, answers }));
 
   try {
     // ── B. A menu question round-trips, and the server enforces it ──
     const owner = await newUser("store");
-    await saveAppointmentField(owner.id, { key: "name", label: "Your name", type: "short_text", required: true });
+    await saveBookingSettings(owner.id, { hours: ALWAYS_OPEN });
+    await saveAppointmentField(owner.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
     const menuConfig = {
       options: [
         { label: GEL, price: "$35", duration: "45 min", group: "Manicures" },
@@ -244,35 +239,31 @@ async function main() {
       "B3 …and a number's bounds",
       block?.type === "booking" && block.fields.find((f) => f.key === "party")?.config.max === 6,
     );
+    check("B3 no service is derived from the menu: it is a question of the form, the flow sells nothing", block?.type === "booking" && block.flow?.services.length === 0 && (await listServices(owner.id)).length === 0);
 
-    const ok = await createAppointment(owner.id, {
-      startsAt: tomorrowAt(10),
-      answers: { name: "Wren", service: [GEL, FRENCH], party: 2 },
-    });
+    const ok = await book(owner.id, tomorrowAt(10), { name: "Wren", service: [GEL, FRENCH], party: 2 });
     check("B4 a booking with two services is accepted", ok.ok, JSON.stringify(ok));
-    const booked = (await listAppointments(owner.id))[0]?.answers ?? {};
+    const booked = (await listBookings(owner.id))[0]?.answers ?? {};
     check(
       "B4 the owner sees each service, its price, and the total",
       booked.service === `${GEL} ($35 · 45 min), ${FRENCH} ($5) — total $40 · 45 min+` && booked.party === "2",
       JSON.stringify(booked),
     );
-    const offMenu = await createAppointment(owner.id, { startsAt: tomorrowAt(11), answers: { name: "Wren", service: ["Free car"] } });
+    const offMenu = await book(owner.id, tomorrowAt(11), { name: "Wren", service: ["Free car"] });
     check("B5 the server refuses a pick that isn't on the menu", !offMenu.ok, JSON.stringify(offMenu));
-    const none = await createAppointment(owner.id, { startsAt: tomorrowAt(11), answers: { name: "Wren", service: [] } });
+    const none = await book(owner.id, tomorrowAt(11), { name: "Wren", service: [] });
     check("B5 a required menu needs at least one pick", !none.ok && none.error.includes("required"), JSON.stringify(none));
-    const crowd = await createAppointment(owner.id, { startsAt: tomorrowAt(11), answers: { name: "Wren", service: GEL, party: 40 } });
+    const crowd = await book(owner.id, tomorrowAt(11), { name: "Wren", service: GEL, party: 40 });
     check("B5 the server refuses a count past its bounds", !crowd.ok, JSON.stringify(crowd));
-    const asText = await createAppointment(owner.id, { startsAt: tomorrowAt(12), answers: { name: "Wren", service: GEL } });
-    check("B5 a bare-text pick (the services card's prefill shape) is accepted", asText.ok, JSON.stringify(asText));
+    const asText = await book(owner.id, tomorrowAt(12), { name: "Wren", service: GEL });
+    check("B5 a bare-text pick is accepted", asText.ok, JSON.stringify(asText));
 
-    // ── C. The old generated text box is presented as the menu ──
+    // ── C. The menu is the owner's own: nothing is rewritten on read ──
     const legacy = await newUser("legacy");
+    await saveBookingSettings(legacy.id, { hours: ALWAYS_OPEN });
     const LEGACY_LABEL = `Which service are you booking? ${BASIC}, ${GEL}, or something else`;
-    await saveAppointmentField(legacy.id, { key: "name", label: "Your name", type: "short_text", required: true });
+    await saveAppointmentField(legacy.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
     await saveAppointmentField(legacy.id, { key: "service", label: LEGACY_LABEL, type: "short_text", required: true });
-    const before = (await getBookingConfig(legacy.id)).fields.find((f) => f.key === "service");
-    check("C1 with no services on file the question is left alone", before?.type === "short_text" && before.label === LEGACY_LABEL);
-
     // The catalog exactly as older onboardings saved it: "Name. Description" per line.
     await prisma.source.create({
       data: {
@@ -283,100 +274,78 @@ async function main() {
         rawText: `${BASIC}. Shape, buff and polish. $25, 30 minutes.\n\n${GEL}. Long-wear gel polish. Starting at $35.\n\n${PEDI}.`,
       },
     });
-    const upgraded = (await getBookingConfig(legacy.id)).fields.find((f) => f.key === "service");
-    const upOpts = upgraded?.config.options ?? [];
-    check("C2 it is presented as a pick-any menu", upgraded?.type === "multi_select" && upgraded.label === M.SERVICE_PICKER_LABEL, JSON.stringify(upgraded));
-    check("C2 every service on file is an option — not just the ones the label had room for", upOpts.map((o) => o.label).join("|") === [BASIC, GEL, PEDI].join("|"), JSON.stringify(upOpts));
-    check(
-      "C2 prices and durations come from what the catalog says",
-      upOpts[0]?.price === "$25" && upOpts[0]?.duration === "30 minutes" && upOpts[1]?.price === "$35+" && upOpts[2]?.price === undefined,
-      JSON.stringify(upOpts),
-    );
-    check("C2 'something else' stays open and required stays required", upgraded?.config.allowOther === true && upgraded.required === true);
+    const asStored = (await getBookingConfig(legacy.id)).fields.find((f) => f.key === "service");
+    check("C1 a text question stays a text question, catalog on file or not: nothing is upgraded on read", asStored?.type === "short_text" && asStored.label === LEGACY_LABEL && !asStored.config.options, JSON.stringify(asStored));
     const row = await prisma.appointmentField.findFirst({ where: { userId: legacy.id, key: "service" } });
-    check("C3 the upgrade is a presentation — the stored row is untouched", row?.type === "short_text" && row.label === LEGACY_LABEL && row.config === "{}");
-    const viaMenu = await createAppointment(legacy.id, { startsAt: tomorrowAt(13), answers: { name: "Wren", service: [BASIC, PEDI] } });
-    check("C4 the validator sees the same menu the card does", viaMenu.ok, JSON.stringify(viaMenu));
-    check(
-      "C4 …and stores the priced picks",
-      ((await listAppointments(legacy.id))[0]?.answers.service ?? "").startsWith(`${BASIC} ($25 · 30 minutes), ${PEDI}`),
-      JSON.stringify((await listAppointments(legacy.id))[0]?.answers),
-    );
-    await saveAppointmentField(legacy.id, { key: "service", label: "What can we do for you?", type: "short_text", required: true });
+    check("C1 the stored row is untouched", row?.type === "short_text" && row.label === LEGACY_LABEL && row.config === "{}");
+    const legacyBlock = await bookingBlock(legacy.id);
+    check("C1 the card is handed the text box, not a menu", legacyBlock?.type === "booking" && legacyBlock.fields.find((f) => f.key === "service")?.type === "short_text");
+    // The owner turns it into a menu by writing one: those are the prices the
+    // card shows and the server enforces — the owner's, not the catalog's.
+    check("C2 the owner rewrites it as a menu with their own prices", (await saveAppointmentField(legacy.id, { key: "service", label: "Which services would you like?", type: "multi_select", required: true, config: { options: [{ label: BASIC, price: "$25", duration: "30 min" }, { label: GEL, price: "$40" }, { label: PEDI }], allowOther: true } })) === null);
     const owned = (await getBookingConfig(legacy.id)).fields.find((f) => f.key === "service");
-    check("C5 a question the tenant has reworded is theirs — never upgraded", owned?.type === "short_text" && owned.label === "What can we do for you?");
+    check("C2 it reads back as written, prices the owner's own", owned?.type === "multi_select" && owned.config.options?.map((o) => `${o.label}:${o.price ?? ""}`).join() === `${BASIC}:$25,${GEL}:$40,${PEDI}:` && owned.config.allowOther === true, JSON.stringify(owned));
+    const viaMenu = await book(legacy.id, tomorrowAt(13), { name: "Wren", service: [BASIC, PEDI] });
+    check("C3 the validator sees the same menu the card does", viaMenu.ok, JSON.stringify(viaMenu));
+    check(
+      "C3 …and stores the priced picks",
+      ((await listBookings(legacy.id))[0]?.answers.service ?? "").startsWith(`${BASIC} ($25 · 30 min), ${PEDI}`),
+      JSON.stringify((await listBookings(legacy.id))[0]?.answers),
+    );
+    const offOwned = await book(legacy.id, tomorrowAt(14), { name: "Wren", service: [FRENCH] });
+    check("C3 something else is allowed, as the owner said, and stored as a floor", offOwned.ok && ((await listBookings(legacy.id)).find((b) => b.id === (offOwned.ok ? offOwned.id : ""))?.answers.service ?? "") === FRENCH, JSON.stringify(offOwned));
 
-    // ── D. Onboarding builds the menu by itself ──
+    // ── D. Onboarding seeds services, never a picker ──
     const EXTRACT = {
       services: [
         { name: GEL, description: "Long-wear gel polish.", price: "$35", duration: "45 min", category: "Manicures" },
         { name: BASIC, description: "Shape, buff and polish.", price: "$25", duration: "30 min", category: "Manicures" },
         { name: PEDI, description: "Soak, scrub and polish. $50.", price: "", duration: "", category: "Pedicures" },
       ],
-      booking: {
-        takesAppointments: true,
-        requirements: [
-          { label: "Preferred technician", type: "select", required: false, options: ["Mara", "Oksana", "Mara", ""] },
-          { label: "Party size", type: "number", required: true, options: ["ignored"] },
-          { label: "Is this your first visit?", type: "yes_no", required: false },
-          { label: "Nail shape", type: "select", required: false, options: ["Almond"] },
-        ],
-      },
+      booking: { takesAppointments: true, channels: ["online"] },
     };
     const clean = sanitizeServices(EXTRACT as unknown as Record<string, unknown>);
-    check("D1 the sanitizer keeps price, duration and category", clean.services[0].price === "$35" && clean.services[0].category === "Manicures");
-    check(
-      "D1 a requirement's choices are de-duplicated; other types carry none",
-      clean.requirements[0].options.join(",") === "Mara,Oksana" && clean.requirements[1].options.length === 0,
-      JSON.stringify(clean.requirements),
-    );
-    check("D1 a choice with fewer than two choices is a text question", clean.requirements[3].type === "short_text" && clean.requirements[3].options.length === 0);
+    check("D1 the sanitizer keeps price, duration and category", clean.services[0].price === "$35" && clean.services[0].duration === "45 min" && clean.services[0].category === "Manicures");
+    check("D1 the extract carries no form requirements any more", !("requirements" in clean) && clean.channels.join() === "online");
 
     const fresh = await newUser("onboard");
-    await extractServicesAndBooking(PAGES as never, fresh.id, () => {}, { llm: async () => EXTRACT as unknown as Record<string, unknown> });
+    const staged = await extractServicesAndBooking(PAGES as never, fresh.id, () => {}, { llm: async () => EXTRACT as unknown as Record<string, unknown>, formLlm: async () => { throw new Error("no form to transcribe"); }, readForm: async () => null });
     const seeded = (await getBookingConfig(fresh.id)).fields;
-    const picker = seeded.find((f) => f.key === "service");
-    check(
-      "D2 the seeded service question is a required pick-any menu",
-      picker?.type === "multi_select" && picker.required && picker.label === M.SERVICE_PICKER_LABEL && picker.config.allowOther === true,
-      JSON.stringify(picker),
-    );
-    check(
-      "D2 each service is an option with its price, duration and section",
-      JSON.stringify(picker?.config.options?.[0]) === JSON.stringify({ label: GEL, price: "$35", duration: "45 min", description: "Long-wear gel polish.", group: "Manicures" }),
-      JSON.stringify(picker?.config.options?.[0]),
-    );
-    check("D2 a price only the description states is still found", picker?.config.options?.find((o) => o.label === PEDI)?.price === "$50");
-    check("D2 the label no longer tries to be the menu", !seeded.some((f) => f.label.includes(GEL)), seeded.map((f) => f.label).join(" | "));
-    const tech = seeded.find((f) => f.label === "Preferred technician");
-    check(
-      "D3 a requirement with listed choices becomes a pick-one with those choices",
-      tech?.type === "select" && tech.config.options?.map((o) => o.label).join(",") === "Mara,Oksana" && tech.config.allowOther === true,
-      JSON.stringify(tech),
-    );
-    check("D3 a count and a yes/no keep their types", seeded.find((f) => f.label === "Party size")?.type === "number" && seeded.find((f) => f.label === "Is this your first visit?")?.type === "yes_no");
-    check(
-      "D4 the order is who → what → the specifics",
-      seeded.map((f) => f.key).join(",").startsWith("name,email,service,preferred_technician"),
-      seeded.map((f) => f.key).join(","),
-    );
+    check("D2 the stage seeds no question at all: no picker, no defaults", seeded.length === 0 && staged.report.seededFields === 0 && staged.report.formFound === false, JSON.stringify(seeded.map((f) => f.key)));
+    const services = await listServices(fresh.id);
+    check("D2 the services become the service step, priced from the site's own words", services.map((s) => `${s.name}:${s.pricing.kind}:${s.pricing.amount ?? ""}`).join() === `${GEL}:fixed:35,${BASIC}:fixed:25,${PEDI}:fixed:50`, JSON.stringify(services.map((s) => [s.name, s.pricing])));
+    const freshBlock = await bookingBlock(fresh.id);
+    check("D2 the card sells through the flow, with nothing to ask", freshBlock?.type === "booking" && freshBlock.fields.length === 0 && freshBlock.flow?.services.length === 3);
 
     // ══ E. What the visitor is actually handed ══════════════════════════════
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
-    const { Cards } = await import("../../../app/cards/Cards");
-    const draw = (fields: unknown[]) =>
-      renderToStaticMarkup(React.createElement(Cards, { slug: "proof", block: { type: "booking", fields } } as never));
+    const { ScreenStep } = await import("../../../app/cards/booking/ScreenStep");
+    type Field = { key: string; label: string; type: string; required: boolean; config: Record<string, unknown>; role?: string; screen?: number };
+    const draw = (fields: Field[]) =>
+      renderToStaticMarkup(
+        React.createElement(ScreenStep, {
+          step: { kind: "screen", screen: 1, title: "", fields: fields.map((f) => ({ role: "none", screen: 1, ...f })) } as never,
+          answers: {},
+          setAnswer: () => {},
+          slug: "proof",
+          onNext: () => {},
+        }),
+      );
+    const menu: Field = {
+      key: "service", label: "Which services would you like?", type: "multi_select", required: true,
+      config: { options: [{ label: GEL, price: "$35", duration: "45 min", group: "Manicures" }, { label: BASIC, price: "$25", duration: "30 min", group: "Manicures" }, { label: PEDI, price: "$50", group: "Pedicures" }], allowOther: true },
+    };
 
-    const menuHtml = draw([picker]);
-    check("E1 a menu is drawn as one checkbox per service", (menuHtml.match(/type="checkbox"/g) ?? []).length === 4, String((menuHtml.match(/type="checkbox"/g) ?? []).length));
+    const menuHtml = draw([menu]);
+    check("E1 a menu is drawn as one checkbox per option", (menuHtml.match(/type="checkbox"/g) ?? []).length === 4, String((menuHtml.match(/type="checkbox"/g) ?? []).length));
     check("E1 …each with its name and price", menuHtml.includes(GEL) && menuHtml.includes("$35") && menuHtml.includes("45 min"));
     check("E1 …under its section headings", menuHtml.includes("Manicures") && menuHtml.includes("Pedicures"));
     check("E1 …with a way to ask for something else", menuHtml.includes("Something else"));
     check("E1 …and no text box to retype a service into", !/<input[^>]*type="text"/.test(menuHtml));
-    check("E1 a required menu can't be skipped while nothing is picked", /<button[^>]*disabled[^>]*>Next<\/button>/.test(menuHtml), menuHtml.slice(-260));
+    check("E1 a required menu can't be skipped while nothing is picked", /<button[^>]*aria-disabled="true"[^>]*>Next<\/button>/.test(menuHtml), menuHtml.slice(-260));
 
-    const oneHtml = draw([{ ...picker, type: "select" }]);
+    const oneHtml = draw([{ ...menu, type: "select" }]);
     check("E2 pick-one is drawn as radios", (oneHtml.match(/type="radio"/g) ?? []).length === 4 && !oneHtml.includes('type="checkbox"'));
 
     const towns = Array.from({ length: 12 }, (_, i) => ({ label: `Branch ${i + 1}`, group: i < 6 ? "North" : "South" }));
@@ -385,11 +354,11 @@ async function main() {
     check("E3 …with its sections as optgroups", dropHtml.includes('<optgroup label="North"') && dropHtml.includes('<optgroup label="South"'));
 
     const countHtml = draw([{ key: "party", label: "Party size", type: "number", required: true, config: { min: 1, max: 8 } }]);
-    check("E4 a count is a stepper", countHtml.includes('aria-label="One fewer"') && countHtml.includes('aria-label="One more"') && countHtml.includes('inputMode="numeric"') || countHtml.includes('inputmode="numeric"'));
+    check("E4 a count is a stepper", countHtml.includes('aria-label="One fewer"') && countHtml.includes('aria-label="One more"') && (countHtml.includes('inputMode="numeric"') || countHtml.includes('inputmode="numeric"')));
     const ynHtml = draw([{ key: "first", label: "First visit?", type: "yes_no", required: false, config: {} }]);
     check("E5 yes/no is two buttons, and optional means Skip", ynHtml.includes(">Yes</button>") && ynHtml.includes(">No</button>") && ynHtml.includes(">Skip</button>"));
-    const oldHtml = draw([{ key: "name", label: "Your name", type: "short_text", required: true }]);
-    check("E6 a field with no config (an old stored block) still draws its text box", /<input[^>]*type="text"/.test(oldHtml));
+    const oldHtml = draw([{ key: "name", label: "Your name", type: "short_text", required: true, config: {} }]);
+    check("E6 a text question draws its text box, required marked on the label", /<input[^>]*type="text"/.test(oldHtml) && oldHtml.includes("Your name *"));
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: made } } });
     const left = await prisma.user.count({ where: { email: { startsWith: "proof-booking-menu-" } } });

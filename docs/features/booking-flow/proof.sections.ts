@@ -159,9 +159,6 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
   const user = await prisma.user.create({
     data: { email: `${SLUG}@example.invalid`, name: "Proof Salon", slug: SLUG, passwordHash: "x" },
   });
-  const legacyUser = await prisma.user.create({
-    data: { email: `${SLUG}-legacy@example.invalid`, name: "Proof Legacy", slug: `${SLUG}-legacy`, passwordHash: "x" },
-  });
   const menuUser = await prisma.user.create({
     data: { email: `${SLUG}-menu@example.invalid`, name: "Proof Menu", slug: `${SLUG}-menu`, passwordHash: "x" },
   });
@@ -170,13 +167,12 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
   });
   try {
     await prisma.profile.upsert({ where: { userId: user.id }, update: { company_name: "Proof Salon", bookingEnabled: true }, create: { userId: user.id, company_name: "Proof Salon", bookingEnabled: true } });
-    // The form: nothing is seeded on enable any more, so the fixture writes
-    // the name and email questions the first enable used to — role-tagged,
-    // asked together on one screen.
-    await Ap.rebuildUntouchedForm(user.id, [
-      { key: "name", label: "Your name", type: "short_text", required: true, role: "name", screen: 1 },
-      { key: "email", label: "Your email", type: "email", required: true, role: "email", screen: 1 },
-    ]);
+    // The form: nothing is seeded on enable, so the fixture writes the name
+    // and email questions itself, the way onboarding's form copy would —
+    // role-tagged, asked together on one screen, marked as generated.
+    await Ap.saveAppointmentField(user.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name", screen: 1, generated: true });
+    await Ap.saveAppointmentField(user.id, { key: "email", label: "Your email", type: "email", required: true, role: "email", screen: 1, generated: true });
+    check("C0 nothing is seeded on enable; the fixture's two questions are the whole form, still onboarding's to rewrite", (await Ap.getBookingConfig(user.id)).fields.map((f) => `${f.key}:${f.role}@${f.screen}`).join() === "name:name@1,email:email@1" && Ap.isUntouchedForm((await Ap.getBookingConfig(user.id)).fields));
     await S.saveBookingSettings(user.id, {
       timezone: TZ,
       hours: weekdays(),
@@ -283,47 +279,33 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
       check("C9 a cancelled booking leaves the owner's list", !(await S.listBookings(user.id)).some((d) => d.id === first.id));
     }
 
-    // The intake-only path still holds its old contract.
-    const legacyAt = dayAvail.slots![5].startsAt;
-    await Ap.setBookingEnabled(user.id, true);
-    const a1 = await Ap.createAppointment(user.id, { startsAt: legacyAt, answers: { name: "Ada", email: "ada@example.invalid" } });
-    const a2 = await Ap.createAppointment(user.id, { startsAt: legacyAt, answers: { name: "Bob", email: "bob@example.invalid" } });
-    check("C10 the old wizard still books, and the same instant twice is refused", a1.ok && !a2.ok && /taken/i.test(a2.ok ? "" : a2.error));
+    // The form alone names the customer: a booking answered through the
+    // role-tagged fields, with no customer object at all.
+    const byForm = await S.createBooking(user.id, sel({ startsAt: dayAvail.slots![5].startsAt, customer: {}, answers: { name: "Bob Ross", email: "bob@example.invalid" } }));
+    const byFormRow = (await S.listBookings(user.id)).find((d) => byForm.ok && d.id === byForm.id);
+    check("C10 a booking answered through the form alone names the customer by role", byForm.ok && byFormRow?.customer.firstName === "Bob" && byFormRow.customer.lastName === "Ross" && byFormRow.customer.email === "bob@example.invalid", byForm.ok ? JSON.stringify(byFormRow?.customer) : byForm.error);
 
-    // The legacy bridge: a tenant with only the picker question.
-    await prisma.profile.upsert({ where: { userId: legacyUser.id }, update: { bookingEnabled: true }, create: { userId: legacyUser.id, bookingEnabled: true } });
-    await Ap.saveAppointmentField(legacyUser.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
-    await Ap.saveAppointmentField(legacyUser.id, { key: "email", label: "Your email", type: "email", required: true, role: "email" });
-    await Ap.saveAppointmentField(legacyUser.id, {
+    // A hand-written form with a menu question: every field, contact ones
+    // included, is what the card asks; no service is derived from the menu.
+    await prisma.profile.upsert({ where: { userId: menuUser.id }, update: { bookingEnabled: true }, create: { userId: menuUser.id, bookingEnabled: true } });
+    await Ap.saveAppointmentField(menuUser.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
+    await Ap.saveAppointmentField(menuUser.id, { key: "email", label: "Your email", type: "email", required: true, role: "email" });
+    await Ap.saveAppointmentField(menuUser.id, {
       key: "service", label: "Which services would you like?", type: "multi_select", required: true,
       config: { options: [{ label: "Gel Manicure", price: "$35", duration: "45 min", group: "Manicures" }, { label: "Spa Pedicure", price: "from $50", group: "Pedicures" }], allowOther: true },
     });
-    await Ap.saveAppointmentField(legacyUser.id, { key: "allergies", label: "Any allergies?", type: "yes_no", required: false });
-    await prisma.photo.create({ data: { userId: legacyUser.id, filename: "0f1e2d3c-1111-2222-3333-444455556666.jpg", caption: "A gel manicure being finished", kind: "gallery" } });
-    const legacy = await S.getBookingFlow(legacyUser.id);
-    const gel = legacy?.flow.services.find((s) => s.name === "Gel Manicure");
-    check("C11 a picker-only tenant gets a service step built from the menu", !!legacy && legacy.flow.services.length === 2 && gel?.category === "Manicures");
-    check("C11 …written as real rows the owner can now edit", !!gel && !gel.id.startsWith("legacy:") && (await S.listServices(legacyUser.id)).length === 2);
-    check("C11 …priced and timed from the menu's own words", gel?.pricing.kind === "fixed" && gel?.pricing.amount === 35 && gel?.durationMinutes === 45 && legacy?.flow.services[1].pricing.kind === "starting_at");
-    check("C11 …with a gallery photo matched by its caption", gel?.imageUrl === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
-    check("C11 only the picker leaves the fields; name, email and the rest stay", legacy?.fields.map((f) => f.key).join() === "name,email,allergies", legacy?.fields.map((f) => f.key).join());
-    check("C11 name and email are ordinary role-tagged fields, still required", legacy?.fields.filter((f) => f.key === "name" || f.key === "email").every((f) => f.required && (f.role === "name" || f.role === "email")) === true);
-    const lslot = (await S.availability(legacyUser.id, { serviceId: gel!.id, date: openDay!.date })).slots?.[0];
-    const lb = await S.createBooking(legacyUser.id, T.sanitizeSelection({ serviceId: gel!.id, startsAt: lslot?.startsAt, customer, answers: { allergies: "yes" } }));
-    check("C11 booking a derived service works", lb.ok && lb.serviceName === "Gel Manicure", lb.ok ? "" : lb.error);
-    const stored = (await Ap.listAppointments(legacyUser.id))[0];
-    check("C11 …and the old readers still see the pick with its price", stored?.answers.service?.includes("Gel Manicure ($35") === true && stored?.answers.allergies === "Yes");
-
-    // A tenant whose services extractor wrote menu items (the menu-cart
-    // feature): those carry the site's prices and the model's own image match.
-    await prisma.profile.upsert({ where: { userId: menuUser.id }, update: { bookingEnabled: true }, create: { userId: menuUser.id, bookingEnabled: true } });
-    await prisma.menuItem.create({
-      data: { userId: menuUser.id, key: "deep-tissue-massage", name: "Deep Tissue Massage", category: "Massage", order: 0,
-        data: JSON.stringify({ price: "$80", estimatedTime: "1 hr", image: "https://example.invalid/deep.jpg", shortDescription: "Firm pressure for tight muscles." }) },
-    });
-    const fromMenu = await S.getBookingFlow(menuUser.id);
-    const deep = fromMenu?.flow.services[0];
-    check("C12 menu items become services with their price, length and picture", deep?.name === "Deep Tissue Massage" && deep.pricing.kind === "fixed" && deep.pricing.amount === 80 && deep.durationMinutes === 60 && deep.imageUrl === "https://example.invalid/deep.jpg" && deep.description === "Firm pressure for tight muscles.");
+    await Ap.saveAppointmentField(menuUser.id, { key: "allergies", label: "Any allergies?", type: "yes_no", required: false });
+    const own = await S.getBookingFlow(menuUser.id);
+    check("C11 every field, contact ones included, is in getBookingFlow().fields, in the stored order", own?.fields.map((f) => f.key).join() === "name,email,service,allergies", own?.fields.map((f) => f.key).join());
+    check("C11 name and email are ordinary role-tagged fields, still required", own?.fields.filter((f) => f.key === "name" || f.key === "email").every((f) => f.required && (f.role === "name" || f.role === "email")) === true);
+    check("C11 the menu question is the owner's own: no service is derived from it, the card asks it as a question", !!own && own.flow.services.length === 0 && own.fields[2].type === "multi_select" && own.fields[2].config.options?.[0]?.price === "$35" && (await S.listServices(menuUser.id)).length === 0);
+    check("C11 each hand-written field sits on a screen of its own", own?.fields.map((f) => f.screen).join() === "1,2,3,4", own?.fields.map((f) => f.screen).join());
+    const oslot = (await S.availability(menuUser.id, { date: openDay!.date })).slots?.[0];
+    const ob = await S.createBooking(menuUser.id, T.sanitizeSelection({ serviceId: null, startsAt: oslot?.startsAt, customer, answers: { service: ["Gel Manicure"], allergies: "yes" } }));
+    check("C11 booking through that form works with no service row at all", ob.ok && ob.serviceName === "", ob.ok ? "" : ob.error);
+    const stored = (await S.listBookings(menuUser.id))[0];
+    check("C11 …and the owner sees the pick with its price, and the customer by role", stored?.answers.service?.includes("Gel Manicure ($35") === true && stored?.answers.allergies === "Yes" && stored?.customer.firstName === "Ada" && stored?.customer.email === "ada@example.invalid", JSON.stringify(stored));
+    check("C12 a required menu with no pick is refused by the form's own label", !(await S.createBooking(menuUser.id, T.sanitizeSelection({ serviceId: null, startsAt: (await S.availability(menuUser.id, { date: openDay!.date })).slots?.[1]?.startsAt, customer, answers: { service: [] } }))).ok);
 
     // Refresh from the site fills blanks and never overwrites the owner.
     const { enrichServices } = await import("../../../lib/onboarding/bookingSeed");
@@ -361,7 +343,7 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     const phonePages = [{ url: "https://phone-only.invalid/services", html: phoneHtml, $: cheerioLib.load(phoneHtml) }];
     const scripted = async () => ({
       services: [{ name: "Basic Manicure", description: "", price: "$22", duration: "", category: "Manicure" }],
-      booking: { takesAppointments: true, kind: "personal_service", staff: [], phone: "required", email: "unknown", notes: false, channels: ["phone"], requirements: [] },
+      booking: { takesAppointments: true, channels: ["phone"] },
     });
     const staged = await extractServicesAndBooking(phonePages, phoneUser.id, () => {}, { llm: scripted });
     const phoneSettings = await S.getBookingSettings(phoneUser.id);
@@ -372,9 +354,9 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     await S.saveBookingSettings(phoneUser.id, { confirmation: "instant", confirmationOwner: true });
     await extractServicesAndBooking(phonePages, phoneUser.id, () => {}, { llm: scripted });
     check("C14 an owner's own choice outlives a later site read", (await S.getBookingSettings(phoneUser.id)).confirmation === "instant");
+    check("C14 a site with no booking link copies no form: the tenant's form stays empty", (await Ap.getBookingConfig(phoneUser.id)).fields.length === 0);
   } finally {
     await prisma.user.delete({ where: { id: user.id } });
-    await prisma.user.delete({ where: { id: legacyUser.id } });
     await prisma.user.delete({ where: { id: menuUser.id } });
     await prisma.user.delete({ where: { id: phoneUser.id } });
     check("Z no proof users left behind", (await prisma.user.count({ where: { slug: { startsWith: SLUG } } })) === 0);
@@ -448,8 +430,14 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   const $locked = cheerio.load(renderToStaticMarkup(React.createElement(ServiceStep, { ...serviceProps, locked: true })));
   check("D1 a finished booking locks the service card: tiles disabled, still in view", $locked("fieldset[disabled]").length === 1 && $locked('[role="button"]').length === 3);
 
+  // An old stored block carries no flow: on the server it draws nothing (no
+  // crash, no question, no step counter) — the browser fetches the flow and
+  // then draws the thread, or the one line that booking is unavailable.
   const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields: oldFields }, slug: "proof" }));
-  check("D2 an old stored block still draws the first question at once", noFlow.includes("Anything else?") && !noFlow.includes("Loading"));
+  const $n = cheerio.load(noFlow);
+  check("D2 an old stored block (no flow) renders nothing until the fetch: no crash, no question, no step counter", !noFlow.includes("Anything else?") && !/Step \d+ of/.test(noFlow) && $n("[data-booking-thread]").length === 0 && $n("[data-booking-step]").length === 0, noFlow.slice(0, 200));
+  const { BookingUnavailable } = await import("../../../app/cards/booking/BookingThread");
+  check("D2 …and when no flow comes back, the one line says so", renderToStaticMarkup(React.createElement(BookingUnavailable)).includes("Booking is unavailable right now."));
 
   // The steps are the business's own: a migrated tenant (empty stored flow)
   // walks today's order, contact details as one screen among the questions.
@@ -485,9 +473,11 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   check("D5 a locked step keeps its answers in view: controls disabled, no Next", $done("fieldset[disabled]").length === 1 && $done("button").filter((_, b) => /^(Next|Update|Skip)$/.test($done(b).text().trim())).length === 0 && $done("label").length === 5);
 
   const services = renderToStaticMarkup(React.createElement(Cards, {
-    block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, serviceKey: null, flow } },
+    block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, flow } },
     slug: "proof",
   }));
   const $s = cheerio.load(services);
   check("D3 the services card shows thumbnails, prices and a Book button", $s("img").length === 1 && services.includes("$45") && $s("button").filter((_, b) => $s(b).text().trim() === "Book").length === 2);
+  const $t = cheerio.load(renderToStaticMarkup(React.createElement(BookingThread, { slug: "proof", fields, flow, preselectServiceId: "color" })));
+  check("D3 Book outside a chat opens a booking thread of its own with the service already chosen (the shell is in place on the server)", $t("[data-booking-thread]").length === 1 && $t("[data-booking-step]").length === 0);
 }

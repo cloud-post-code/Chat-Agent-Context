@@ -5,14 +5,18 @@
 npx tsx --tsconfig docs/features/booking-menu-fields/tsconfig.proof.json docs/features/booking-menu-fields/proof.ts
 ```
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only — section E
-renders the real wizard; the `booking-on-by-default` precedent.) Runs against
-the local dev Postgres (`.env` `DATABASE_URL`, loaded by the script). Sections
-B–D create throwaway users and delete them at the end; the scripted `llm`
-passed to `extractServicesAndBooking` is the one doubled boundary.
+renders the real screen card; the `booking-on-by-default` precedent.) Runs
+against the local dev Postgres (`.env` `DATABASE_URL`, loaded by the script).
+Sections B–D create throwaway users and delete them at the end; the scripted
+`llm` passed to `extractServicesAndBooking` is the one doubled boundary.
+
+The menu is a question the OWNER writes — a `select` / `multi_select` with
+priced options — and the card draws it with those prices. Nothing plans or
+seeds a picker, and nothing is rewritten on read.
 
 ## Assertions (all must pass)
 
-### A. The pure rules (`lib/appointmentTypes.ts`, `lib/bookingMenu.ts`)
+### A. The pure rules (`lib/appointmentTypes.ts`, `lib/serviceCatalog.ts`)
 1. **Config sanitizing** — options are trimmed, de-duplicated by label
    (case-insensitive), junk dropped; a bare string is an option; a text
    question carries no config; a number keeps sane bounds only; unparseable
@@ -27,70 +31,55 @@ passed to `extractServicesAndBooking` is the one doubled boundary.
    off-menu pick rejected unless "something else" is allowed; pick-one takes
    one; no picks is "no answer", not an error; counts must be whole and inside
    their bounds; yes/no normalizes and takes nothing else.
-5. **Services → options** — price/duration read out of prose only when stated
-   once (several amounts → floor at the lowest; two durations → none); a stated
-   price beats one found in prose; a description that is only a price isn't
-   repeated; sections stay together in menu order; a single section is no
-   section; no services → no picker.
+5. **Menu facts read out of prose** (`priceFromText`, `durationFromText`,
+   what the services seeder uses for a `Service` row) — one stated amount is
+   the price; "starting at" is a floor; several amounts are a floor at the
+   lowest; no amount, no price; one stated duration; two durations are not
+   guessed between.
 
-### B. The store and the block
+### B. The store, the block, the booking
 1. A choice question with nothing to choose is refused; a menu question saves.
 2. It reads back whole; renaming without resending the menu keeps the menu.
-3. `bookingBlock` hands the card the type, the menu, and a number's bounds.
-4. A two-service booking is accepted and the owner's stored answer names each
-   service, its price, and the total.
+3. `bookingBlock` hands the card the type, the menu, and a number's bounds;
+   no service is derived from the menu — the flow sells nothing, the form
+   asks it.
+4. A two-service booking (`createBooking`) is accepted and the owner's stored
+   answer names each service, its price, and the total.
 5. The server refuses an off-menu pick, an empty required menu, and a count
-   past its bounds; it accepts a bare-text pick (the services card's prefill).
+   past its bounds; it accepts a bare-text pick.
 
-### C. Existing tenants: the legacy text-box picker
-1. With no services on file it is left alone.
-2. With the catalog on file (in the *older* "Name. Description" format) it is
-   presented as a required pick-any menu listing **every** service — not the
-   few the label had room for — with prices/durations from the catalog text
-   and "something else" open.
-3. The stored row is untouched (still `short_text`, config `{}`).
-4. The validator sees the same menu the card does, and stores priced picks.
-5. A question the tenant has reworded is never upgraded.
+### C. The menu is the owner's own: nothing is rewritten on read
+1. A text question stays a text question, services catalog on file or not;
+   the stored row is untouched; the card is handed the text box.
+2. The owner rewrites it as a menu with their own prices; it reads back as
+   written.
+3. The validator sees the same menu the card does and stores the priced
+   picks; "something else" is allowed as the owner said.
 
-### D. Onboarding builds it
-1. The sanitizer keeps price/duration/category; de-duplicates a requirement's
-   choices; demotes a choice with fewer than two choices to text.
-2. The seeded service question is a required `multi_select` with
-   `allowOther`, each service an option with price, duration, description and
-   section; a price only the description states is still found; no label
-   contains a service name any more.
-3. Requirements become `select` (with the site's choices), `number`, `yes_no`.
-4. Order is who → what → the specifics.
+### D. Onboarding seeds services, never a picker
+1. The sanitizer keeps price/duration/category; the extract carries no form
+   requirements any more.
+2. The stage seeds no question at all (no picker, no defaults); the services
+   become the service step, priced from the site's own words; the card sells
+   through the flow with nothing to ask.
 
-### E. What the visitor is handed (static render of the real `Cards`)
-1. A menu: one checkbox per service plus "Something else", names, prices,
-   durations, section headings, **no text box**, and a disabled Next while a
-   required menu has no pick.
+### E. What the visitor is handed (static render of the real `ScreenStep`)
+1. A menu: one checkbox per option plus "Something else", names, prices,
+   durations, section headings, **no text box**, and Next `aria-disabled`
+   while a required menu has no pick.
 2. Pick-one: radios.
 3. A long plain list: a `<select>` with `<optgroup>`s.
 4. A count: a stepper. 5. Yes/no: two buttons, and optional means "Skip".
-6. A field with no `config` (an old stored block) still draws its text box.
+6. A text question draws its text box with the required mark on its label.
 
-## Result
-86 assertions, all passing. `booking-on-by-default` (40 assertions, B8 / B10 /
-B13b / B15 rewritten to the new picker contract) passing. `tsc --noEmit` and
-`next lint` clean for the touched files.
+### Z. No proof users left behind.
 
-## Verified live (dev server, `/a/blake` — the tenant from the bug report)
-- The stored question is still the legacy text box; the wizard's step 3 is now
-  "Which services would you like?" with 40 priced rows + "Something else".
-- Picking Gel Manicure + French → "2 selected · $45"; Next enables.
-- Review lists `Gel Manicure — $35`, `French — $10`, `Estimated total: $45`.
-- Back keeps the picks. "Something else" + text → "3 selected · $45+"; closing
-  it → "2 selected · $45".
-- A picked row's border goes to `--on-surface` and returns on un-pick; zero
-  `console.error` calls across six toggles. No horizontal overflow at 375px.
-- Confirm was deliberately not pressed (it would write a real appointment onto
-  the tenant's calendar); the submit path is section B/C above.
+## Retired
+The read-time upgrade of a legacy text-box picker into a menu built from the
+services catalog, and onboarding's generated picker with its ordering, are
+gone: the form is what the owner stored, and onboarding's only form writes are
+the site's own form (`docs/features/custom-booking-form`).
 
-## Known stale, not caused by this feature
-`appointment-booking/proof.ts` (3 checks) and
-`onboarding-booking-extraction/proof.ts` (6 checks) fail identically on a
-pristine checkout of HEAD: they assert the pre-`booking-on-by-default`
-contract (booking off by default, Calendar hidden while off, no generated
-picker). Left as found.
+## Run record
+- 2026-09-25 — `All checks passed.`, 75 assertions. `tsc --noEmit` and
+  `next lint` clean.
