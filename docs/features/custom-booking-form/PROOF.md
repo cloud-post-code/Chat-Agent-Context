@@ -109,6 +109,11 @@ cut marker). D. the sanitizer's caps and its refusal to merge or rename.
 E. `transcribeForm` with a scripted model: the spec equals the fixture, one
 call with the prompt and the serialized snapshot, an empty snapshot makes no
 call, a reply without JSON is the empty spec.
+K. `hasVisibleContent` — the signal `readBookingForm`'s first-screen grace
+period waits on for a client-rendered booking app that finishes loading
+before it finishes painting: a blank page reads as empty, the same page
+after it paints reads as real, a bare heading or a tile list with no inputs
+still counts, plain "Loading…" text does not.
 
 ## Secondary: live cross-check (not a gate)
 ```

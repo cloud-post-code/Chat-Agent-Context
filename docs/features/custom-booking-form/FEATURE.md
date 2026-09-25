@@ -46,6 +46,15 @@ null), `snapshotStatic` reads the one screen cheerio already loaded — the
 same label resolution over the parsed HTML, plus a booking-or-form-widget
 `<iframe>` named as one more thing found there.
 
+A client-rendered booking app can finish its network activity before it
+finishes painting: the first screen only gets one bounded extra wait
+(`FIRST_SCREEN_GRACE_MS`, 6s, inside the existing time budget) for anything a
+customer could actually act on (`hasVisibleContent` — an input, a tile list,
+a calendar, or even just a heading), not just network idle. If the whole
+read still comes back with nothing on any screen, it is retried once with a
+plain reload before giving up — a blank first paint is a more common failure
+than a genuinely form-less booking page.
+
 ### Transcribing
 One model call, over the reader's serialized snapshot (`serializeSnapshot`,
 capped at 12k chars a screen / 40k total), with a system prompt whose whole

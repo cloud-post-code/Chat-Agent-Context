@@ -51,6 +51,9 @@ export type FormSnapshot = {
 const MAX_SCREENS = 6;
 const SCREEN_TIMEOUT_MS = 12_000;
 const TOTAL_TIMEOUT_MS = 60_000;
+/** Extra grace on the very first screen only, for a client-rendered booking
+ *  app that finishes its network activity before it finishes painting. */
+const FIRST_SCREEN_GRACE_MS = 6_000;
 
 /** True when there is nothing a transcriber could copy: no inputs, no choices, no tiles. */
 export function snapshotIsEmpty(s: FormSnapshot | null): boolean {
@@ -512,6 +515,13 @@ const PLAN_NEXT_BODY = String.raw`
   return { el: null, state: "" };
 `;
 
+/** Whether the screen has shown anything a customer could act on yet — an
+ *  input, a tile to pick, a calendar, or even just a heading. False means the
+ *  page answered but a client-rendered app hasn't painted its form yet. */
+const HAS_CONTENT_BODY = String.raw`
+  return controls().length > 0 || tileLists().length > 0 || calendarCells().length > 0 || headingEls().length > 0;
+`;
+
 const COUNT_INPUTS = String.raw`(() => {
   let n = 0;
   for (const el of document.querySelectorAll("input:not([type=hidden]), select, textarea")) {
@@ -533,6 +543,7 @@ const MUTATION_COUNTER = String.raw`(() => {
 
 const script = (body: string) => `(() => {${LIB}\n${body}\n})()`;
 const SNAPSHOT = script(SNAPSHOT_BODY);
+const HAS_CONTENT = script(HAS_CONTENT_BODY);
 const PLAN_TILE = script(PLAN_TILE_BODY);
 const FILL_CHOICES = script(FILL_CHOICES_BODY);
 const PLAN_DAY = script(PLAN_DAY_BODY);
@@ -542,6 +553,12 @@ const PLAN_NEXT = script(PLAN_NEXT_BODY);
 // ── Driving ────────────────────────────────────────────────────────────────
 
 type Shot = Omit<Screen, "index">;
+
+/** Whether the frame's visible screen has shown anything a customer could act
+ *  on yet (used directly by tests; `readBookingForm` waits on the same script). */
+export async function hasVisibleContent(frame: Frame): Promise<boolean> {
+  return (await frame.evaluate(HAS_CONTENT).catch(() => false)) as boolean;
+}
 
 /** What a screen IS, for telling one from the next: headings, labels, option counts. Buttons excluded — a slot list appearing is the same screen. */
 export function fingerprint(s: Pick<Screen, "headings" | "elements">): string {
@@ -768,80 +785,107 @@ export async function readBookingForm(
   try {
     return await crawler.drive(url, async (page) => {
       const deadline = Date.now() + TOTAL_TIMEOUT_MS;
-      const screens: Screen[] = [];
-      const seen = new Set<string>();
-      let truncated = false;
-      // Set when a screen's clock runs out: the step still running must then
-      // neither click nor add to `screens`, which the caller has taken.
-      let aborted = false;
-      const halted = () => aborted;
-      const finish = (): FormSnapshot => ({ url, screens: screens.filter(screenOk), how: "playwright", truncated });
 
-      const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
-      if (res && !res.ok()) {
-        onEvent?.(`Booking page answered ${res.status()}`);
-        return null;
-      }
-      await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
-      if (!safeHere(page.url())) {
-        onEvent?.("Booking page redirected somewhere the reader doesn't follow");
-        return null;
-      }
+      // One full pass: navigate (a plain reload on a retry — nothing carries
+      // over from a prior pass), then walk screens until the form ends, the
+      // clock runs out, or nothing changes twice in a row.
+      const once = async (): Promise<FormSnapshot | null> => {
+        const screens: Screen[] = [];
+        const seen = new Set<string>();
+        let truncated = false;
+        // Set when a screen's clock runs out: the step still running must then
+        // neither click nor add to `screens`, which the caller has taken.
+        let aborted = false;
+        const halted = () => aborted;
+        const finish = (): FormSnapshot => ({ url, screens: screens.filter(screenOk), how: "playwright", truncated });
 
-      // One screen: snapshot it (new fingerprint → a Screen), then try to advance.
-      const step = async (): Promise<"new" | "same" | "end" | "unsafe"> => {
-        if (!safeHere(page.url())) return "unsafe";
-        const frame = await pickFrame(page, url);
-        if (!frame) return "unsafe";
-        const shot = await snapshotFrame(frame);
-        // The frame may have moved under the snapshot: a screen from anywhere
-        // the reader may not look is not a screen.
-        if (aborted || !screenOk({ index: 0, ...shot }) || !safeHere(page.url())) return aborted ? "same" : "unsafe";
-        const fp = fingerprint(shot);
-        const isNew = !seen.has(fp);
-        if (isNew) {
-          seen.add(fp);
-          screens.push({ index: screens.length + 1, ...shot });
-          onEvent?.(`Booking form screen ${screens.length}: ${shot.headings[0] ?? "(no heading)"}`);
+        const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        if (res && !res.ok()) {
+          onEvent?.(`Booking page answered ${res.status()}`);
+          return null;
         }
-        if (screens.length >= MAX_SCREENS) return isNew ? "new" : "same";
-        const actions = await advanceFrame(frame, halted);
-        if (!actions.length) return "end";
-        if (!safeHere(page.url())) return "unsafe";
-        return isNew ? "new" : "same";
-      };
-
-      let stale = 0;
-      for (;;) {
-        const left = deadline - Date.now();
-        if (left <= 0) {
-          truncated = true;
-          break;
+        await page.waitForLoadState("networkidle", { timeout: 8_000 }).catch(() => {});
+        if (!safeHere(page.url())) {
+          onEvent?.("Booking page redirected somewhere the reader doesn't follow");
+          return null;
         }
-        let outcome: Awaited<ReturnType<typeof step>>;
-        try {
-          outcome = await withTimeout(step(), Math.min(SCREEN_TIMEOUT_MS, left), () => (aborted = true));
-        } catch (err) {
-          if (err instanceof CapTimeout) {
+
+        // One screen: snapshot it (new fingerprint → a Screen), then try to advance.
+        const step = async (): Promise<"new" | "same" | "end" | "unsafe"> => {
+          if (!safeHere(page.url())) return "unsafe";
+          const frame = await pickFrame(page, url);
+          if (!frame) return "unsafe";
+          // A client-rendered booking app can finish its network activity
+          // before it finishes painting; give the very first screen one more
+          // bounded wait for anything a customer could actually see. Later
+          // screens already wait on their own action's mutation (`settle`).
+          if (screens.length === 0) {
+            const left = deadline - Date.now();
+            if (left > 0) {
+              await frame.waitForFunction(HAS_CONTENT, undefined, { timeout: Math.min(FIRST_SCREEN_GRACE_MS, left) }).catch(() => {});
+            }
+          }
+          const shot = await snapshotFrame(frame);
+          // The frame may have moved under the snapshot: a screen from anywhere
+          // the reader may not look is not a screen.
+          if (aborted || !screenOk({ index: 0, ...shot }) || !safeHere(page.url())) return aborted ? "same" : "unsafe";
+          const fp = fingerprint(shot);
+          const isNew = !seen.has(fp);
+          if (isNew) {
+            seen.add(fp);
+            screens.push({ index: screens.length + 1, ...shot });
+            onEvent?.(`Booking form screen ${screens.length}: ${shot.headings[0] ?? "(no heading)"}`);
+          }
+          if (screens.length >= MAX_SCREENS) return isNew ? "new" : "same";
+          const actions = await advanceFrame(frame, halted);
+          if (!actions.length) return "end";
+          if (!safeHere(page.url())) return "unsafe";
+          return isNew ? "new" : "same";
+        };
+
+        let stale = 0;
+        for (;;) {
+          const left = deadline - Date.now();
+          if (left <= 0) {
             truncated = true;
             break;
           }
-          throw err;
+          let outcome: Awaited<ReturnType<typeof step>>;
+          try {
+            outcome = await withTimeout(step(), Math.min(SCREEN_TIMEOUT_MS, left), () => (aborted = true));
+          } catch (err) {
+            if (err instanceof CapTimeout) {
+              truncated = true;
+              break;
+            }
+            throw err;
+          }
+          if (outcome === "unsafe") {
+            onEvent?.("Booking form left for a host the reader doesn't follow");
+            return null;
+          }
+          if (outcome === "end") break;
+          if (screens.length >= MAX_SCREENS) {
+            truncated = true;
+            break;
+          }
+          stale = outcome === "same" ? stale + 1 : 0;
+          if (stale >= 2) break;
         }
-        if (outcome === "unsafe") {
-          onEvent?.("Booking form left for a host the reader doesn't follow");
-          return null;
-        }
-        if (outcome === "end") break;
-        if (screens.length >= MAX_SCREENS) {
-          truncated = true;
-          break;
-        }
-        stale = outcome === "same" ? stale + 1 : 0;
-        if (stale >= 2) break;
+        aborted = true;
+        return finish();
+      };
+
+      const first = await once();
+      // A page that answered but never showed anything a customer could act
+      // on is more often a slow first paint than an actual empty form — one
+      // more full reload, while there's still time left, before giving up.
+      if (first && snapshotIsEmpty(first) && Date.now() < deadline) {
+        onEvent?.("Booking page loaded but showed nothing yet — trying once more");
+        const second = await once();
+        if (second && !snapshotIsEmpty(second)) return second;
       }
-      aborted = true;
-      return finish();
+      return first;
     });
   } catch (err) {
     onEvent?.(`Booking form could not be read: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`);

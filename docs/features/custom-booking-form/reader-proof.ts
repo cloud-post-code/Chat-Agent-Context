@@ -10,7 +10,9 @@
  * (reader-traps.html: submit buttons, onchange-submit selects, "Pay" tiles,
  * a pre-marked decoy); (G) the in-page string caps; (H) the network guard —
  * a browser context that never loads a private address, driven against a
- * local server on 127.0.0.1; (I) the halted flag; (J) prototype-named keys.
+ * local server on 127.0.0.1; (I) the halted flag; (J) prototype-named keys;
+ * (K) hasVisibleContent, the signal readBookingForm's first-screen grace
+ * period waits on for a client-rendered booking app that paints late.
  * Offline: no site, no model, no database.
  */
 import assert from "node:assert/strict";
@@ -22,6 +24,7 @@ import { chromium } from "playwright";
 import {
   advanceFrame,
   fingerprint,
+  hasVisibleContent,
   serializeSnapshot,
   snapshotFrame,
   snapshotStatic,
@@ -405,6 +408,40 @@ async function main() {
       const actions = await advanceFrame(page.mainFrame(), () => true);
       const clicks = (await page.evaluate("window.__clicks")) as string[];
       check("halted → no actions, no clicks", actions.length === 0 && clicks.length === 0, `${actions.join(", ")} / ${clicks.join(", ")}`);
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // ── K. hasVisibleContent — readBookingForm's client-rendered-app grace ──
+  // (readBookingForm itself drives through Crawler.drive, which the network
+  // guard refuses for any address that isn't a real public host — section H
+  // proves that refusal — so a loopback server can't stand in for the real
+  // booking widget here. This proves the signal it waits on instead: a blank
+  // client-rendered app reads as empty, the same app a beat later reads as
+  // real, and a tile list or a bare heading with no inputs still counts.)
+  console.log("K. hasVisibleContent: a client-rendered app read before and after it paints");
+  {
+    const browser = await launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<html><body></body></html>");
+      check("a blank page has no visible content", (await hasVisibleContent(page.mainFrame())) === false);
+      await page.evaluate(() => {
+        document.body.innerHTML = "<h1>Pick a service</h1><input placeholder='Name'>";
+      });
+      check("the same page, after painting its form, does", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent("<html><body><h1>Book now</h1></body></html>");
+      check("a bare heading with nothing to fill in still counts", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent(
+        "<html><body><div><a>Gel $35</a><a>Shellac $40</a><a>Dip $45</a></div></body></html>",
+      );
+      check("a tile list with no heading and no inputs still counts", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent("<html><body><div id='spinner'>Loading…</div></body></html>");
+      check("plain loading text with nothing clickable does not count", (await hasVisibleContent(page.mainFrame())) === false);
     } finally {
       await browser.close();
     }
