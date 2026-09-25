@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/source-builder-chat/tsconfig.json docs/features/source-builder-chat/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/source-builder-chat/proof.ts
 ```
 
 Fully offline: the builder client is an injected fake (zero model calls), the

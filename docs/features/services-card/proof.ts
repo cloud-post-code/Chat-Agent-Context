@@ -1,6 +1,6 @@
 /**
  * Primary proof for services-card (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/services-card/tsconfig.proof.json docs/features/services-card/proof.ts
+ * Run: npx tsx --tsconfig tsconfig.proofs.json docs/features/services-card/proof.ts
  *
  * Writes services through the real onboarding extractor (its llm seam doubled),
  * then drives the real visitor brain with a scripted model client and asserts

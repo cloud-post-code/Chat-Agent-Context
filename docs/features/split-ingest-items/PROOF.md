@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/split-ingest-items/tsconfig.json docs/features/split-ingest-items/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/split-ingest-items/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls (extractors and the split

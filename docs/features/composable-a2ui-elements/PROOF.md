@@ -65,7 +65,7 @@ Expected evidence:
 
 ## Secondary Guards
 - `npx tsx docs/features/copilot-element-reveal/proof.ts` and
-  `npx tsx --tsconfig docs/features/menu-cart/tsconfig.proof.json docs/features/menu-cart/proof.ts`
+  `npx tsx --tsconfig tsconfig.proofs.json docs/features/menu-cart/proof.ts`
   still green after implementation (unrelated surface, must not regress).
 - Live cross-check with the real model (not a proof):
   `npx tsx docs/features/composable-a2ui-elements/live.ts [slug]`.
@@ -194,7 +194,11 @@ failures: 26
 npx tsx docs/features/composable-a2ui-elements/proof.ts
 ```
 
-Result: **53 PASS / 0 FAIL, exit code 0.**
+Result: **57 PASS / 0 FAIL, exit code 0.** (Was 53 PASS after the initial
+implementation; the repair pass below that fixed the social-links race added
+4 checks: the two scenario-1 "nails" exact-set assertions, the "no-links"
+gate's `seen.calls > 0` anti-vacuous-pass guard, and the run-wide
+"no prisma:error lines logged" assertion.)
 
 Fixes applied to close the gap from the red run above:
 - `proof.ts` fixture never enabled booking (`saveBookingSettings` without
@@ -219,3 +223,56 @@ Fixes applied to close the gap from the red run above:
   `hasBookingOrSocialTools`, and `bookingPromptSection` instead of each
   section re-fetching its own copy; dropped the unused `cardTools` param
   from `hasBookingOrSocialTools`.
+
+### Repair pass (done-evaluator FAIL → fixed)
+A later evaluator run found a user-facing race and several smaller gaps;
+all are fixed and covered by the 57-PASS run above:
+- **Social-links race (0 model calls on a brand-new tenant's first turn).**
+  `hasSocialLinks`/`socialBlock` (`lib/social.ts`) no longer call the
+  upserting `getProfile`; they read `Profile.social_links` via
+  `prisma.profile.findUnique` instead (null → no links). The deeper race —
+  `runModel`'s tool/prompt assembly (`assembleTools` in `lib/brain.ts`)
+  awaits `buildSystemPrompt` and `getBookingConfig` together, and both call
+  `getProfile` — is fixed at the root in `lib/db.ts`: `getProfile`/
+  `getPersonaConfig`/`getThemeConfig` now share one in-flight upsert per
+  `(table, userId)` (`dedupedUpsert`) instead of letting concurrent callers
+  race Postgres's unique constraint. The proof's own `check("no prisma:error
+  lines logged during the run", …)` (wrapping `process.stdout`/`stderr.write`
+  for the run's duration) is the regression guard.
+- **Query vs tags stemming asymmetry.** `lib/photoIndex.ts` `filterPhotos`'s
+  `query` path and `lib/serviceIndex.ts` `serviceTerms`/`filterServices`/
+  `filterProjects`'s `query` and `tags` paths now run tags through
+  `meaningfulWords` (the same stemming the `tags` filter already used)
+  before scoring, so `query:"nails"` matches a photo/service/project whose
+  only "nails" signal is a plain tag.
+- **Proof gaps.** Added scenario-1 exact-set checks (`tags:["nails"]` and
+  `query:"nails"` both yield the fixture's 6 nail-photo ids — 3 red-gel + 2
+  french tagged + the caption-only "red gel nails close-up" photo — computed
+  from the fixture, asserted as a strict subset of all 9 photos); the
+  "show_social is NOT offered to a profile with no social links" check now
+  also asserts `seen.calls > 0` so it can't pass vacuously on a
+  canned-answer short-circuit; the run-wide prisma:error guard above.
+- **Cleanups.** `lib/cards.ts`'s three local `isEmpty*Filter` re-implementations
+  (with inconsistent whitespace-only-query handling) now call the exported
+  `isEmptyPhotoFilter`/`isEmptyServiceFilter`/`isEmptyProjectFilter`
+  (newly exported from `lib/serviceIndex.ts`), and those helpers now trim
+  `query` so a whitespace-only query counts as empty. `lib/serviceIndex.ts`
+  dropped the unused `termsOf` parameter from `similarityScore`. `ShownCard`
+  stays owned by `lib/brain.ts`; `app/cards/shown.ts` now `import type`s it
+  (erased at compile time, confirmed safe for the client bundle via `npm run
+  build`) instead of redefining it.
+- **Function length.** `runModel` (`lib/brain.ts`) and `buildSystemPrompt`
+  (`lib/knowledge.ts`) were both over 100 lines; `assembleTools` (system
+  prompt + tool list assembly) and `promptSections`/`loadPromptData` were
+  extracted respectively, behaviour unchanged.
+- **Sibling fix required to get `services-card`/`menu-cart` proofs green:**
+  `app/cards/SocialCard.tsx` built its `ICONS` map with module-top-level JSX
+  but had no `import React from "react"`; under some proof harnesses' tsx
+  transform this compiled to bare `React.createElement` calls needing
+  `React` as a real binding, throwing `ReferenceError: React is not defined`
+  the moment `Cards.tsx` (and so `SocialCard`) was imported. Added the
+  explicit default import. Also fixed `docs/features/booking-in-chat/
+  proof.ts`, which still spawned `chat-thread.ts` with the now-removed
+  per-feature `tsconfig.proof.json`; it now uses the shared root
+  `tsconfig.proofs.json`, matching `docs/features/CLAUDE.md`'s documented
+  convention and `PROOF.md`'s own command.

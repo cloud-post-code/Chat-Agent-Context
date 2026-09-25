@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/per-source-split-mode/tsconfig.json docs/features/per-source-split-mode/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/per-source-split-mode/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls. `proof-psm-` markers,

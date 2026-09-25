@@ -2,7 +2,7 @@
 
 ## Primary proof command
 ```
-npx tsx --tsconfig docs/features/booking-menu-fields/tsconfig.proof.json docs/features/booking-menu-fields/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-menu-fields/proof.ts
 ```
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only — section E
 renders the real screen card; the `booking-on-by-default` precedent.) Runs

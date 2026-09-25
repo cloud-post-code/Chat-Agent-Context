@@ -1,0 +1,23 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "entry": [
+    "app/**/page.tsx",
+    "app/**/layout.tsx",
+    "app/**/route.ts",
+    "app/**/opengraph-image.tsx",
+    "scripts/*.ts",
+    "scripts/*.mjs",
+    "scripts/*.cjs",
+    "docs/features/**/*.ts",
+    "tests/**/*.ts",
+    "tests/**/*.tsx"
+  ],
+  "project": [
+    "app/**/*.{ts,tsx}",
+    "lib/**/*.ts",
+    "scripts/**",
+    "docs/features/**/*.ts",
+    "tests/**",
+    "types/**"
+  ]
+}

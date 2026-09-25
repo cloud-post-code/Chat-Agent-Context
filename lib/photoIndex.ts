@@ -117,7 +117,14 @@ export function filterPhotos(items: PhotoMeta[], f: PhotoFilter): PhotoMeta[] {
   const query = (f.query ?? "").trim();
   if (query) {
     const queryWords = meaningfulWords(query);
-    const docs = out.map((item) => [...meaningfulWords(`${item.caption} ${item.description}`), ...item.tags]);
+    // Stem tags the same way photoWords/stemTag do for the `tags` filter
+    // above, so a query like "nails" (stemmed to "nail") still overlaps a
+    // photo whose only tag is the plural "nails" and whose caption is
+    // otherwise neutral — matching the tags filter's own stemmed comparison.
+    const docs = out.map((item) => [
+      ...meaningfulWords(`${item.caption} ${item.description}`),
+      ...item.tags.flatMap((t) => meaningfulWords(t)),
+    ]);
     const scored = out
       .map((item, i) => ({ item, score: overlapScore(queryWords, docs[i]) }))
       .filter((s) => s.score > 0);

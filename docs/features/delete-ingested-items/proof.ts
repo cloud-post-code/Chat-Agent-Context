@@ -1,6 +1,6 @@
 /**
  * Primary proof for delete-ingested-items (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/delete-ingested-items/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/delete-ingested-items/proof.ts
  */
 import { createElement as h } from "react";

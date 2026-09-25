@@ -22,7 +22,7 @@ local hashed embeddings)
 Command:
 
 ```bash
-npx tsx --tsconfig docs/features/delete-hide-ingestion-sources/tsconfig.json docs/features/delete-hide-ingestion-sources/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/delete-hide-ingestion-sources/proof.ts
 ```
 
 The proof creates a marker custom source (`proof-dhis-src`), ingests two texts

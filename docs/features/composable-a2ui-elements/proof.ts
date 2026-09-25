@@ -41,6 +41,30 @@ function check(name: string, ok: boolean, detail?: string) {
   }
 }
 
+// Prisma's own `log: ["error"]` writes a "prisma:error" line straight to
+// stdout/stderr the moment a query throws — catching the exception
+// afterward (e.g. a retry) does not unprint it. The social-links race this
+// proof exists to guard against (concurrent getProfile upserts on a
+// brand-new tenant, lib/db.ts) showed up exactly this way before the fix:
+// every check still passed while a prisma:error line leaked into the run.
+// Count every such line on both streams and fail the run if any appear, so
+// a regression can't hide behind otherwise-green checks.
+let prismaErrorLines = 0;
+const origStdoutWrite = process.stdout.write.bind(process.stdout);
+const origStderrWrite = process.stderr.write.bind(process.stderr);
+function countPrismaErrors(chunk: unknown): void {
+  if (typeof chunk === "string" && chunk.includes("prisma:error")) prismaErrorLines++;
+  else if (Buffer.isBuffer(chunk) && chunk.includes("prisma:error")) prismaErrorLines++;
+}
+process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
+  countPrismaErrors(chunk);
+  return (origStdoutWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+}) as typeof process.stdout.write;
+process.stderr.write = ((chunk: unknown, ...rest: unknown[]) => {
+  countPrismaErrors(chunk);
+  return (origStderrWrite as (...a: unknown[]) => boolean)(chunk, ...rest);
+}) as typeof process.stderr.write;
+
 /** One scripted model turn: optional text, then tool calls (or none = done). */
 type Turn = { text?: string; tools?: { name: string; input: Record<string, unknown> }[] };
 
@@ -311,8 +335,32 @@ async function main() {
       }
     }
 
-    // ══ 4. show_gallery filtering ════════════════════════════════════════
+    // ══ 1/4. show_gallery filtering (Scenario 1: "pictures of nails") ═══════
     {
+      // Exact expected set, computed from the fixture rather than hardcoded:
+      // every photo tagged "nails" (the 3 red-gel + 2 french, photoIds[0..4])
+      // plus the caption-only "red gel nails close-up" photo, which carries no
+      // tags at all and matches only through its caption words. All 9 fixture
+      // photos are the superset, so this must be a strict subset of that.
+      const nailPhotoIds = [...photoIds.slice(0, 5), captionOnlyRed.id];
+      check("nail photo fixture set is a strict subset of all 9 photos", nailPhotoIds.length < photoIds.length);
+
+      const nailsTagRun = await run(show("show_gallery", { layout: "filmstrip", tags: ["nails"] }));
+      const nailsTagCard = cardsOf(nailsTagRun.events, "gallery")[0] as { items?: { id: string }[] } | undefined;
+      check(
+        "show_gallery tags:[nails] yields exactly the nail-photo fixture set",
+        JSON.stringify((nailsTagCard?.items ?? []).map((i) => i.id).sort()) === JSON.stringify([...nailPhotoIds].sort()),
+        JSON.stringify(nailsTagCard),
+      );
+
+      const nailsQueryRun = await run(show("show_gallery", { layout: "filmstrip", query: "nails" }));
+      const nailsQueryCard = cardsOf(nailsQueryRun.events, "gallery")[0] as { items?: { id: string }[] } | undefined;
+      check(
+        "show_gallery query:nails yields exactly the same nail-photo fixture set",
+        JSON.stringify((nailsQueryCard?.items ?? []).map((i) => i.id).sort()) === JSON.stringify([...nailPhotoIds].sort()),
+        JSON.stringify(nailsQueryCard),
+      );
+
       const redRun = await run(show("show_gallery", { layout: "carousel", tags: ["nails", "red"] }));
       const g = cardsOf(redRun.events, "gallery")[0] as { items?: { id: string }[]; title?: string } | undefined;
       check(
@@ -412,6 +460,11 @@ async function main() {
           { userId: noLinksUser.id, message: "scripted", sessionId: `proof-${Date.now()}` },
           { client: scriptedClient(show("show_social", {}), seenNoLinks) as never },
         )) events.push(e as Ev);
+        // Assert the scripted client was actually invoked first — otherwise a
+        // canned-answer short-circuit that never reaches runModel would leave
+        // toolNames === [] and this check would pass vacuously, proving
+        // nothing about the gate it claims to test.
+        check("the scripted client was actually called for the no-links check", seenNoLinks.calls > 0, `calls=${seenNoLinks.calls}`);
         check("show_social is NOT offered to a profile with no social links", !seenNoLinks.toolNames.includes("show_social"), seenNoLinks.toolNames.join(","));
       } finally {
         await prisma.user.delete({ where: { id: noLinksUser.id } }).catch(() => {});
@@ -487,6 +540,14 @@ async function main() {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
     await prisma.$disconnect();
   }
+
+  // Checked last, after cleanup, so a race anywhere in the run — including
+  // the seed or the finally block's own deletes — is caught, not just the
+  // scenarios above.
+  check("no prisma:error lines logged during the run", prismaErrorLines === 0, `prismaErrorLines=${prismaErrorLines}`);
+
+  process.stdout.write = origStdoutWrite;
+  process.stderr.write = origStderrWrite;
 
   console.log(`failures: ${failures}`);
   if (failures > 0) process.exit(1);

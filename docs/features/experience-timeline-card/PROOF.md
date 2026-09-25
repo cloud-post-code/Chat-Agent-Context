@@ -16,7 +16,7 @@ Anthropic calls, no network)
 
 Command:
 ```bash
-npx tsx --tsconfig docs/features/experience-timeline-card/tsconfig.proof.json docs/features/experience-timeline-card/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/experience-timeline-card/proof.ts
 ```
 
 The `--tsconfig` flag is required, not incidental: the app's `tsconfig.json`

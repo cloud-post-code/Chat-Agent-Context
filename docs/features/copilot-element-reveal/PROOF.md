@@ -47,7 +47,7 @@ Expected evidence:
 
 Secondary guards:
 - `npx tsx docs/features/copilot-focused-edits/proof.ts` and
-  `npx tsx --tsconfig docs/features/admin-nav-groups/tsconfig.json docs/features/admin-nav-groups/proof.ts`
+  `npx tsx --tsconfig tsconfig.proofs.json docs/features/admin-nav-groups/proof.ts`
   still green.
 - Live cross-check with the real model (not a proof): `npx tsx docs/features/copilot-element-reveal/live.ts`.
 - `npx tsc --noEmit` and `npm run lint` clean.

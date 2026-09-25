@@ -26,7 +26,7 @@ the admin-content-tabs proof)
 Command:
 
 ```bash
-npx tsx --tsconfig docs/features/admin-graph-tabs/tsconfig.json docs/features/admin-graph-tabs/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/admin-graph-tabs/proof.ts
 ```
 
 No network, no database. `SubTabs` is rendered with `renderToStaticMarkup`.

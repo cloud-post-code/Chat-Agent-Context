@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/create-ingestion-source/tsconfig.json docs/features/create-ingestion-source/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/create-ingestion-source/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls (extractor and describer are

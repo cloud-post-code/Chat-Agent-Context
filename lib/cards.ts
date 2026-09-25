@@ -8,6 +8,7 @@ import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types"
 import type { CartBlock, MenuBlock } from "./menu";
 import {
   filterPhotos,
+  isEmptyPhotoFilter,
   parsePhotoTags,
   tagVocabulary,
   type PhotoFilter,
@@ -16,6 +17,8 @@ import {
 import {
   filterProjects,
   filterServices,
+  isEmptyProjectFilter,
+  isEmptyServiceFilter,
   priceAmountFromLabel,
   similarServices,
   type ProjectFilter,
@@ -31,6 +34,7 @@ export type { PhotoFilter, PhotoMeta } from "./photoIndex";
 export {
   filterProjects,
   filterServices,
+  isEmptyProjectFilter,
   isEmptyServiceFilter,
   serviceIndexLines,
   similarServices,
@@ -190,7 +194,7 @@ export async function allProjectsBlock(
     query: typeof input.query === "string" ? input.query : undefined,
     limit: typeof input.limit === "number" ? input.limit : undefined,
   };
-  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const isEmpty = isEmptyProjectFilter(filter);
   const items = filterProjects(cards, filter);
   if (!isEmpty && items.length === 0) return null;
   const title = str(input.title, MAX_TITLE) || undefined;
@@ -324,7 +328,7 @@ export async function servicesBlock(
     query: typeof input.query === "string" ? input.query : undefined,
     limit: typeof input.limit === "number" ? input.limit : undefined,
   };
-  const isEmpty = !filter.ids?.length && !filter.category && !(filter.query ?? "").trim();
+  const isEmpty = isEmptyServiceFilter(filter);
   const meta = allItems.map(toServiceMeta);
   const focusMeta = filterServices(meta, filter);
   if (!isEmpty && focusMeta.length === 0) return null;
@@ -413,7 +417,7 @@ export async function galleryBlock(
     query: typeof input.query === "string" ? input.query : undefined,
     limit: typeof input.limit === "number" ? input.limit : undefined,
   };
-  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const isEmpty = isEmptyPhotoFilter(filter);
   const matched = filterPhotos(metas, filter);
   if (!isEmpty && matched.length === 0) return null;
 

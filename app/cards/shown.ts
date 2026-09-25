@@ -1,8 +1,11 @@
 /**
- * Pure, import-free helper deriving the wire `ShownCard[]` for a message's
- * rendered cards (see the composable-a2ui-elements contract, "Wire / card
- * memory"). Client-safe: no server imports, so it can be called from
- * app/Chat.tsx and from a proof script alike.
+ * Pure helper deriving the wire `ShownCard[]` for a message's rendered cards
+ * (see the composable-a2ui-elements contract, "Wire / card memory").
+ * Client-safe: the only import is the `ShownCard` type from lib/brain.ts,
+ * which the type-only `import type` erases at compile time — no server code
+ * reaches the client bundle — so this still runs from app/Chat.tsx and from
+ * a proof script alike. `ShownCard` itself lives in lib/brain.ts (the wire
+ * type the contract defines it against) rather than being redefined here.
  *
  * Per card: gallery/services/projects -> ids of items (tags only for
  * gallery, the union across its items, capped); social -> ids = platforms;
@@ -10,7 +13,9 @@
  * present. Caps: 4 cards per message, 12 ids per card (tags capped at 12 too).
  */
 
-export type ShownCard = { type: string; ids?: string[]; tags?: string[]; title?: string };
+import type { ShownCard } from "@/lib/brain";
+
+export type { ShownCard };
 
 const MAX_CARDS = 4;
 const MAX_IDS = 12;

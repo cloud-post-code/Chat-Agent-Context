@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/new-source-subtab/tsconfig.json docs/features/new-source-subtab/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/new-source-subtab/proof.ts
 ```
 
 Offline: pure `resolveAdminTab` calls, a server-rendered `SubTabs` markup

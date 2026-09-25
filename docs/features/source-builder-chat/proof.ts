@@ -1,6 +1,6 @@
 /**
  * Primary proof for source-builder-chat (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/source-builder-chat/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/source-builder-chat/proof.ts
  *
  * Fully offline: fake builder client, static rendering, source greps.

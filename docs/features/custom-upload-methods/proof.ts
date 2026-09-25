@@ -1,6 +1,6 @@
 /**
  * Primary proof for custom-upload-methods (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/custom-upload-methods/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/custom-upload-methods/proof.ts
  *
  * Local dev Postgres; zero model calls. `proof-cum-` markers, finally cleanup.

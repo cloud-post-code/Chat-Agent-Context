@@ -36,7 +36,7 @@ the two injectable seams — the onboarding `llm` and the brain's `ModelClient`)
 
 Command:
 ```bash
-npx tsx --tsconfig docs/features/services-card/tsconfig.proof.json docs/features/services-card/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/services-card/proof.ts
 ```
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only — section 3
 renders the real `BookingThread` to static markup; the `booking-flow`

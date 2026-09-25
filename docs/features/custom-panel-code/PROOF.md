@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/custom-panel-code/tsconfig.json docs/features/custom-panel-code/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/custom-panel-code/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls. `proof-cpc-` markers,

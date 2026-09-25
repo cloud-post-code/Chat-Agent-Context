@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/per-item-classification/tsconfig.json docs/features/per-item-classification/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/per-item-classification/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls (fake extractor and fake

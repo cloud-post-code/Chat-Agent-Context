@@ -1,6 +1,6 @@
 /**
  * Primary proof for booking-flow (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/booking-flow/tsconfig.proof.json docs/features/booking-flow/proof.ts
+ * Run: npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-flow/proof.ts
  *
  * Section A exercises the pure contract (types, intake rules). Section B the
  * pure engines (time, availability, pricing, hours). Section C runs the real

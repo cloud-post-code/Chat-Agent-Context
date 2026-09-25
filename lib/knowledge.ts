@@ -23,8 +23,12 @@ import { serviceIndexLines, type ServiceMeta } from "./serviceIndex";
  * catalog Blake edits on the admin A2UI tab (lib/uiCards.ts) — each card's
  * "when to show it" text becomes a line of the USING RICH CARDS section.
  */
-export async function buildSystemPrompt(userId: string, query?: string): Promise<string> {
-  const [profile, personaConfig, projects, photos, corrections, chunkCount, directives] = await Promise.all([
+type PromptData = Awaited<ReturnType<typeof loadPromptData>>;
+
+/** The raw rows buildSystemPrompt needs, fetched once and threaded into
+ *  promptSections rather than every section re-querying its own copy. */
+async function loadPromptData(userId: string) {
+  return Promise.all([
     getProfile(userId),
     getPersonaConfig(userId),
     prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
@@ -55,6 +59,17 @@ export async function buildSystemPrompt(userId: string, query?: string): Promise
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     }),
   ]);
+}
+
+/**
+ * Every prompt section that depends on the fetched rows (project index,
+ * knowledge, corrections, card catalog, photo/service indexes, persona) plus
+ * the speaker names the final template needs. Pulled out of
+ * buildSystemPrompt so that function stays under the line-count limit;
+ * behaviour is unchanged.
+ */
+async function promptSections(userId: string, query: string | undefined, data: PromptData) {
+  const [profile, personaConfig, projects, photos, corrections, chunkCount, directives] = data;
 
   // Just the index — id, name and links. Every project's blurb and write-up is
   // chunked and retrieved on demand, so the ids are here purely so show_project
@@ -114,6 +129,45 @@ export async function buildSystemPrompt(userId: string, query?: string): Promise
   const owner = profile.owner_name.trim();
   const company = profile.company_name.trim() || owner || "this business";
   const speaker = owner || company;
+
+  return {
+    profile,
+    personaConfig,
+    directives,
+    projectBlock,
+    sourceBlock,
+    correctionBlock,
+    cards,
+    cardTools,
+    bookingConfig,
+    bookingFlow,
+    photoBlock,
+    personaBlock,
+    owner,
+    company,
+    speaker,
+  };
+}
+
+export async function buildSystemPrompt(userId: string, query?: string): Promise<string> {
+  const data = await loadPromptData(userId);
+  const {
+    profile,
+    personaConfig,
+    directives,
+    projectBlock,
+    sourceBlock,
+    correctionBlock,
+    cards,
+    cardTools,
+    bookingConfig,
+    bookingFlow,
+    photoBlock,
+    personaBlock,
+    owner,
+    company,
+    speaker,
+  } = await promptSections(userId, query, data);
 
   return `You are the AI host for ${company}'s website. You speak on ${speaker}'s behalf to visitors — friendly, helpful, and genuine, never corporate.
 

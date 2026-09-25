@@ -1,6 +1,6 @@
 /**
  * Primary proof for gmail-sent-contacts (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/gmail-sent-contacts/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/gmail-sent-contacts/proof.ts
  *
  * Zero model calls and zero network calls: a fake SentMailReader returns

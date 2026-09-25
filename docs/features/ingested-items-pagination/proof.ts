@@ -1,6 +1,6 @@
 /**
  * Primary proof for ingested-items-pagination (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/ingested-items-pagination/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/ingested-items-pagination/proof.ts
  *
  * Fully offline: static server renders with synthetic items.
