@@ -22,6 +22,7 @@ import {
   pricingFromText,
   publicRules,
   sanitizeBookingSettings,
+  sanitizeFlow,
   sanitizeLocationConfig,
   sanitizePricing,
   sanitizeServiceConfig,
@@ -602,7 +603,7 @@ function trimIntake(fields: AppointmentFieldRow[], hasServiceStep: boolean): App
 export async function getBookingFlow(
   userId: string,
   opts: { preselectServiceId?: string | null } = {},
-): Promise<{ flow: BookingFlow; intake: AppointmentFieldRow[] } | null> {
+): Promise<{ flow: BookingFlow; intake: AppointmentFieldRow[]; fields: AppointmentFieldRow[] } | null> {
   const profile = await getProfile(userId);
   if (!profile.bookingEnabled) return null;
 
@@ -616,7 +617,11 @@ export async function getBookingFlow(
   const staff = staffRows.filter((s) => s.enabled);
   const locations = locationRows.filter((l) => l.enabled);
   const categories = [...new Set(services.map((s) => s.category).filter(Boolean))];
-  const rules = foldLegacyRequired(publicRules(settings), fields);
+  const rules: BookingRules = {
+    ...foldLegacyRequired(publicRules(settings), fields),
+    // The business's own step order, resolved against its form.
+    flow: sanitizeFlow(settings.flow, fields),
+  };
 
   const wanted = opts.preselectServiceId ?? null;
   const preselect = { serviceId: wanted && services.some((s) => s.id === wanted) ? wanted : null };
@@ -637,6 +642,8 @@ export async function getBookingFlow(
       preselect,
     },
     intake: trimIntake(fields, services.length > 0),
+    /** Every field, role-tagged and screen-grouped — what the flow-driven card asks. */
+    fields,
   };
 }
 

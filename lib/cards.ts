@@ -1,4 +1,4 @@
-import type { FieldConfig, FieldType } from "./appointmentTypes";
+import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
@@ -149,6 +149,10 @@ export type BookingField = {
   type: FieldType;
   required: boolean;
   config: FieldConfig;
+  /** Which answer is the customer's name/email/phone (FIELD_ROLES). */
+  role: FieldRole;
+  /** Fields sharing a screen are asked together, in order. */
+  screen: number;
 };
 
 /**
@@ -174,6 +178,8 @@ export async function bookingBlock(userId: string, preselect?: string | null): P
       type: f.type,
       required: f.required,
       config: f.config,
+      role: f.role,
+      screen: f.screen,
     })),
     flow: flowResult?.flow ?? null,
   };

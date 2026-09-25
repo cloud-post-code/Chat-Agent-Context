@@ -6,19 +6,8 @@ import { formatMoney } from "@/lib/booking/types";
 import { zonedParts } from "@/lib/booking/time";
 import { inputStyle, linkBtn, liveBtn, sectionLabel, Tile } from "./ui";
 
-/** Enabled locations the service offers; service.locationIds empty = every enabled location. */
-export function offeringLocations(flow: BookingFlow, service: ServiceRow | null): LocationRow[] {
-  const enabled = flow.locations.filter((l) => l.enabled);
-  if (!service || service.locationIds.length === 0) return enabled;
-  return enabled.filter((l) => service.locationIds.includes(l.id));
-}
-
-/** Whether the location step has anything real to ask. */
-export function locationChoiceReal(flow: BookingFlow, service: ServiceRow | null): boolean {
-  const offering = offeringLocations(flow, service);
-  const modes = service?.modes ?? [];
-  return offering.length > 1 || modes.includes("online") || modes.includes("mobile");
-}
+import { offeringLocations } from "@/lib/booking/flowSteps";
+export { offeringLocations, locationChoiceReal } from "@/lib/booking/flowSteps";
 
 function todaysHours(loc: LocationRow, flow: BookingFlow): string {
   const hours = loc.hours ?? flow.rules.hours;

@@ -570,11 +570,19 @@ model AppointmentField {
   /// Form-safe answer key, derived from the label.
   key      String
   label    String
-  /// short_text | long_text | email | phone | select | multi_select | number |
-  /// yes_no — the input the wizard renders (FIELD_TYPES, lib/appointmentTypes.ts).
+  /// One of FIELD_TYPES (lib/appointmentTypes.ts): short_text | long_text | email |
+  /// phone | select | multi_select | number | yes_no | date | address | file |
+  /// photo | signature | waiver — the input the card renders.
   type     String  @default("short_text")
   required Boolean @default(false)
   order    Int     @default(0)
+  /// none | name | first_name | last_name | email | phone | notes | policy
+  /// (FIELD_ROLES): which answer is the customer's name/email/phone, so the
+  /// calendar and the confirmation find them whatever the form calls them.
+  role     String  @default("none")
+  /// Fields sharing a screen number are asked together on one screen, in
+  /// `order`. Every row the app writes has screen >= 1.
+  screen   Int     @default(0)
   /// JSON FieldConfig: what the type needs beyond a label — a choice question's
   /// options (each with an optional price, duration, description and menu
   /// section) and whether "something else" is accepted; a number's min/max.

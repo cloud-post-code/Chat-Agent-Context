@@ -9,6 +9,7 @@ import {
   selectionTotal,
   type FieldConfig,
   type FieldOption,
+  type FieldRole,
   type FieldType,
 } from "@/lib/appointmentTypes";
 import { uploadBookingFile } from "./booking/api";
@@ -34,6 +35,10 @@ export type BookingField = {
   required: boolean;
   /** Absent on a block drawn from an old stored sample; read as empty. */
   config?: FieldConfig;
+  /** Absent on an old stored sample; read as `none`. */
+  role?: FieldRole;
+  /** Absent on an old stored sample; read as its own screen. */
+  screen?: number;
 };
 
 /** A choice question answers with its picks; every other type with text. */

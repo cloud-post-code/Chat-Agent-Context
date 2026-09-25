@@ -7,12 +7,8 @@ import { formatInZone } from "@/lib/booking/time";
 import { getAvailabilityMonth } from "./api";
 import { Badge, Chip, chipRow, linkBtn, liveBtn, PlaceholderImage, textBtn, Tile } from "./ui";
 
-/** service.staffIds ∩ enabled staff, or every enabled provider when staffIds is empty. */
-export function providerCandidates(flow: BookingFlow, service: ServiceRow | null): StaffRow[] {
-  const enabled = flow.staff.filter((s) => s.enabled);
-  if (!service || service.staffIds.length === 0) return enabled;
-  return enabled.filter((s) => service.staffIds.includes(s.id));
-}
+import { providerCandidates } from "@/lib/booking/flowSteps";
+export { providerCandidates };
 
 export function ProviderStep({
   flow,

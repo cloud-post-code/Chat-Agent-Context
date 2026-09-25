@@ -41,6 +41,31 @@ export const FIELD_TYPES = [
 ] as const;
 export type FieldType = (typeof FIELD_TYPES)[number];
 
+/**
+ * What a field's answer IS to the business, beyond the wording the form uses
+ * for it. The form is the business's own — a single "Full Name" box, or
+ * "First name" and "Last name", or no email at all — and the role is how the
+ * calendar, the confirmation, the .ics file and the knowledge index still
+ * find the customer's name, email and phone in the answers. `policy` marks
+ * the "I agree to the cancellation policy" checkbox (a `waiver` field).
+ */
+export const FIELD_ROLES = ["none", "name", "first_name", "last_name", "email", "phone", "notes", "policy"] as const;
+export type FieldRole = (typeof FIELD_ROLES)[number];
+
+export const FIELD_ROLE_LABELS: Record<FieldRole, string> = {
+  none: "Not a contact detail",
+  name: "Full name",
+  first_name: "First name",
+  last_name: "Last name",
+  email: "Email",
+  phone: "Phone",
+  notes: "Notes / special requests",
+  policy: "Policy agreement",
+};
+
+export const isFieldRole = (v: unknown): v is FieldRole =>
+  typeof v === "string" && (FIELD_ROLES as readonly string[]).includes(v);
+
 export const isChoiceType = (t: string): t is "select" | "multi_select" =>
   t === "select" || t === "multi_select";
 
@@ -85,6 +110,10 @@ export type FieldConfig = {
   text?: string;
   /** Any type: ask only when another answer matches (conditional question). */
   showIf?: ShowIf;
+  /** Any type: the input's placeholder, as the business's own form shows it. */
+  placeholder?: string;
+  /** Any type: one line of help under the label, as the business's own form shows it. */
+  help?: string;
   /** Onboarding wrote this question and nobody has edited the form since —
    *  so onboarding may rebuild it. Stored only; never accepted from a caller. */
   generated?: boolean;
@@ -97,7 +126,61 @@ export type AppointmentFieldRow = {
   required: boolean;
   order: number;
   config: FieldConfig;
+  role: FieldRole;
+  /** Fields sharing a screen number are asked together on one screen, in `order`. */
+  screen: number;
 };
+
+/**
+ * The customer as the calendar, the confirmation and the .ics file want it,
+ * read out of a booking's role-tagged answers.
+ */
+export type CustomerContact = {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+  phone?: string;
+  notes?: string;
+};
+
+/**
+ * Role-tagged answers → the customer. First field per role wins; a `name`
+ * role splits on the first space into first and last, so a form with one
+ * "Full Name" box and a form with two boxes read the same downstream.
+ */
+export function customerFromAnswers(
+  fields: ReadonlyArray<Pick<AppointmentFieldRow, "key" | "role">>,
+  answers: Record<string, string>,
+): CustomerContact {
+  const out: CustomerContact = {};
+  const first = (role: FieldRole): string => {
+    for (const f of fields) {
+      if (f.role !== role) continue;
+      const v = (answers[f.key] ?? "").trim();
+      if (v) return v;
+    }
+    return "";
+  };
+  const firstName = first("first_name");
+  const lastName = first("last_name");
+  const full = first("name");
+  if (firstName || lastName) {
+    if (firstName) out.firstName = firstName;
+    if (lastName) out.lastName = lastName;
+  } else if (full) {
+    const at = full.indexOf(" ");
+    out.firstName = at < 0 ? full : full.slice(0, at);
+    const rest = at < 0 ? "" : full.slice(at + 1).trim();
+    if (rest) out.lastName = rest;
+  }
+  const email = first("email");
+  const phone = first("phone");
+  const notes = first("notes");
+  if (email) out.email = email;
+  if (phone) out.phone = phone;
+  if (notes) out.notes = notes;
+  return out;
+}
 
 export type BookingConfig = { enabled: boolean; fields: AppointmentFieldRow[] };
 
@@ -124,6 +207,10 @@ export function sanitizeFieldConfig(type: string, raw: unknown): FieldConfig {
   const out = sanitizeTypedConfig(type, src);
   const showIf = sanitizeShowIf(src.showIf);
   if (showIf) out.showIf = showIf;
+  const placeholder = flat(src.placeholder, 120);
+  const help = flat(src.help, 300);
+  if (placeholder) out.placeholder = placeholder;
+  if (help) out.help = help;
   return out;
 }
 

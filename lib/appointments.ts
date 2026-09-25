@@ -2,11 +2,13 @@ import { prisma, getProfile } from "./db";
 import {
   FIELD_TYPES,
   isChoiceType,
+  isFieldRole,
   keyFromLabel,
   parseFieldConfig,
   resolveAnswer,
   sanitizeFieldConfig,
   type FieldConfig,
+  type FieldRole,
   type FieldType,
   type AppointmentFieldRow,
   type BookingConfig,
@@ -66,6 +68,8 @@ function toFieldRow(f: {
   required: boolean;
   order: number;
   config: string;
+  role: string;
+  screen: number;
 }): AppointmentFieldRow {
   const type = (FIELD_TYPES as readonly string[]).includes(f.type) ? (f.type as FieldType) : "short_text";
   return {
@@ -75,6 +79,9 @@ function toFieldRow(f: {
     required: f.required,
     order: f.order,
     config: parseFieldConfig(type, f.config),
+    role: isFieldRole(f.role) ? f.role : "none",
+    // A row written before screens existed sits on its own screen.
+    screen: f.screen >= 1 ? f.screen : f.order + 1,
   };
 }
 
@@ -199,7 +206,18 @@ export { keyFromLabel };
 /** Create or update one field. Returns an error string, or null on success. */
 export async function saveAppointmentField(
   userId: string,
-  input: { key?: string; label: string; type: string; required: boolean; config?: unknown; generated?: boolean },
+  input: {
+    key?: string;
+    label: string;
+    type: string;
+    required: boolean;
+    config?: unknown;
+    generated?: boolean;
+    /** Left out = keep what's stored (or `none` on create). */
+    role?: FieldRole;
+    /** Left out = keep what's stored (or a new screen of its own on create). */
+    screen?: number;
+  },
 ): Promise<string | null> {
   const label = input.label.trim().slice(0, 120);
   if (!label) return "The question needs a label.";
@@ -218,14 +236,29 @@ export async function saveAppointmentField(
   // save means a person now owns this form.
   const kept: FieldConfig | undefined = input.generated ? { ...(config ?? {}), generated: true } : config;
   const stored = kept === undefined ? {} : { config: JSON.stringify(kept) };
-  const last = await prisma.appointmentField.findFirst({
-    where: { userId },
-    orderBy: { order: "desc" },
-  });
+  const [last, top] = await Promise.all([
+    prisma.appointmentField.findFirst({ where: { userId }, orderBy: { order: "desc" } }),
+    prisma.appointmentField.aggregate({ where: { userId }, _max: { screen: true } }),
+  ]);
+  const role = input.role !== undefined && isFieldRole(input.role) ? { role: input.role } : {};
+  const screen =
+    input.screen !== undefined && Number.isInteger(input.screen) && input.screen >= 1 ? { screen: input.screen } : {};
   await prisma.appointmentField.upsert({
     where: { userId_key: { userId, key } },
-    update: { label, type, required: input.required, ...stored },
-    create: { userId, key, label, type, required: input.required, order: (last?.order ?? -1) + 1, ...stored },
+    update: { label, type, required: input.required, ...stored, ...role, ...screen },
+    create: {
+      userId,
+      key,
+      label,
+      type,
+      required: input.required,
+      order: (last?.order ?? -1) + 1,
+      role: "none",
+      screen: (top._max.screen ?? 0) + 1,
+      ...stored,
+      ...role,
+      ...screen,
+    },
   });
   if (!input.generated) await claimForm(userId);
   return null;
