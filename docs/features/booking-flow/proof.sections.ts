@@ -170,6 +170,13 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
   });
   try {
     await prisma.profile.upsert({ where: { userId: user.id }, update: { company_name: "Proof Salon", bookingEnabled: true }, create: { userId: user.id, company_name: "Proof Salon", bookingEnabled: true } });
+    // The form: nothing is seeded on enable any more, so the fixture writes
+    // the name and email questions the first enable used to — role-tagged,
+    // asked together on one screen.
+    await Ap.rebuildUntouchedForm(user.id, [
+      { key: "name", label: "Your name", type: "short_text", required: true, role: "name", screen: 1 },
+      { key: "email", label: "Your email", type: "email", required: true, role: "email", screen: 1 },
+    ]);
     await S.saveBookingSettings(user.id, {
       timezone: TZ,
       hours: weekdays(),
@@ -285,8 +292,8 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
 
     // The legacy bridge: a tenant with only the picker question.
     await prisma.profile.upsert({ where: { userId: legacyUser.id }, update: { bookingEnabled: true }, create: { userId: legacyUser.id, bookingEnabled: true } });
-    await Ap.saveAppointmentField(legacyUser.id, { key: "name", label: "Your name", type: "short_text", required: true });
-    await Ap.saveAppointmentField(legacyUser.id, { key: "email", label: "Your email", type: "email", required: true });
+    await Ap.saveAppointmentField(legacyUser.id, { key: "name", label: "Your name", type: "short_text", required: true, role: "name" });
+    await Ap.saveAppointmentField(legacyUser.id, { key: "email", label: "Your email", type: "email", required: true, role: "email" });
     await Ap.saveAppointmentField(legacyUser.id, {
       key: "service", label: "Which services would you like?", type: "multi_select", required: true,
       config: { options: [{ label: "Gel Manicure", price: "$35", duration: "45 min", group: "Manicures" }, { label: "Spa Pedicure", price: "from $50", group: "Pedicures" }], allowOther: true },
@@ -299,8 +306,8 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     check("C11 …written as real rows the owner can now edit", !!gel && !gel.id.startsWith("legacy:") && (await S.listServices(legacyUser.id)).length === 2);
     check("C11 …priced and timed from the menu's own words", gel?.pricing.kind === "fixed" && gel?.pricing.amount === 35 && gel?.durationMinutes === 45 && legacy?.flow.services[1].pricing.kind === "starting_at");
     check("C11 …with a gallery photo matched by its caption", gel?.imageUrl === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
-    check("C11 name, email and the picker leave the intake; the rest stays", legacy?.intake.map((f) => f.key).join() === "allergies");
-    check("C11 the old required name/email fold onto the customer step", legacy?.flow.rules.customerFields.find((f) => f.key === "email")?.required === true);
+    check("C11 only the picker leaves the fields; name, email and the rest stay", legacy?.fields.map((f) => f.key).join() === "name,email,allergies", legacy?.fields.map((f) => f.key).join());
+    check("C11 name and email are ordinary role-tagged fields, still required", legacy?.fields.filter((f) => f.key === "name" || f.key === "email").every((f) => f.required && (f.role === "name" || f.role === "email")) === true);
     const lslot = (await S.availability(legacyUser.id, { serviceId: gel!.id, date: openDay!.date })).slots?.[0];
     const lb = await S.createBooking(legacyUser.id, T.sanitizeSelection({ serviceId: gel!.id, startsAt: lslot?.startsAt, customer, answers: { allergies: "yes" } }));
     check("C11 booking a derived service works", lb.ok && lb.serviceName === "Gel Manicure", lb.ok ? "" : lb.error);
@@ -359,7 +366,7 @@ export async function sectionC(check: Check, TZ: string, SLUG: string) {
     const staged = await extractServicesAndBooking(phonePages, phoneUser.id, () => {}, { llm: scripted });
     const phoneSettings = await S.getBookingSettings(phoneUser.id);
     check("C14 the stage reports how the site takes bookings", staged.extract.channels.join() === "phone");
-    check("C14 phone-only means requests the owner confirms, with a phone number asked", phoneSettings.channels.join() === "phone" && phoneSettings.confirmation === "request" && phoneSettings.customerFields.find((f) => f.key === "phone")?.required === true);
+    check("C14 phone-only means requests the owner confirms", phoneSettings.channels.join() === "phone" && phoneSettings.confirmation === "request");
     const phoneFlow = await S.getBookingFlow(phoneUser.id);
     check("C14 the card is told the number and that bookings are requests", phoneFlow?.flow.business.phone === "(512) 555-0199" && phoneFlow?.flow.rules.confirmation === "request" && phoneFlow?.flow.services[0]?.pricing.amount === 22);
     await S.saveBookingSettings(phoneUser.id, { confirmation: "instant", confirmationOwner: true });

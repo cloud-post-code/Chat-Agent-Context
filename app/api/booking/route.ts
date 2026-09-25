@@ -30,7 +30,7 @@ export async function GET(req: Request) {
   return Response.json({
     ok: true,
     enabled: flowResult !== null,
-    fields: flowResult?.intake ?? [],
+    fields: flowResult?.fields ?? [],
     flow: flowResult?.flow ?? null,
   });
 }

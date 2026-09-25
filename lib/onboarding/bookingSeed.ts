@@ -435,9 +435,6 @@ export async function applyBookingChannels(
     if (!settings.confirmationOwner) {
       const online = channels.includes("online");
       patch.confirmation = online ? "instant" : "request";
-      if (!online && channels.includes("phone")) {
-        patch.customerFields = settings.customerFields.map((f) => (f.key === "phone" ? { ...f, required: true } : f));
-      }
     }
     await saveBookingSettings(userId, patch);
     const how = channels.join(", ").replace("walk_in", "walk-in");
