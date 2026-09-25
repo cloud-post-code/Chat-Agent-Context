@@ -14,14 +14,15 @@ import { pad2 } from "./time";
 
 type Token = { hour: number; minute: number; meridiem: "am" | "pm" | null };
 
-/** "9", "9am", "9:30 PM", "09:00", "17:00" → its hour/minute/explicit-meridiem. */
+/** "9", "9am", "9:30 PM", "9:30a", "6p", "9 a.m.", "09:00", "17:00" → its hour/minute/explicit-meridiem. */
 function parseToken(raw: string): Token | null {
   const s = raw.trim().toLowerCase();
-  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)?$/);
+  // The meridiem as small businesses write it: am / pm, a / p, a.m. / p.m.
+  const m = s.match(/^(\d{1,2})(?::(\d{2}))?\s*([ap])(?:\.?m\.?)?$/) ?? s.match(/^(\d{1,2})(?::(\d{2}))?$/);
   if (!m) return null;
   const hour = Number.parseInt(m[1], 10);
   const minute = m[2] ? Number.parseInt(m[2], 10) : 0;
-  const meridiem = m[3] === "am" || m[3] === "pm" ? (m[3] as "am" | "pm") : null;
+  const meridiem = m[3] === "a" ? "am" : m[3] === "p" ? "pm" : null;
   if (hour > 23 || minute > 59) return null;
   if (meridiem && hour > 12) return null; // "13pm" isn't a thing
   return { hour, minute, meridiem };
@@ -61,8 +62,10 @@ function parseSingleRange(raw: string): HoursRange | null {
 }
 
 /**
- * "9 AM–7 PM", "9am-5pm", "9:30 AM - 6:00 PM", "09:00-17:00", "9 - 5",
- * "Closed", "" (→ closed), "9am - 1pm, 2pm - 6pm" (two ranges), "24 hours".
+ * "9 AM–7 PM", "9am-5pm", "9:30a – 6p", "9 a.m. - 5 p.m.", "9:30 AM - 6:00 PM",
+ * "09:00-17:00", "9 - 5", "Closed", "" (→ closed), "9am - 1pm, 2pm - 6pm"
+ * (two ranges), "24 hours". A day range in front ("Tues. – Sat., 9:30a – 6p")
+ * is skipped as a segment that isn't a time.
  */
 export function parseHoursText(text: string): HoursRange[] {
   const raw = (text ?? "").trim();
