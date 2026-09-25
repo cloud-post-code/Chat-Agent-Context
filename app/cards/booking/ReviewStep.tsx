@@ -11,11 +11,13 @@ import type {
   StaffRow,
 } from "@/lib/booking/types";
 import { formatDuration, formatMoney } from "@/lib/booking/types";
-import { isUploadType } from "@/lib/appointmentTypes";
+import { customerFromAnswers, isUploadType } from "@/lib/appointmentTypes";
+import type { FlowField } from "@/lib/booking/flowSteps";
 import { priceBreakdown } from "@/lib/booking/pricing";
 import { formatInZone } from "@/lib/booking/time";
 import { createBooking, quoteBooking, type CreateBookingResult } from "./api";
-import { answerLines, hasAnswer, type Answer, type BookingField } from "../BookingQuestion";
+import { answerLines, hasAnswer, type Answer } from "../BookingQuestion";
+import type { EditTarget } from "./BookingFlowCard";
 import { Chip, chipRow, inputStyle, linkBtn, sectionLabel, textBtn } from "./ui";
 
 /** The client's stand-in for BookingSettings: the visitor's flow carries only
@@ -35,7 +37,13 @@ function formatHeaderDate(d: Date, tz: string): string {
 }
 
 const DEBOUNCE_MS = 300;
-type EditTarget = "service" | "options" | "provider" | "location" | "time" | "details" | "intake";
+
+/** The answers that are text, as customerFromAnswers reads them (a choice answer is a list, never a contact detail). */
+function textAnswers(answers: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(answers)) if (typeof v === "string") out[k] = v;
+  return out;
+}
 
 export function ReviewStep({
   flow,
@@ -45,7 +53,8 @@ export function ReviewStep({
   location,
   selection,
   setSelection,
-  intake,
+  fields,
+  title = "",
   slug,
   onEdit,
   onBack,
@@ -59,7 +68,10 @@ export function ReviewStep({
   location: LocationRow | null;
   selection: BookingSelection;
   setSelection: (s: BookingSelection) => void;
-  intake: BookingField[];
+  /** Every field the form asks, role-tagged: the customer and the answers are both read from here. */
+  fields: FlowField[];
+  /** The business's own heading for this step; "" = the card's default. */
+  title?: string;
   slug: string;
   onEdit: (target: EditTarget) => void;
   onBack: () => void;
@@ -133,8 +145,13 @@ export function ReviewStep({
       : selection.mode === "mobile"
         ? selection.customerAddress || "Your address"
         : location?.address || location?.name || "";
-  const customerName = [selection.customer.firstName, selection.customer.lastName].filter(Boolean).join(" ");
-  const answered = intake.filter((f) => hasAnswer(f, selection.answers[f.key] as Answer | undefined));
+  // The customer is whatever the role-tagged answers say — the same read the
+  // server makes when it books, so the review shows what the owner will see.
+  const customer = customerFromAnswers(fields, textAnswers(selection.answers));
+  const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ");
+  const hasContact = fields.some((f) => f.role !== "none" && f.role !== "policy");
+  const answered = fields.filter((f) => (f.role === "none" || f.role === "notes") && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
+  const agreed = fields.filter((f) => f.role === "policy" && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
 
   async function submit(waitlist: boolean) {
     if (sending) return;
@@ -172,7 +189,7 @@ export function ReviewStep({
   return (
     <div>
       <div style={{ marginBottom: 14 }}>
-        <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>Your appointment</p>
+        <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>{title || "Your appointment"}</p>
         <strong style={{ fontSize: 17, fontFamily: "var(--font-heading)", display: "block" }}>{service?.name ?? "Appointment"}</strong>
         <p style={{ margin: "2px 0" }}>{provider?.name ?? "Any available provider"}</p>
         {startDate && <p style={{ margin: "2px 0" }}>{formatHeaderDate(startDate, zone)}</p>}
@@ -208,16 +225,25 @@ export function ReviewStep({
       <ReviewSection label="Duration" onEdit={() => onEdit("time")}>
         {formatDuration(b.durationMinutes)}
       </ReviewSection>
-      <ReviewSection label="Your details" onEdit={() => onEdit("details")}>
-        {customerName || "—"}
-        {selection.customer.email ? ` · ${selection.customer.email}` : ""}
-      </ReviewSection>
-      {answered.length > 0 && (
+      {hasContact && (
+        <ReviewSection label="Your details" onEdit={() => onEdit("details")}>
+          <div>{customerName || "—"}</div>
+          {customer.email && <div>{customer.email}</div>}
+          {customer.phone && <div>{customer.phone}</div>}
+        </ReviewSection>
+      )}
+      {(answered.length > 0 || agreed.length > 0) && (
         <ReviewSection label="Your answers" onEdit={() => onEdit("intake")}>
           {answered.map((f) => (
             <div key={f.key} style={{ marginBottom: 4 }}>
               <span style={{ opacity: 0.75 }}>{f.label}: </span>
               <AnswerSummary field={f} value={selection.answers[f.key] as Answer | undefined} />
+            </div>
+          ))}
+          {agreed.map((f) => (
+            <div key={f.key} style={{ marginBottom: 4 }}>
+              <span style={{ opacity: 0.75 }}>Policy: </span>
+              <span>agreed</span>
             </div>
           ))}
         </ReviewSection>
@@ -356,7 +382,7 @@ function ReviewSection({ label, onEdit, children }: { label: string; onEdit: () 
  * a photo or signature shows as a thumbnail, a document as "Attached"; a
  * waiver reads "Agreed". Everything else lists the way the question step did.
  */
-function AnswerSummary({ field, value }: { field: BookingField; value: Answer | undefined }) {
+function AnswerSummary({ field, value }: { field: FlowField; value: Answer | undefined }) {
   const text = typeof value === "string" ? value : "";
   if (field.type === "waiver") return <span>Agreed</span>;
   if (isUploadType(field.type)) {

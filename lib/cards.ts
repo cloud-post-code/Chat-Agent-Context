@@ -156,9 +156,12 @@ export type BookingField = {
 };
 
 /**
- * The booking wizard, hydrated from the live config. Null when booking is
- * disabled or has no questions — the guard that keeps a stale canned answer
- * (or a model that saw the tool a moment ago) from drawing a broken booker.
+ * The booking wizard, hydrated from the live flow in one read. Null when
+ * booking is disabled, or when there is nothing to ask and nothing to sell —
+ * the guard that keeps a stale canned answer (or a model that saw the tool a
+ * moment ago) from drawing a broken booker. The fields are every field the
+ * form asks, role-tagged and screen-grouped, so the card walks the
+ * business's own form; the flow carries the order.
  *
  * `preselect` is a service id (or legacy service id) the visitor already
  * named — show_booking's `service` input, resolved by brain.ts — carried
@@ -166,23 +169,19 @@ export type BookingField = {
  * the service step.
  */
 export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
-  const { getBookingConfig } = await import("./appointments");
-  const { enabled, fields } = await getBookingConfig(userId);
-  if (!enabled || fields.length === 0) return null;
   const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
-  return {
-    type: "booking",
-    fields: fields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      type: f.type,
-      required: f.required,
-      config: f.config,
-      role: f.role,
-      screen: f.screen,
-    })),
-    flow: flowResult?.flow ?? null,
-  };
+  if (!flowResult) return null;
+  const fields: BookingField[] = flowResult.fields.map((f) => ({
+    key: f.key,
+    label: f.label,
+    type: f.type,
+    required: f.required,
+    config: f.config,
+    role: f.role,
+    screen: f.screen,
+  }));
+  if (fields.length === 0 && flowResult.flow.services.length === 0) return null;
+  return { type: "booking", fields, flow: flowResult.flow };
 }
 
 /** The tenant's services as saved knowledge; empty when none are on file. */

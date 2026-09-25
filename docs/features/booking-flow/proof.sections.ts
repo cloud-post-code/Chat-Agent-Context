@@ -399,7 +399,17 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
     rules: T.publicRules(settings),
     preselect: { serviceId: null },
   };
-  const fields = [{ key: "notes", label: "Anything else?", type: "long_text" as const, required: false, config: {} }];
+  // The migrated tenant's form: the old details step as screen 1, one question per later screen.
+  const fields = [
+    { key: "first_name", label: "First name", type: "short_text" as const, required: true, config: {}, role: "first_name" as const, screen: 1 },
+    { key: "last_name", label: "Last name", type: "short_text" as const, required: true, config: {}, role: "last_name" as const, screen: 1 },
+    { key: "email", label: "Email", type: "email" as const, required: true, config: { placeholder: "you@example.com" }, role: "email" as const, screen: 1 },
+    { key: "phone", label: "Phone", type: "phone" as const, required: false, config: { help: "For reminders only." }, role: "phone" as const, screen: 1 },
+    { key: "sms_consent", label: "Text me appointment reminders", type: "yes_no" as const, required: false, config: {}, role: "none" as const, screen: 1 },
+    { key: "notes", label: "Anything else?", type: "long_text" as const, required: false, config: {}, role: "notes" as const, screen: 2 },
+  ];
+  // An old stored block: fields saved before roles and screens existed, and no flow.
+  const oldFields = [{ key: "notes", label: "Anything else?", type: "long_text" as const, required: false, config: {} }];
 
   const html = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields, flow }, slug: "proof" }));
   const $ = cheerio.load(html);
@@ -412,8 +422,32 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   check("D1 the step counter", /Step 1 of \d+/.test(html));
   check("D1 the other way to book is one tap away", $('a[href="tel:+15125550100"], a[href="tel:5125550100"]').length === 1 && html.includes("Prefer to call?"));
 
-  const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields }, slug: "proof" }));
+  const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields: oldFields }, slug: "proof" }));
   check("D2 an old stored block still draws the first question at once", noFlow.includes("Anything else?") && !noFlow.includes("Loading"));
+
+  // The steps are the business's own: a migrated tenant (empty stored flow)
+  // walks today's order, contact details as one screen among the questions.
+  const { planSteps, contactFields } = await import("../../../lib/booking/flowSteps");
+  const { toFlowFields } = await import("../../../app/cards/booking/BookingFlowCard");
+  const empty = { serviceId: null, variantId: null, answers: {} };
+  const planned = planSteps(flow, fields, empty);
+  const kinds = planned.map((s) => (s.kind === "screen" ? `screen:${s.screen}` : s.kind)).join(" → ");
+  check("D4 a migrated tenant walks today's order", kinds === "service → provider → time → screen:1 → screen:2 → review", kinds);
+  const details = planned.find((s) => s.kind === "screen");
+  check("D4 the first screen is the old details step", details?.kind === "screen" && details.fields.map((f) => f.key).join() === "first_name,last_name,email,phone,sms_consent" && contactFields(details.fields).length === 4);
+  check("D4 the options step appears once a service with options is chosen", planSteps({ ...flow, services: [svc({ id: "cut", variants: [{ id: "v", name: "Long", pricing: { kind: "fixed", amount: 60 }, durationMinutes: 60 }] })] }, fields, { ...empty, serviceId: "cut" }).map((s) => s.kind).join() === "service,options,provider,time,screen,screen,review");
+  check("D4 a block from before roles and screens reads as one question per screen", toFlowFields(oldFields).every((f) => f.role === "none" && f.screen === 1) && toFlowFields([...oldFields, ...oldFields]).map((f) => f.screen).join() === "1,2");
+
+  // A business whose form asks for details first: the card opens on that
+  // screen, drawing every field on it together, as its own form does.
+  const detailsFirst: BookingFlow = { ...flow, rules: { ...flow.rules, flow: [{ kind: "questions", screen: 1, title: "Your details" }, { kind: "service" }, { kind: "provider" }, { kind: "time" }, { kind: "questions", screen: 2 }, { kind: "review" }] } };
+  const first = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields, flow: detailsFirst }, slug: "proof" }));
+  const $f = cheerio.load(first);
+  const labels = $f("label").map((_, l) => $f(l).text().trim()).get();
+  check("D5 the details screen lists its fields together, required ones starred", labels.join("|") === "First name *|Last name *|Email *|Phone|Text me appointment reminders", labels.join("|"));
+  check("D5 the screen's own heading, placeholder and help line", first.includes("Your details") && $f('input[type="email"]').attr("placeholder") === "you@example.com" && first.includes("For reminders only.") && $f('input[type="tel"]').attr("placeholder") === "Optional");
+  check("D5 the step counter counts the screens, with no separate details step", /Step 1 of 6/.test(first), first.match(/Step \d+ of \d+/)?.[0]);
+  check("D5 Next waits for the required answers", $f("button").filter((_, b) => $f(b).text().trim() === "Next").attr("aria-disabled") === "true");
 
   const services = renderToStaticMarkup(React.createElement(Cards, {
     block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, serviceKey: null, flow } },
