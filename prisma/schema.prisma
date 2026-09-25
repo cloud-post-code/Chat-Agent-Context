@@ -316,6 +316,12 @@ model CannedAnswer {
   /// most (lib/chipLabel.ts). Tapping the tab still sends `question` whole.
   /// Empty means nobody wrote one — the tab derives a label from the question.
   label     String   @default("")
+  /// The owner's goal (AgentDirective text, kind "goal") this question steers
+  /// a visitor toward, or "" for a general question. Groups the pool for the
+  /// per-chat tab pick (lib/starterPick.ts): a chat takes one question per
+  /// goal before any general one. A snapshot of the text, not a relation, so
+  /// editing or deleting a goal never touches a row.
+  goal      String   @default("")
   /// `question` run through normalizeQuestion() — the actual lookup key.
   matchKey  String
   /// The answer text. Empty means "not written yet": falls through to the model.

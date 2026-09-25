@@ -74,9 +74,10 @@ async function main() {
   const { CHIP_COUNT, CHIP_WORDS, chipLabel, clampLabel, deriveLabel } = await import(
     "../../../lib/chipLabel"
   );
-  const { personalizeStarterQuestions, starterChipsFor } = await import(
+  const { personalizeStarterQuestions, starterChipsFor, STARTER_POOL_COUNT } = await import(
     "../../../lib/starterQuestions"
   );
+  const { pickStarters } = await import("../../../lib/starterPick");
   const { saveCannedAnswer, normalizeQuestion } = await import("../../../lib/canned");
   const { renderToStaticMarkup } = await import("react-dom/server");
   const Chat = (await import("../../../app/Chat")).default as React.ComponentType<
@@ -130,9 +131,11 @@ async function main() {
       where: { userId: owner },
       orderBy: { order: "asc" },
     });
+    // Generation now writes a pool (docs/features/per-chat-starter-tabs): all
+    // five are kept, and the page picks three of them per chat.
     check(
-      "five generated items become exactly three rows",
-      written === 3 && rows.length === 3 && gen.spy.calls === 1,
+      "five generated items become five rows of the pool",
+      written === 5 && rows.length === 5 && gen.spy.calls === 1 && STARTER_POOL_COUNT >= 5,
       `written=${written} rows=${rows.length}`,
     );
     check(
@@ -147,8 +150,10 @@ async function main() {
       JSON.stringify(rows.map((r) => r.label)),
     );
     check(
-      "the brief asks for three labelled questions",
-      /exactly 3 questions/i.test(gen.spy.system) && /"label"/.test(gen.spy.system),
+      "the brief asks for a labelled pool of questions and three tabs",
+      new RegExp(`exactly ${STARTER_POOL_COUNT} questions`, "i").test(gen.spy.system) &&
+        /row of 3 small tabs/.test(gen.spy.system) &&
+        /"label"/.test(gen.spy.system),
     );
 
     // A reply of bare strings (the old shape) still yields three usable rows.
@@ -158,12 +163,12 @@ async function main() {
     });
     const plainChips = await starterChipsFor(plain);
     check(
-      "a bare-string reply writes three rows whose tabs derive their labels",
-      plainChips.length === 3 && plainChips.every((c) => c.label && wordCount(c.label) <= 3),
+      "a bare-string reply writes rows whose tabs derive their labels",
+      plainChips.length === 5 && plainChips.every((c) => c.label && wordCount(c.label) <= 3),
       JSON.stringify(plainChips),
     );
 
-    // ── 3. The page's chips: first three enabled rows, short labels ─────────
+    // ── 3. The page's pool: every enabled row in order, short labels ────────
     const crowded = await makeUser("crowded");
     const long = [
       "What safety and cleanliness standards do you follow?",
@@ -183,8 +188,8 @@ async function main() {
     });
     const chips = await starterChipsFor(crowded);
     check(
-      "five live-or-not rows give exactly three chips, enabled rows in order",
-      chips.length === 3 && chips.every((c, i) => c.q === long[i + 1]),
+      "five live-or-not rows give the four enabled rows as the pool, in order",
+      chips.length === 4 && chips.every((c, i) => c.q === long[i + 1]),
       JSON.stringify(chips.map((c) => c.q)),
     );
     check(
@@ -214,11 +219,16 @@ async function main() {
 
     // ── 5. The rendered home screen ────────────────────────────────────────
     // Handed all five whole questions with no labels — the worst a caller can do.
+    // The chat id decides which three of the five this chat shows
+    // (docs/features/per-chat-starter-tabs); the layout rules hold for any.
+    const chatId = "startertabsproof-chat";
+    const expected = pickStarters(long.map((q) => ({ q })), chatId).map((s) => s.q);
     const html = renderToStaticMarkup(
       React.createElement(Chat, {
         name: COMPANY,
         tagline: "",
         starters: long.map((q) => ({ q })),
+        initialChatId: chatId,
         slug: "x",
       }),
     );
@@ -240,8 +250,9 @@ async function main() {
       JSON.stringify(home?.buttons.map((b) => b.text)),
     );
     check(
-      "each tab's title is the whole question it sends",
-      !!home && home.buttons.every((b, i) => b.title === long[i]),
+      "each tab's title is the whole question it sends — this chat's pick",
+      !!home && expected.length === 3 && home.buttons.every((b, i) => b.title === expected[i]),
+      JSON.stringify({ shown: home?.buttons.map((b) => b.title), expected }),
     );
     check(
       "no whole question is printed on a tab",

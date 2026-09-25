@@ -67,7 +67,7 @@ import { GraphPanel } from "./GraphPanel";
 import { AnswersPanel } from "./AnswersPanel";
 import { A2uiPanel } from "./A2uiPanel";
 import { DirectivesPanel } from "./DirectivesPanel";
-import { listDirectives } from "@/lib/directives";
+import { listDirectives, liveDirectives } from "@/lib/directives";
 import { ContactsPanel } from "./ContactsPanel";
 import { listAddressBook } from "@/lib/addressBook";
 import { gmailStatus } from "@/lib/gmail/client";
@@ -734,7 +734,7 @@ export async function buildAdminPanels(
       />
     ),
     activity: activityTab,
-    answers: <AnswersPanel rows={canned} />,
+    answers: <AnswersPanel rows={canned} goals={liveDirectives(goalRows, "goal")} />,
     goals: goalsTab,
     rules: rulesTab,
     contacts: <ContactsPanel rows={addressBook} gmail={gmail} message={query.gmail} />,

@@ -13,6 +13,11 @@ import { CHIP_COUNT, CHIP_WORDS, chipLabel, clampLabel } from "@/lib/chipLabel";
  * answers for the new questions, and exact matches are served without a model
  * call.
  *
+ * The questions are a pool, not a row: the page shows CHIP_COUNT tabs, but a
+ * different CHIP_COUNT each chat (lib/starterPick.ts), so generation writes
+ * STARTER_POOL_COUNT of them and tags each with the owner's goal it serves,
+ * so every chat can open with one question per goal.
+ *
  * Generation is deliberately conservative: it only ever fires on an account
  * with no preset rows, it is all-or-nothing, and any failure leaves the
  * account exactly as it was — onboarding completion must never break or wait
@@ -35,13 +40,20 @@ export type StarterClient = {
 export type StarterDeps = { client?: StarterClient };
 
 /**
- * How many questions we ask for and keep — exactly the tabs the page shows, so
- * every generated question is one a visitor can actually tap.
+ * How many questions we ask for and keep: a pool of three rows' worth, so a
+ * chat's tabs can differ from the last chat's while every generated question
+ * is still one a visitor can actually tap.
  */
-const QUESTION_COUNT = CHIP_COUNT;
+export const STARTER_POOL_COUNT = CHIP_COUNT * 3;
 
-/** A generated question and the short text of its tab ("" when none came). */
-type Generated = { question: string; label: string };
+/** The most live questions the page is ever handed as its pool. */
+export const STARTER_POOL_MAX = 60;
+
+/**
+ * A generated question, the short text of its tab ("" when none came), and
+ * the owner's goal it serves ("" for a general question).
+ */
+type Generated = { question: string; label: string; goal: string };
 
 /**
  * How long onboarding completion will wait. Past this the response goes out
@@ -53,24 +65,32 @@ function starterDeadlineMs(): number {
 }
 
 const BRIEF = `You write the starter tabs for a business's AI agent page.
-Visitors see a row of ${QUESTION_COUNT} small tabs by the chat box and tap one to start talking.
+Visitors see a row of ${CHIP_COUNT} small tabs by the chat box and tap one to start talking.
 Each tab shows a short label; tapping it asks the full question behind it.
+Every new chat shows a different ${CHIP_COUNT} of the questions you write, so
+you write a pool of exactly ${STARTER_POOL_COUNT}.
 
-Write exactly ${QUESTION_COUNT} questions a likely prospective customer would
+Write exactly ${STARTER_POOL_COUNT} questions a likely prospective customer would
 ask this business when learning about it — services and offerings, pricing or
 quotes, how to get started or book, location and hours, what makes them worth
 choosing. Phrase each as the customer speaking to the business ("Do you...",
 "What do you...", "How can I..."), never as an interview question to a person.
-Ground every question in the business context provided; when the context names
-goals, favor questions that lead a conversation toward them.
+Ground every question in the business context provided.
+
+When the context lists numbered goals, the questions serve them: every goal
+gets at least one question whose natural answer leads the conversation toward
+it, spread evenly across the goals, and the remaining questions cover the
+basics above. Set "goal" to the number of the goal a question serves, or 0
+when it serves none in particular.
 
 Each label names its question's topic in ${CHIP_WORDS} words or fewer ("Services and pricing",
 "Book a visit", "Hours and location") — a noun phrase, not a cut-off sentence,
-no punctuation, first word capitalized. The ${QUESTION_COUNT} labels cover different topics.
+no punctuation, first word capitalized. The ${STARTER_POOL_COUNT} labels cover
+different topics, and no two questions ask the same thing.
 
 Rules: each question is short (under 70 characters), plain text, no emojis, no
-numbering. Reply with ONLY a JSON array of ${QUESTION_COUNT} objects:
-[{"label": "...", "question": "..."}]`;
+numbering. Reply with ONLY a JSON array of ${STARTER_POOL_COUNT} objects:
+[{"label": "...", "question": "...", "goal": 0}]`;
 
 /** The text blocks of a completion, joined. */
 function textOf(content: unknown[]): string {
@@ -85,11 +105,24 @@ function textOf(content: unknown[]): string {
 }
 
 /**
- * Parse the model's reply into clean, deduplicated questions. An item is
- * normally {label, question}; a bare string is still a usable question — it
- * just arrives unlabelled, and its tab derives a label instead.
+ * The goal a generated item names, as the owner's own text: the model answers
+ * with the goal's number in the list it was shown (0 or missing for none), and
+ * a goal written out is accepted when it matches one. Anything else is "".
  */
-function parseQuestions(text: string): Generated[] {
+function resolveGoal(raw: unknown, goals: string[]): string {
+  if (typeof raw === "number") return Number.isInteger(raw) ? goals[raw - 1] ?? "" : "";
+  if (typeof raw !== "string") return "";
+  const text = raw.trim();
+  if (/^\d+$/.test(text)) return goals[Number(text) - 1] ?? "";
+  return goals.find((g) => g.toLowerCase() === text.toLowerCase()) ?? "";
+}
+
+/**
+ * Parse the model's reply into clean, deduplicated questions. An item is
+ * normally {label, question, goal}; a bare string is still a usable question —
+ * it just arrives unlabelled and general, and its tab derives a label instead.
+ */
+function parseQuestions(text: string, goals: string[] = []): Generated[] {
   const raw = text.replace(/^```(?:json)?\s*/i, "").replace(/```\s*$/, "");
   const start = raw.indexOf("[");
   const end = raw.lastIndexOf("]");
@@ -108,6 +141,7 @@ function parseQuestions(text: string): Generated[] {
     const fields = (typeof item === "string" ? { question: item } : item ?? {}) as {
       question?: unknown;
       label?: unknown;
+      goal?: unknown;
     };
     if (typeof fields.question !== "string") continue;
     const q = fields.question.trim();
@@ -117,8 +151,9 @@ function parseQuestions(text: string): Generated[] {
     questions.push({
       question: q,
       label: clampLabel(typeof fields.label === "string" ? fields.label : ""),
+      goal: resolveGoal(fields.goal, goals),
     });
-    if (questions.length === QUESTION_COUNT) break;
+    if (questions.length === STARTER_POOL_COUNT) break;
   }
   return questions;
 }
@@ -137,8 +172,12 @@ function hasNothingToProtect(rows: unknown[]): boolean {
   return rows.length === 0;
 }
 
-/** Everything the system knows about the business at onboarding completion. */
-async function businessContext(userId: string): Promise<string> {
+/**
+ * Everything the system knows about the business at onboarding completion,
+ * and the live goals on their own — numbered in the text exactly as the reply
+ * refers back to them.
+ */
+async function businessContext(userId: string): Promise<{ text: string; goals: string[] }> {
   const [profile, persona, goals, sources] = await Promise.all([
     prisma.profile.findUnique({ where: { userId } }),
     prisma.personaConfig.findUnique({ where: { userId } }),
@@ -166,13 +205,14 @@ async function businessContext(userId: string): Promise<string> {
   } catch {
     /* malformed brandValues never blocks generation */
   }
-  if (goals.length) {
-    lines.push("Goals for visitor conversations:");
-    for (const g of goals) lines.push(`- ${g.text}`);
+  const goalTexts = goals.map((g) => g.text.trim()).filter(Boolean);
+  if (goalTexts.length) {
+    lines.push("Goals for visitor conversations (numbered):");
+    goalTexts.forEach((g, i) => lines.push(`${i + 1}. ${g}`));
   }
   const titles = sources.map((s) => s.title).filter(Boolean);
   if (titles.length) lines.push(`Knowledge on file: ${titles.join("; ")}`);
-  return lines.join("\n");
+  return { text: lines.join("\n"), goals: goalTexts };
 }
 
 /** One bounded, grounded generation call. Empty array on any failure. */
@@ -180,16 +220,16 @@ async function generateQuestions(userId: string, deps: StarterDeps): Promise<Gen
   const context = await businessContext(userId);
   const call = (deps.client ?? claude()).messages.create({
     model: claudeModel(),
-    max_tokens: 700,
+    max_tokens: 1500,
     system: BRIEF,
-    messages: [{ role: "user", content: `BUSINESS CONTEXT:\n${context}` }],
+    messages: [{ role: "user", content: `BUSINESS CONTEXT:\n${context.text}` }],
   });
   const timeout = new Promise<null>((resolve) => {
     setTimeout(() => resolve(null), starterDeadlineMs()).unref?.();
   });
   const message = await Promise.race([call, timeout]);
   if (!message) return []; // deadline: existing rows stay, the caller moves on
-  return parseQuestions(textOf(message.content));
+  return parseQuestions(textOf(message.content), context.goals);
 }
 
 /**
@@ -219,6 +259,7 @@ export async function personalizeStarterQuestions(
           userId,
           question: g.question,
           label: g.label,
+          goal: g.goal,
           matchKey: normalizeQuestion(g.question),
           order: i,
         })),
@@ -268,6 +309,7 @@ export async function regenerateStarterQuestions(
           userId,
           question: g.question,
           label: g.label,
+          goal: g.goal,
           matchKey: normalizeQuestion(g.question),
           order: afterKept + i,
         })),
@@ -281,11 +323,12 @@ export async function regenerateStarterQuestions(
 }
 
 /**
- * The starter tabs for one user's public page: their first three preset
- * questions (enabled, in order — CHIP_COUNT), so tabs and preset answers can
- * never disagree. `q` is the whole question a tap sends; `label` is the tab's
- * text, never more than three words. Questions past the first three stay live
- * as preset answers — they just have no tab.
+ * The starter pool for one user's public page: every live preset question, in
+ * the owner's order, so tabs and preset answers can never disagree. The page
+ * shows CHIP_COUNT of these per chat, picked by lib/starterPick.ts from the
+ * chat's id. `q` is the whole question a tap sends; `label` is the tab's text,
+ * never more than three words; `goal` is the owner's goal the question serves,
+ * "" when general.
  *
  * An account with no usable rows gets no chips. There is deliberately no
  * fallback list: generic questions written for no particular business told a
@@ -294,12 +337,13 @@ export async function regenerateStarterQuestions(
  */
 export async function starterChipsFor(
   userId: string,
-): Promise<{ q: string; label: string }[]> {
+): Promise<{ q: string; label: string; goal: string }[]> {
   const rows = await prisma.cannedAnswer.findMany({
     where: { userId, enabled: true },
     orderBy: [{ order: "asc" }, { createdAt: "asc" }],
-    take: CHIP_COUNT,
-    select: { question: true, label: true },
+    // A bound on the payload the page carries, well past any real pool.
+    take: STARTER_POOL_MAX,
+    select: { question: true, label: true, goal: true },
   });
-  return rows.map((r) => ({ q: r.question, label: chipLabel(r) }));
+  return rows.map((r) => ({ q: r.question, label: chipLabel(r), goal: r.goal }));
 }

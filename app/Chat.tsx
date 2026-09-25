@@ -13,15 +13,19 @@ import {
   newChatId,
   type ChatMeta,
 } from "@/lib/chatStore";
-import { CHIP_COUNT, chipLabel } from "@/lib/chipLabel";
+import { chipLabel } from "@/lib/chipLabel";
+import { pickStarters } from "@/lib/starterPick";
 
 type Msg = {
   role: "user" | "assistant";
   content: string;
   cards?: UiBlock[];
 };
-/** `q` is the whole question a tap sends; `label` is the tab's short text. */
-type Starter = { q: string; label?: string };
+/**
+ * `q` is the whole question a tap sends; `label` is the tab's short text;
+ * `goal` is the owner's goal it serves — the pick takes one per goal first.
+ */
+type Starter = { q: string; label?: string; goal?: string };
 type HomePhoto = { src: string; alt: string };
 
 /** localStorage, or null when unavailable (private mode) — history is then off. */
@@ -39,7 +43,13 @@ type ChatProps = {
   name: string;
   tagline: string;
   logo?: string | null;
+  /** Every live starter question; each chat shows CHIP_COUNT of them. */
   starters: Starter[];
+  /**
+   * The first conversation's id, minted by the server so the tabs it picks
+   * on render are the ones the client hydrates. Absent, one is minted here.
+   */
+  initialChatId?: string;
   /** Whose agent this page chats with — sent with every /api/chat call. */
   slug: string;
   /** The business's curated photos for the home screen's bottom strip. */
@@ -55,7 +65,7 @@ export default function Chat(props: ChatProps) {
   );
 }
 
-function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatProps) {
+function ChatInner({ name, tagline, logo, starters, initialChatId, slug, photos = [] }: ChatProps) {
   const cart = useCart();
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
@@ -66,13 +76,13 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
   const heroRef = useRef<HTMLElement>(null);
   // One id per conversation: it doubles as the /api/chat sessionId, so each
   // sidebar chat is one ChatSession in the admin Activity tab.
-  const [chatId, setChatId] = useState<string>(() => newChatId());
+  const [chatId, setChatId] = useState<string>(() => initialChatId ?? newChatId());
   const started = messages.length > 0;
-  // The starter tabs: never more than CHIP_COUNT, never more than three words
-  // each — held here as well as in starterChipsFor, so no caller can hand the
-  // home screen a wrapping stack of sentences again.
-  const tabs = starters
-    .slice(0, CHIP_COUNT)
+  // The starter tabs: this chat's CHIP_COUNT from the pool, one per goal
+  // first, a different set for the next chat (lib/starterPick.ts) — and never
+  // more than three words each, held here as well as in starterChipsFor, so
+  // no caller can hand the home screen a wrapping stack of sentences again.
+  const tabs = pickStarters(starters, chatId)
     .map((s) => ({ q: s.q, label: chipLabel({ label: s.label, question: s.q }) }));
 
   // Saved conversations for this agent, from the visitor's own localStorage.

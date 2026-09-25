@@ -61,7 +61,7 @@ Anthropic Claude API. Three ideas hold it together:
 
 | Surface | Route | Who it's for |
 |---|---|---|
-| **Chat homepage** | `/` | Humans. Chat box, starter chips, streaming answers, inline cards. |
+| **Chat homepage** | `/` | Humans. Chat box, starter tabs (three per chat, a different three each chat, one per goal first), streaming answers, inline cards. |
 | **Agent page** | `/agent` | Humans evaluating the agent — a readable description of the A2A interface, linked from the homepage. |
 | **Admin control room** | `/admin` → `/admin/dashboard` | Blake. Password-gated. Seven nav groups (Home, Inbox, Knowledge, Agent, Cards, Booking, Settings) that own every word the bot can say and every color the site wears. |
 | **Agent interfaces** | `/.well-known/*`, `/api/a2a*` | Other AI agents. Discovery + protocol. |
@@ -254,7 +254,7 @@ branches: old shapes live only in the bootstrap migrations.
 | **Theme** | Live visual editor: 7 color roles as swatches with pickers + hex entry, **20 preset palettes and a shuffle button**, curated Google Font menus rendered *in* their own font, corner-radius preview boxes, base font size, heading weight. |
 | **Projects** | Cards with GitHub URL + live URL (either optional), cover image, tags, inline editing, ordering. **Import from GitHub**: paste a profile URL and it pulls public non-fork repos via the GitHub API, most-starred first, capped at 12, deduped by repo URL, then Haiku-enriches each into a "Learn more" write-up. |
 | **Knowledge** | The unified link / PDF / paste ingest, plus rescan, manual summary editing, and delete. |
-| **Answers** | The canned-answer table: hits counter (model calls avoided), unreviewed-draft markers, per-row **Redraft**, an optional card to render alongside, enable/disable without losing the text. |
+| **Answers** | The canned-answer table: hits counter (model calls avoided), unreviewed-draft markers, per-row **Redraft**, an optional card to render alongside, the **goal** a question steers toward (what the per-chat tab pick groups by), enable/disable without losing the text. |
 | **Graph** | See and fix the extracted graph — index-health stats, per-origin breakdown, warnings for missing embeddings and mixed-model indexes, orphan flags, a **Cytoscape.js force-directed visual graph**, and paginated Entities/Relations panes. Rename (renaming onto an existing name **merges**: mentions move, edges rewire, self-loops drop), retype, delete, and add relations by hand. |
 | **Photos** | Upload → **Claude vision writes a one-paragraph description** (editable), plus caption, kind, order. |
 | **Activity** | Every visitor conversation replayed, with metrics (chats, this week, questions, messages, avg/chat, flagged 👎). Rate any answer 👍/👎 and attach a correction note. |
@@ -474,7 +474,7 @@ Prisma over Postgres. Sixteen models, in [`prisma/schema.prisma`](prisma/schema.
 |---|---|
 | `ChatSession` | One visitor conversation, keyed by a stable client-side `visitorKey` |
 | `ChatMessage` | One turn; assistant turns carry Blake's `rating` and correction `note` |
-| `CannedAnswer` | Pre-model answers: `matchKey`, text, `aiDraft`, `draftedAt`, optional card, `hits` |
+| `CannedAnswer` | Pre-model answers: `matchKey`, text, tab `label`, `goal`, `aiDraft`, `draftedAt`, optional card, `hits` |
 | `Contact` | A contact-form submission |
 | `A2ATask` | A persisted A2A task: state, history, artifacts, cancel flag |
 
@@ -488,7 +488,7 @@ holds — the schema is meant to be readable as documentation.
 ```
 app/
   page.tsx              Chat homepage (server) → Chat.tsx (client)
-  Chat.tsx              Thread, starters, NDJSON stream reader, session id
+  Chat.tsx              Thread, this chat's starter tabs, NDJSON stream reader, session id
   Markdown.tsx          Answer rendering
   cards/Cards.tsx       A2UI card renderers
   cards/booking/        The booking flow card: service, provider, location,
@@ -514,6 +514,9 @@ lib/
   brain.ts              THE CHATBOT. Two tiers, tool loop, event stream.
   knowledge.ts          System-prompt assembly
   canned.ts             Canned-answer data layer + normalizeQuestion()
+  starterQuestions.ts   The generated starter pool (goal-tagged), the page's pool read
+  starterPick.ts        Which three of the pool one chat shows (pure, per chat id)
+  chipLabel.ts          Tab count and label rules (pure)
   answerDrafts.ts       Self-drafting blank answers
   cards.ts              A2UI block hydration
   booking/              types (the contract), time, availability and pricing

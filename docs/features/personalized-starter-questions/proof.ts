@@ -47,9 +47,10 @@ const GENERATED = [
   "Can I get a quote before committing?",
   "Where is your loft and when are you open?",
 ];
-// The model may offer five; generation keeps the three the page has tabs for
-// (docs/features/starter-tabs).
-const KEPT = GENERATED.slice(0, 3);
+// Generation keeps up to STARTER_POOL_COUNT (nine — a pool the page picks a
+// chat's three tabs from, docs/features/per-chat-starter-tabs), so all five
+// offered here are kept.
+const KEPT = GENERATED;
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 

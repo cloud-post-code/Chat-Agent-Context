@@ -34,6 +34,9 @@ export const CARD_TOOLS = [
 
 export type CardTool = (typeof CARD_TOOLS)[number];
 
+/** The longest goal text a row keeps — a goal is a sentence, not an essay. */
+const GOAL_MAX = 300;
+
 /**
  * The lookup key for a question: case, surrounding and internal whitespace, and
  * trailing sentence punctuation are all noise. Everything else must match.
@@ -82,6 +85,8 @@ export async function saveCannedAnswer(userId: string, input: {
   question: string;
   /** The starter tab's text; held to three words. Blank derives one. */
   label?: string;
+  /** The owner's goal this question steers toward; blank means general. */
+  goal?: string;
   answer: string;
   cardTool?: string | null;
   cardInput?: string | null;
@@ -96,6 +101,7 @@ export async function saveCannedAnswer(userId: string, input: {
   const data = {
     question,
     label: clampLabel(input.label ?? ""),
+    goal: (input.goal ?? "").trim().slice(0, GOAL_MAX),
     matchKey: normalizeQuestion(question),
     answer: input.answer.trim(),
     cardTool,

@@ -180,9 +180,10 @@ async function main() {
       where: { userId: mixed },
       orderBy: [{ order: "asc" }, { createdAt: "asc" }],
     });
-    // Generation keeps the first three it is offered (the page has three tabs —
-    // docs/features/starter-tabs); the duplicate among them is then dropped.
-    const expectedNew = [GENERATED[0], GENERATED[2]];
+    // Generation keeps up to STARTER_POOL_COUNT it is offered (a pool the page
+    // picks each chat's tabs from — docs/features/per-chat-starter-tabs); the
+    // duplicate of a kept row is dropped.
+    const expectedNew = [GENERATED[0], GENERATED[2], GENERATED[3]];
     check(
       "drafts and blanks are replaced in exactly one call",
       first.spy.calls === 1 && written === expectedNew.length,

@@ -153,6 +153,25 @@ Chats, Presets, Appointments and Cards. Proof:
 `docs/features/admin-nav-groups/proof.ts` (nav/resolver) and
 `docs/features/booking-flow/proof.ts` (the Booking section's own panels).
 
+## Starter tabs: three per chat, led by the goals
+
+The public page's starter tabs are picked per chat, not fixed. Every live
+preset row (`CannedAnswer`, enabled) is the pool `starterChipsFor` hands the
+page — `{ q, label, goal }` in the owner's order — and `pickStarters`
+(`lib/starterPick.ts`, pure) picks `CHIP_COUNT` of them from the chat's id:
+the pool is grouped by `goal` (the owner's goal text the question steers
+toward, `""` for general), a chat takes one question per goal before any
+general one, which goal leads rotates with the chat id, and so does the
+question each goal offers. The first chat's id is minted by
+`app/a/[slug]/page.tsx` (`initialChatId`) so the server render and the
+hydrated page agree; New chat / Home mint another and so another pick; a saved
+chat reopened from the sidebar keeps its tabs. Generation
+(`lib/starterQuestions.ts`) writes a pool of `STARTER_POOL_COUNT` (nine)
+`{label, question, goal}` items with the goals shown numbered, resolving the
+number to the goal's text on the row; the Presets tab has a Goal select per
+row. No model call per chat. Proof:
+`docs/features/per-chat-starter-tabs/proof.ts`.
+
 ## Testing
 
 `docs/features/dynamic-knowledge-answers/` — the question set (`questions.ts`),

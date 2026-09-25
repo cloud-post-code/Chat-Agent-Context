@@ -6,6 +6,7 @@ import { homePhotos } from "@/lib/cards";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
 import Chat from "@/app/Chat";
 import { siteOrigin } from "@/lib/util";
+import { randomUUID } from "node:crypto";
 
 /**
  * One user's public agent page: their chat, their knowledge, their theme.
@@ -63,6 +64,9 @@ export default async function AgentPage({ params }: Params) {
         tagline={persona.tagline}
         logo={persona.company_logo}
         starters={starters}
+        // Minted here, not in the browser, so the server-rendered tabs and
+        // the hydrated ones are picked from the same chat id.
+        initialChatId={randomUUID()}
         slug={user.slug}
         photos={photos}
       />

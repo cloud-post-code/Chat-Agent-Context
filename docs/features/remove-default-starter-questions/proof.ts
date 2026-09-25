@@ -51,9 +51,10 @@ const GENERATED = [
   "Do you offer tours of the apiary?",
   "What does a subscription cost?",
 ];
-// The model may offer five; generation keeps the three the page has tabs for
-// (docs/features/starter-tabs).
-const KEPT = GENERATED.slice(0, 3);
+// Generation keeps up to STARTER_POOL_COUNT (nine — a pool the page picks a
+// chat's three tabs from, docs/features/per-chat-starter-tabs), so all five
+// offered here are kept.
+const KEPT = GENERATED;
 
 type CreateParams = Anthropic.MessageCreateParamsNonStreaming;
 
@@ -206,12 +207,18 @@ async function main() {
       rows.map((r) => r.question).join("|"),
     );
 
+    // The page's pool is every generated question; a chat shows three of
+    // them (docs/features/per-chat-starter-tabs) and never a generic one.
     const liveChips = await starterChipsFor(fresh);
     const liveHtml = renderPage(liveChips);
+    const shown = KEPT.filter((q) => liveHtml.includes(q));
     check(
-      "the public page shows exactly the generated questions",
-      KEPT.every((q) => liveHtml.includes(q)) && !GENERIC.some((q) => liveHtml.includes(q)),
-      `chips=${liveChips.length}`,
+      "the public page shows only generated questions, three of them",
+      liveChips.length === KEPT.length &&
+        liveChips.every((c, i) => c.q === KEPT[i]) &&
+        shown.length === 3 &&
+        !GENERIC.some((q) => liveHtml.includes(q)),
+      `chips=${liveChips.length} shown=${shown.length}`,
     );
 
     // ── All-disabled rows still means no chips, never the generic list ────

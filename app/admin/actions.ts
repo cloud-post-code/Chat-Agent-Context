@@ -899,6 +899,7 @@ export async function saveCanned(formData: FormData) {
     id: String(formData.get("id") ?? "").trim() || undefined,
     question: String(formData.get("question") ?? ""),
     label: String(formData.get("label") ?? ""),
+    goal: String(formData.get("goal") ?? ""),
     answer: String(formData.get("answer") ?? ""),
     cardTool: String(formData.get("cardTool") ?? "") || null,
     cardInput: String(formData.get("cardInput") ?? "") || null,

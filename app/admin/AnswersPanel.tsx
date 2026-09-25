@@ -14,12 +14,18 @@ import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./u
  * knowledge the chatbot would have used — so the tab opens on a review queue
  * rather than a blank to-do list. A draft is already live; saving it is Blake
  * putting his name to it, and Redraft asks for a new one.
+ *
+ * Every live row is in the pool the page's starter tabs are picked from: a
+ * chat shows CHIP_COUNT of them, one per goal first, and the next chat shows
+ * a different CHIP_COUNT (lib/starterPick.ts). The Goal field is what that
+ * pick groups by.
  */
 
 type Row = {
   id: string;
   question: string;
   label: string;
+  goal: string;
   answer: string;
   cardTool: string | null;
   cardInput: string | null;
@@ -29,12 +35,9 @@ type Row = {
   aiDraft: boolean;
 };
 
-export function AnswersPanel({ rows }: { rows: Row[] }) {
+export function AnswersPanel({ rows, goals = [] }: { rows: Row[]; goals?: string[] }) {
   const stats = cannedStats(rows);
-  // The page's tabs are the first CHIP_COUNT live rows, in this list's order
-  // (the same rule as starterChipsFor) — numbered here so the owner can see
-  // which questions a visitor can tap.
-  const tabIds = rows.filter((r) => r.enabled).slice(0, CHIP_COUNT).map((r) => r.id);
+  const live = rows.filter((r) => r.enabled).length;
 
   return (
     <div>
@@ -50,9 +53,11 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
           this tab loads, and go live as soon as they&apos;re written. Edit one and
           hit Save to make it yours; hit Redraft to throw it away and ask again.
         </p>
-        <p style={{ fontSize: 13, marginBottom: 12, lineHeight: 1.55 }}>
-          Your first {CHIP_COUNT} live questions are the tabs on your page&apos;s home
-          screen. Each tab shows its short label ({CHIP_WORDS} words at most); tapping
+        <p style={{ fontSize: 13, marginBottom: 12, lineHeight: 1.55 }} data-starter-pool={live}>
+          Every live question is in the pool for the tabs on your page&apos;s home
+          screen. Each new chat shows {CHIP_COUNT} of them, so different chats open on
+          different questions — one for each of your goals first, then the general
+          ones. Each tab shows its short label ({CHIP_WORDS} words at most); tapping
           it asks the full question.
         </p>
         <div
@@ -81,18 +86,22 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
       </div>
 
       {rows.map((r) => (
-        <AnswerForm key={r.id} row={r} tab={tabIds.indexOf(r.id) + 1} />
+        <AnswerForm key={r.id} row={r} goals={goals} />
       ))}
 
-      <AnswerForm />
+      <AnswerForm goals={goals} />
     </div>
   );
 }
 
-/** `tab` is the row's 1-based tab position on the page, or 0 when it has none. */
-function AnswerForm({ row, tab = 0 }: { row?: Row; tab?: number }) {
+/** `goals` are the account's live goals, the choices the Goal field offers. */
+function AnswerForm({ row, goals }: { row?: Row; goals: string[] }) {
   const isNew = !row;
   const draft = !!row?.aiDraft && !!row.answer.trim();
+  const goal = row?.goal ?? "";
+  // A row's goal stays selectable even after the goal itself was reworded or
+  // deleted, so saving the row never silently drops it.
+  const choices = goal && !goals.includes(goal) ? [...goals, goal] : goals;
 
   return (
     <form action={saveCanned} style={panel}>
@@ -107,11 +116,7 @@ function AnswerForm({ row, tab = 0 }: { row?: Row; tab?: number }) {
         style={field}
       />
 
-      <Label>
-        Tab label
-        {tab ? ` — tab ${tab} of ${CHIP_COUNT} on your page` : ""}
-        {!isNew && !tab ? " — not a tab; only your first three live questions are" : ""}
-      </Label>
+      <Label>Tab label</Label>
       <input
         name="label"
         defaultValue={row?.label ?? ""}
@@ -120,6 +125,16 @@ function AnswerForm({ row, tab = 0 }: { row?: Row; tab?: number }) {
         maxLength={40}
         style={field}
       />
+
+      <Label>Goal — each chat takes one question per goal before any general one</Label>
+      <select name="goal" defaultValue={goal} style={field}>
+        <option value="">General — no particular goal</option>
+        {choices.map((g) => (
+          <option key={g} value={g}>
+            {g}
+          </option>
+        ))}
+      </select>
 
       <Label>
         Answer
