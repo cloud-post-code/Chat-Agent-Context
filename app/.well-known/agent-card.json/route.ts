@@ -1,5 +1,5 @@
-import { agentCardV1, siteOrigin } from "@/lib/a2a/card";
-import { foundingUser } from "@/lib/users";
+import { agentCardV1 } from "@/lib/a2a/card";
+import { founderDocument } from "@/lib/a2a/wellKnown";
 
 /**
  * The Agent Card, at the path A2A reserves for it.
@@ -15,24 +15,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
-  // The legacy discovery surface describes the founding user's agent.
-  const founder = await foundingUser();
-  if (!founder) return new Response("No agent is set up yet.", { status: 404 });
-  const card = await agentCardV1(founder.id, siteOrigin(req.headers));
-  const body = JSON.stringify(card, null, 2);
-
-  return new Response(body, {
-    headers: {
-      "Content-Type": "application/json; charset=utf-8",
-      // §8.6 SHOULD: let clients cache and revalidate the card. The content is
-      // profile-derived, so the hash changes exactly when the agent does.
-      "Cache-Control": "public, max-age=300, must-revalidate",
-      ETag: `W/"${hash(body)}"`,
-      // The card is meant to be fetched by other people's agents from other
-      // origins; without this, browser-based clients can't read it.
-      "Access-Control-Allow-Origin": "*",
-    },
-  });
+  // The ETag is a cache validator, not a signature: it changes exactly when the agent does.
+  return founderDocument(req, agentCardV1, (body) => ({ ETag: `W/"${hash(body)}"` }));
 }
 
 /** Small non-cryptographic digest — this is a cache validator, not a signature. */

@@ -10,7 +10,8 @@ import {
   type EntityExtractor,
   type ExtractedGraph,
 } from "@/lib/retrieval/entities";
-import { createPacer, mapPool, modelCall, onboardingConcurrency } from "./pool";
+import { createPacer, mapPool, onboardingConcurrency } from "./pool";
+import { modelCall } from "@/lib/claude/retry";
 
 /**
  * The graph half of indexing, for Sources that onboarding wrote itself.

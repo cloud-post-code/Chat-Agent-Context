@@ -32,7 +32,7 @@ Details: `docs/TESTING.md`.
   is the admin copilot; `lib/knowledge.ts` builds the prompt; `lib/retrieval/` indexes
   and searches; `lib/onboarding/` reads a business's site into the account;
   `lib/booking/` is the booking model; `lib/cards.ts` hydrates card data;
-  `lib/claude.ts` is the only Anthropic client; `lib/db.ts` the only Prisma client.
+  `lib/claude/` is the only Anthropic client (plus the retry gate); `lib/db.ts` the only Prisma client.
 - `prisma/` schema and Postgres migrations (applied on start by `scripts/migrate.mjs`).
 - `docs/features/<id>/` one folder per feature: `FEATURE.md`, `PROOF.md`, `proof.ts`;
   `docs/features/status.json` is the queue. See `docs/features/CLAUDE.md`.
@@ -41,7 +41,7 @@ Details: `docs/TESTING.md`.
 ## Conventions
 1. `lib/` never imports from `app/`. Client components never import a module that
    imports `@/lib/db`; put shared constants in a prisma-free module instead.
-2. Every Anthropic call goes through `lib/claude.ts`. No inline `new Anthropic()`.
+2. Every Anthropic call goes through `lib/claude/` (bulk callers via `modelCall`). No inline `new Anthropic()`.
 3. Every tenant-scoped query takes `userId` explicitly; nothing reads across tenants.
 4. A feature ships with `FEATURE.md`, `PROOF.md`, `proof.ts` and a `status.json` entry.
    Pure logic also gets a Vitest test. Never mark a status green over a red proof.
@@ -54,7 +54,15 @@ Details: `docs/TESTING.md`.
 ## Scoped guides
 | Area | File |
 |---|---|
+| how a request flows through the app | `docs/ARCHITECTURE.md` |
 | `lib/` module map, invariants, theme rules | `lib/CLAUDE.md` |
+| booking model | `lib/booking/CLAUDE.md` |
+| onboarding pipeline | `lib/onboarding/CLAUDE.md` |
+| retrieval index and search | `lib/retrieval/CLAUDE.md` |
+| admin actions, panels, copilot | `app/admin/CLAUDE.md` |
+| A2UI cards and streaming | `app/cards/CLAUDE.md` |
+| HTTP endpoints and their auth | `app/api/CLAUDE.md` |
+| schema and migrations | `prisma/CLAUDE.md` |
 | feature queue and proofs | `docs/features/CLAUDE.md` |
 | testing layers | `docs/TESTING.md` |
 | agent behaviour | `agent.md` |

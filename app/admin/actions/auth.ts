@@ -2,7 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createSession, destroySession } from "@/lib/auth";
-import { authenticate } from "@/lib/bulkAccounts";
+import { authenticate } from "@/lib/auth";
 import { createUser } from "@/lib/users";
 
 // ── Auth ──

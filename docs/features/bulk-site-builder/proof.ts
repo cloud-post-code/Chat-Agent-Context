@@ -83,6 +83,7 @@ async function main() {
 
   const bulkBuild = await import("../../../lib/bulkBuild");
   const bulkAccounts = await import("../../../lib/bulkAccounts");
+  const { authenticate } = await import("../../../lib/auth");
   const contentTabs = await import("../../../app/admin/contentTabs");
 
   const savedOperatorEmails = process.env.OPERATOR_EMAILS;
@@ -305,11 +306,11 @@ async function main() {
 
     // ── 6. Login ──
     if (userA && siteA?.username) {
-      const ok = await bulkAccounts.authenticate(siteA.username, siteA.password!);
+      const ok = await authenticate(siteA.username, siteA.password!);
       check("authenticate(username, correct password) returns the user", ok?.id === userA.id);
-      const wrongPw = await bulkAccounts.authenticate(siteA.username, "definitely-wrong-pw");
+      const wrongPw = await authenticate(siteA.username, "definitely-wrong-pw");
       check("authenticate with wrong password returns null", wrongPw === null);
-      const unknown = await bulkAccounts.authenticate(`${MARKER}-nobody`, "whatever12345");
+      const unknown = await authenticate(`${MARKER}-nobody`, "whatever12345");
       check("authenticate with unknown username returns null", unknown === null);
     }
     // Ordinary email-based account still authenticates.
@@ -325,7 +326,7 @@ async function main() {
       },
     });
     createdUserIds.push(ordinaryUser.id);
-    const ordinaryOk = await bulkAccounts.authenticate(ordinaryEmail, ordinaryPw);
+    const ordinaryOk = await authenticate(ordinaryEmail, ordinaryPw);
     check("email-based login path still works for an ordinary account", ordinaryOk?.id === ordinaryUser.id);
 
     // ── Nav (import-free) ──

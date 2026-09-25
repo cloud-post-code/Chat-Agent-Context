@@ -2,7 +2,7 @@ import { str as strMax } from "@/lib/util/text";
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { Page } from "./crawl";
-import { modelCall } from "./pool";
+import { modelCall } from "@/lib/claude/retry";
 
 /**
  * The four knowledge-extraction system prompts. Each category runs its OWN

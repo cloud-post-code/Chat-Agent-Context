@@ -1,17 +1,13 @@
 import { randomBytes } from "node:crypto";
-import { prisma } from "@/lib/db";
-import { accountActive, verifyPassword } from "@/lib/auth";
+import { USERNAME_DOMAIN } from "@/lib/auth";
+export { USERNAME_DOMAIN };
 import { createUser, slugify } from "@/lib/users";
-import type { User } from "@prisma/client";
 
 /**
  * Username-based tenant accounts for the bulk site builder: no email address
  * involved, just a slug-derived username under a reserved, never-routable
  * domain, so the existing unique-email schema is untouched.
  */
-
-/** Reserved and never routable — the "no email" placeholder domain. */
-export const USERNAME_DOMAIN = "bulk.invalid";
 
 /** Lowercased hostname, "www." stripped. Throws on an unparseable url. */
 function hostOf(url: string): string {
@@ -22,13 +18,6 @@ function hostOf(url: string): string {
 /** slugify() over the hostname — e.g. "acme-plumbing.com" -> "acme-plumbing-com". */
 function usernameBase(url: string): string {
   return slugify(hostOf(url));
-}
-
-/** The email a login identifier maps to: as-is if it already has an "@",
- *  else stitched onto the reserved bulk-account domain. */
-function loginEmailFor(identifier: string): string {
-  const id = identifier.trim().toLowerCase();
-  return id.includes("@") ? id : `${id}@${USERNAME_DOMAIN}`;
 }
 
 const SUFFIX_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
@@ -66,20 +55,3 @@ export async function createBulkAccount(
   throw new Error(`Could not allocate a unique username for ${base} after 5 attempts.`);
 }
 
-// A real scrypt hash of a random throwaway value; never matches anything.
-// Verifying against it when the identifier is unknown keeps login's response
-// time from revealing which usernames/emails have accounts.
-const DUMMY_HASH =
-  "scrypt:16384:8:1:6c6f67696e2d74696d696e672d70616464696e67:" +
-  "0000000000000000000000000000000000000000000000000000000000000000" +
-  "0000000000000000000000000000000000000000000000000000000000000000";
-
-/** Login credential check: identifier is an email or a bulk-account username. */
-export async function authenticate(identifier: string, password: string): Promise<User | null> {
-  const email = loginEmailFor(identifier);
-  const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
-  const ok = user
-    ? verifyPassword(password, user.passwordHash)
-    : (verifyPassword(password, DUMMY_HASH), false);
-  return ok && user && accountActive(user) ? user : null;
-}
