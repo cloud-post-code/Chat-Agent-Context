@@ -76,10 +76,12 @@ the form builder.
   the order given, on one screen (roles set for name / email / phone), then
   asks at most one short question back. Once a question exists the step is
   the ordinary one.
-- **Try the form**: the real `BookingFlowCard` in a new `preview` mode — every
-  step is real (live availability from the hours, the real quote), confirming
-  draws the real confirmation screen but books nothing, and the card can be
-  started over. The card says "Preview — nothing gets booked." on every screen.
+- **Try the form**: the real conversation of cards (`BookingThread`, in a
+  `preview` mode) over a local thread of its own — every step is real (live
+  availability from the hours, the real quote), confirming draws the real
+  confirmation card but books nothing, and the thread remounts fresh on the
+  current form after every edit. Every card says "Preview — nothing gets
+  booked."
 - **The chat**: a text box ("What's missing or wrong?"). Each message goes to
   `POST /api/admin/onboarding/booking-form` and one round of
   `lib/onboarding/bookingFormChat.ts` runs: the model, told the form as it
@@ -149,7 +151,7 @@ what the owner asked for here.
 `app/api/admin/onboarding/booking-form/route.ts` (new),
 `app/admin/onboarding/BookingFormStep.tsx` (new), `lib/onboarding/jobs.ts`
 (booking stage), `app/api/admin/onboarding/advance/route.ts`,
-`app/admin/onboarding/OnboardingFlow.tsx`, `app/cards/booking/BookingFlowCard.tsx`
+`app/admin/onboarding/OnboardingFlow.tsx`, `app/cards/booking/BookingThread.tsx`
 and `ReviewStep.tsx` (`preview`), `lib/appointments.ts`
 (`reorderAppointmentFields`), the chat-transcript proof, `agent.md`, README.
 

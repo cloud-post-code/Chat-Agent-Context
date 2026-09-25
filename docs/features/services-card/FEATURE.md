@@ -1,5 +1,13 @@
 # Feature — An automatic services card, with booking one tap away
 
+> **Superseded / what changed (2026-09-26, custom-booking-form):** Book no
+> longer opens a single wizard card — it starts a booking session that draws
+> one card per step down the chat
+> ([`docs/features/booking-in-chat`](../booking-in-chat/FEATURE.md)), with the
+> tapped service already picked. `createAppointment`, named below as the
+> write path the card never bypasses, is gone; `lib/booking/store.ts`
+> `createBooking` is that path now, still server-validated the same way.
+
 ## What
 A first-class A2UI card, `show_services`: the business's services listed in the
 chat — name, what it includes — each with a **Book** button that opens the

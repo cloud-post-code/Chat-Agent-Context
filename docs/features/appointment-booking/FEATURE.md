@@ -1,5 +1,17 @@
 # Feature — Appointment booking: an A2UI multi-question flow, an admin calendar, and appointments as knowledge
 
+> **Superseded / what changed (2026-09-26, custom-booking-form):** the
+> one-question-at-a-time wizard and `createAppointment`, the write path this
+> feature introduced, are gone. Booking is now a conversation of cards down
+> the chat, one step at a time in the business's own order
+> ([`docs/features/booking-in-chat`](../booking-in-chat/FEATURE.md)), backed
+> by `lib/booking/store.ts` `createBooking`; the question catalog this
+> feature seeded name/email/reason into is now filled by copying the
+> business's own booking form verbatim
+> ([`docs/features/custom-booking-form`](../custom-booking-form/FEATURE.md)).
+> The admin calendar and appointments-as-knowledge pieces below are
+> unchanged in substance, just fed by the newer write path.
+
 ## Summary
 
 Visitors can book an appointment through the chat agent via a multi-step A2UI

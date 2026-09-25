@@ -1,5 +1,18 @@
 # Feature — Booking questions that fit a menu: choices with prices, pick-many, counts, yes/no
 
+> **Superseded / what changed (2026-09-26, custom-booking-form):**
+> `lib/bookingMenu.ts` (the automatic menu-from-services builder this feature
+> introduced) is gone, along with the service picker it built — a business's
+> service step now comes from `Service` rows (seeded by
+> `lib/onboarding/bookingSeed.ts`) or from a menu the business's own booking
+> form listed, copied verbatim by
+> [`docs/features/custom-booking-form`](../custom-booking-form/FEATURE.md).
+> `createAppointment`, the write path this feature validated answers through,
+> no longer exists; `lib/booking/store.ts` `createBooking` does that now. The
+> question-type rules this feature introduced (`select`, `multi_select`,
+> `number`, `yes_no`, `config`, `sanitizeFieldConfig`) are unchanged and still
+> load-bearing.
+
 ## Summary
 
 The booking wizard could ask exactly one kind of question: a text box. So the
