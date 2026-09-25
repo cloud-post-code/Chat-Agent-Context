@@ -30,6 +30,8 @@ export const CARD_TOOLS = [
   "show_booking",
   // Custom-designed cards from the admin card builder, drawn by key.
   "show_card",
+  // The business's own social links, filterable to specific platforms.
+  "show_social",
 ] as const;
 
 export type CardTool = (typeof CARD_TOOLS)[number];

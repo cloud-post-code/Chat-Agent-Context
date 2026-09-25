@@ -2,6 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { Cards, type UiBlock } from "./cards/Cards";
+import { shownFromCards } from "./cards/shown";
 import { CartProvider, cartSummary, useCart } from "./cards/cart";
 import type { MenuItemData } from "@/lib/menuTypes";
 import { Markdown } from "./Markdown";
@@ -147,7 +148,12 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: next.map(({ role, content }) => ({ role, content })),
+          messages: next.map((m) => {
+            const shown = m.role === "assistant" ? shownFromCards(m.cards) : [];
+            return shown.length > 0
+              ? { role: m.role, content: m.content, shown }
+              : { role: m.role, content: m.content };
+          }),
           sessionId: chatId,
           slug,
           // Names and counts only, so the agent can talk about the cart.

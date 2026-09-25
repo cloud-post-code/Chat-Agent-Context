@@ -185,7 +185,8 @@ async function persistStage(
   } else if (stage === "social") {
     await saveOnboardingReview(userId, { social: { links: data.stepSocial?.links ?? [] } });
   } else if (stage === "images") {
-    const images = (data.stepImages?.images ?? []).map((i) => ({ src: i.src, caption: i.caption }));
+    const images = (data.stepImages?.images ?? [])
+      .map((i) => ({ src: i.src, caption: i.caption, tags: i.tags }));
     await saveOnboardingReview(userId, { gallery: { images } });
   } else if (stage === "theme") {
     await saveOnboardingReview(userId, themeSavePayload(data));

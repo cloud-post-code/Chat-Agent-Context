@@ -386,15 +386,15 @@ blocks:
 
 | Tool | Renders |
 |---|---|
-| `show_projects` | All project cards |
+| `show_projects` | Project cards. With no arguments, all of them; narrowed with `ids`, `tags`, `query` (free text) and `limit`, plus an optional `title` — same filter idiom as `show_gallery`/`show_services` below |
 | `show_project` | One project card, by id |
-| `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox |
-| `show_timeline` | Work history as a vertical timeline, from `Profile.experience` |
-| `show_services` | The business's services — photo, price label, duration — read from the booking catalog (or the services knowledge onboarding saved), each with a **Book** button that opens the booking flow with that service already chosen (no button while booking is off; no card when no services are on file) |
+| `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox (required `layout`). With no other filter, every photo; narrowed with `ids`, `tags` (from the prompt's `PHOTO INDEX` vocabulary — a tag also matches a caption/description word, not just an explicit tag), `query` (free text) and `limit`, plus an optional `title` |
+| `show_services` | The business's services — photo, price label, duration — read from the booking catalog (or the services knowledge onboarding saved), each with a **Book** button that opens the booking flow with that service already chosen (no button while booking is off; no card when no services are on file). With no arguments, every service; narrowed with `ids`, `category`, `query` and `limit`, plus `similar` (0-4) to add that many close neighbours (same category, shared terms, similar price) around the matched ones, and an optional `title` |
 | `show_menu` | The business's menu the visitor can order from (`lib/menu.ts`): every `MenuItem` on file — prices, sale prices, options and add-ons with their rules, dietary tags, allergens, availability, images and the rest of what the site states — grouped by section with every section after the first folded, or a curated list when the model passes `keys`, `tags` or `category` (from the prompt's `MENU INDEX`). Each row opens to its detail and customizer and adds to the cart; tenants with only a services record get the menu read from it |
 | `show_cart` | The visitor's cart — one per agent, shared by every card in the thread, kept in `localStorage` — with quantity steppers, Edit, Remove, the subtotal, and checkout posted to `/api/order`, where `createOrder` re-prices every line from the menu on file. `add_to_cart` lets the agent put an on-menu item in it; a timed order also lands on the calendar through `createAppointment` |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
-| `show_booking` | The full booking flow, as good as a booking site: photographed service tiles with prices, add-ons and packages → provider ("anyone available" or a person with photo, bio and their own price) → location (branch, online, or the visitor's address in a service area) → a live calendar and time slots (hours, holidays, lead time, cutoff, buffers, provider diaries, waitlist, repeats) → the tenant's customer fields → their intake questions (uploads, signature, waiver, conditions) → a review with the price breakdown, promo code, tip, deposit and policy → **Confirm booking**. Optional `service` input opens it on a named service. Offered only when the Appointments toggle is on ([docs/features/booking-flow](docs/features/booking-flow/DESIGN.md)) |
+| `show_booking` | The full booking flow, as good as a booking site: photographed service tiles with prices, add-ons and packages → provider ("anyone available" or a person with photo, bio and their own price) → location (branch, online, or the visitor's address in a service area) → a live calendar and time slots (hours, holidays, lead time, cutoff, buffers, provider diaries, waitlist, repeats) → the tenant's customer fields → their intake questions (uploads, signature, waiver, conditions) → a review with the price breakdown, promo code, tip, deposit and policy → **Confirm booking**. `service` (one name), `services` (several ids/names) or `query` (free text, e.g. after a gallery or services card) narrows which services the wizard opens to, with a "See all services" escape back to the full list; offered only when the Appointments toggle is on ([docs/features/booking-flow](docs/features/booking-flow/DESIGN.md)) |
+| `show_social` | The business's social links, one button per platform, read straight from `Profile.social_links` — offered whenever the tenant has any link on file, independent of the admin card catalog. With no arguments, every link; narrowed with `platforms` (accepts aliases like `ig`/`insta`, `fb`, `x`, `yt`) and an optional `title` |
 
 **Where the booking questions come from.** Onboarding's services stage reads the
 business's own booking page — the one offsite page it may load, found from the
@@ -625,6 +625,15 @@ npx tsx scripts/reindex.ts --all    # rebuild EVERY origin
 embed request per origin back-to-back trips provider per-minute limits. The
 pacing lives in the backfill, not the embed layer, so live chat is never
 throttled.
+
+Backfill photo tags for photos uploaded before tagging existed (new uploads
+and onboarding tag automatically; this only catches photos that predate that):
+
+```bash
+npx tsx scripts/tagPhotos.ts                    # every untagged photo
+npx tsx scripts/tagPhotos.ts --user <slug-or-id> # only that tenant's
+npx tsx scripts/tagPhotos.ts --dry-run           # list only, no writes or vision calls
+```
 
 Onboarding's extraction does not pace; it runs several agents at once.
 `ONBOARDING_CONCURRENCY` (default 4, max 12) is how many category extractors,

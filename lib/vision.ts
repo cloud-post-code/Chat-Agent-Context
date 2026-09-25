@@ -63,6 +63,77 @@ export async function describeImageForDesign(bytes: Buffer, ext: string): Promis
   }
 }
 
+const capTags = (v: unknown): string[] => {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of v) {
+    if (typeof t !== "string") continue;
+    const tag = t.trim().toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+    if (out.length >= 8) break;
+  }
+  return out;
+};
+
+/**
+ * Description plus facets, for a photo the gallery filter can later address
+ * by tag: subject, colors, style, service words a visitor might type
+ * ("red", "nails", "gel", "storefront"). Asks the model for both in one
+ * JSON reply so a single vision call covers upload, onboarding, and the
+ * backfill script alike. On any failure — the API call, or a reply that
+ * isn't the expected JSON shape — falls back to describeImage's plain
+ * paragraph and an empty tag list, so the upload still succeeds.
+ */
+export async function describeAndTagImage(
+  bytes: Buffer,
+  ext: string,
+): Promise<{ description: string; tags: string[] }> {
+  const mediaType = MEDIA[ext.toLowerCase()] ?? "image/jpeg";
+  try {
+    const msg = await claude().messages.create({
+      model: claudeModel(),
+      max_tokens: 400,
+      messages: [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              source: { type: "base64", media_type: mediaType, data: bytes.toString("base64") },
+            },
+            {
+              type: "text",
+              text:
+                "Write ONE natural paragraph (2-4 sentences) describing this photo for a "
+                + "personal website gallery. Describe what's visibly in it — subject, "
+                + "setting, mood. Do not invent names, places, or facts you can't see. "
+                + "Then pick 3-8 short lowercase words a visitor might search for: the "
+                + "subject, dominant colors, visual style, and any service or product "
+                + "words it shows.\n\nRespond with ONLY this JSON, no other text: "
+                + '{"description":"","tags":["word1","word2"]}',
+            },
+          ],
+        },
+      ],
+    });
+    const text = msg.content
+      .filter((b): b is Anthropic.TextBlock => b.type === "text")
+      .map((b) => b.text)
+      .join("")
+      .trim();
+    const match = text.match(/\{[\s\S]*\}/);
+    const parsed = match ? JSON.parse(match[0]) : null;
+    const description = typeof parsed?.description === "string" ? parsed.description.trim() : "";
+    if (!description) return { description: text, tags: [] };
+    return { description, tags: capTags(parsed?.tags) };
+  } catch {
+    return { description: "", tags: [] };
+  }
+}
+
 export async function describeImage(
   bytes: Buffer,
   ext: string,

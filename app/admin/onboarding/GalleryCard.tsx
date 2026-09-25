@@ -9,7 +9,9 @@ import { field, btnGhost } from "../ui";
  * editable in place; a photo the user doesn't want is removed with its ×.
  */
 
-export type GalleryItem = { src: string; caption: string };
+/** tags is carried through review (extraction -> save) but not edited here —
+ *  the card only lets the owner tweak captions and drop unwanted photos. */
+export type GalleryItem = { src: string; caption: string; tags?: string[] };
 
 const PAGE_SIZE = 3;
 

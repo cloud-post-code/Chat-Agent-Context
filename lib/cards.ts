@@ -3,16 +3,54 @@ import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
+import { priceFromText } from "./bookingMenu";
 import { getBookingFlow } from "./booking/store";
 import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
 import type { CartBlock, MenuBlock } from "./menu";
+import {
+  filterPhotos,
+  parsePhotoTags,
+  tagVocabulary,
+  type PhotoFilter,
+  type PhotoMeta,
+} from "./photoIndex";
+import {
+  filterProjects,
+  filterServices,
+  priceAmountFromLabel,
+  similarServices,
+  type ProjectFilter,
+  type ServiceFilter,
+  type ServiceMeta,
+} from "./serviceIndex";
+import type { SocialBlock } from "./social";
 
 export type { CartBlock, MenuBlock } from "./menu";
+export type { SocialBlock } from "./social";
+export { filterPhotos, isEmptyPhotoFilter, photoIndexLines, tagVocabulary } from "./photoIndex";
+export type { PhotoFilter, PhotoMeta } from "./photoIndex";
+export {
+  filterProjects,
+  filterServices,
+  isEmptyServiceFilter,
+  serviceIndexLines,
+  similarServices,
+} from "./serviceIndex";
+export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
  * the tool blocks Claude emits (show_projects / show_project / show_gallery /
- * show_services) into concrete payloads the frontend renders as cards.
+ * show_services / show_booking / show_social) into concrete payloads the
+ * frontend renders as cards.
+ *
+ * The composable elements (gallery/services/projects/booking) all take an
+ * `input` bag straight from the model's tool call: an empty/no-op filter
+ * means "everything" (the old whole-card behavior canned rows still rely
+ * on), a non-empty filter that matches nothing means "no card" (null), and
+ * a matching filter narrows the card AND — for services — the booking flow
+ * riding inside it, so a focused card's Book button never reopens the full
+ * list.
  */
 
 export type ProjectCard = {
@@ -31,6 +69,7 @@ export type PhotoCard = {
   src: string;
   description: string;
   caption: string | null;
+  tags?: string[];
 };
 
 export type ServiceCard = {
@@ -71,9 +110,9 @@ export type CustomElement =
   | { kind: "divider" };
 
 export type UiBlock =
-  | { type: "projects"; items: ProjectCard[] }
+  | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
-  | { type: "gallery"; layout: "carousel" | "filmstrip"; items: PhotoCard[] }
+  | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
   // A card designed in the admin card builder. Unlike the tool-drawn blocks
   // above, the stored content IS the card — nothing is hydrated at chat time.
   | { type: "custom"; title?: string; elements: CustomElement[] }
@@ -85,18 +124,27 @@ export type UiBlock =
   // The tenant's services, read from the knowledge onboarding saved. `booking`
   // rides in the block when appointments are on, so each service opens the
   // wizard with itself already chosen; null draws the list with no Book button.
-  | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
+  // `focusIds` marks which items are the visitor's actual ask when the card
+  // also carries "similar" neighbours, so the renderer can show those first
+  // and bigger, the rest under a "Similar" label.
+  | { type: "services"; title?: string; focusIds?: string[]; items: ServiceCard[]; booking: ServiceBooking | null }
   // The booking wizard: one question per configured field, then a time, then
   // a confirm. The fields ride in the block so the card asks exactly what the
   // tenant configured at the moment it was drawn. `flow` is the full booking
   // flow (services, staff, locations, rules) for the new flow-aware card;
   // null on an old stored sample, which falls back to the intake-only wizard.
-  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null }
+  // `narrowed`/`allServicesCount` mark a flow whose services were narrowed to
+  // what the visitor was looking at, so the card can offer "See all services"
+  // rather than trapping them in a wrong guess.
+  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null; narrowed?: boolean; allServicesCount?: number }
   // The menu — the whole thing grouped by section, or a curated list — and the
   // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
   // live with the visitor, so the cart block carries only how to check out.
   | MenuBlock
-  | CartBlock;
+  | CartBlock
+  // The business's own social links, filterable to specific platforms.
+  // Owned by lib/social.ts; re-exported here rather than redefined.
+  | SocialBlock;
 
 function toProjectCard(p: {
   id: string;
@@ -120,12 +168,39 @@ function toProjectCard(p: {
   };
 }
 
-export async function allProjectsBlock(userId: string): Promise<UiBlock> {
+const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const MAX_TITLE = 80;
+
+function sanitizeIds(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+}
+
+/**
+ * All of the tenant's projects, or the ones a filter names (ids, tags, free
+ * text). Null when a non-empty filter matches nothing — no card, the model
+ * answers in words. `input.title` overrides the plain "everything" case; it
+ * has no default when a filter is given, same as gallery/services.
+ */
+export async function allProjectsBlock(
+  userId: string,
+  input: Record<string, unknown> = {},
+): Promise<UiBlock | null> {
   const projects = await prisma.project.findMany({
     where: { userId },
     orderBy: { order: "asc" },
   });
-  return { type: "projects", items: projects.map(toProjectCard) };
+  const cards = projects.map(toProjectCard);
+  const filter: ProjectFilter = {
+    ids: sanitizeIds(input.ids),
+    tags: sanitizeIds(input.tags),
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const items = filterProjects(cards, filter);
+  if (!isEmpty && items.length === 0) return null;
+  const title = str(input.title, MAX_TITLE) || undefined;
+  return { type: "projects", title, items };
 }
 
 export async function singleProjectBlock(userId: string, id: string): Promise<UiBlock> {
@@ -151,32 +226,60 @@ export type BookingField = {
   config: FieldConfig;
 };
 
+/** A flow whose `services` list is narrowed to exactly `serviceIds`, in the flow's own order. */
+function narrowFlowServices<T extends { services: { id: string }[] }>(flow: T, serviceIds: string[]): T {
+  const wanted = new Set(serviceIds);
+  return { ...flow, services: flow.services.filter((s) => wanted.has(s.id)) };
+}
+
 /**
  * The booking wizard, hydrated from the live config. Null when booking is
  * disabled or has no questions — the guard that keeps a stale canned answer
  * (or a model that saw the tool a moment ago) from drawing a broken booker.
  *
  * `preselect` is a service id (or legacy service id) the visitor already
- * named — show_booking's `service` input, resolved by brain.ts — carried
- * into the flow's `preselect.serviceId` so the card can skip straight past
- * the service step.
+ * named — show_booking's `service`/`services`/`query` input, resolved by
+ * brain.ts — carried into the flow's `preselect.serviceId` so the card can
+ * skip straight past the service step.
+ *
+ * `serviceIds`, when given and non-empty after intersecting with the flow's
+ * actual services, narrows `flow.services` to just those — presentation
+ * only, the server recomputes from ids on submit. Nothing matched (an empty
+ * intersection, or no ids at all) keeps the full list rather than trapping
+ * the visitor in a wrong guess; the block reports which case it is via
+ * `narrowed`/`allServicesCount` so the card can offer "See all services".
  */
-export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
+export async function bookingBlock(
+  userId: string,
+  opts: { preselect?: string | null; serviceIds?: string[] } = {},
+): Promise<UiBlock | null> {
   const { getBookingConfig } = await import("./appointments");
   const { enabled, fields } = await getBookingConfig(userId);
   if (!enabled || fields.length === 0) return null;
-  const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
+  const flowResult = await getBookingFlow(userId, { preselectServiceId: opts.preselect ?? null });
+  if (!flowResult) return { type: "booking", fields: hydrateFields(fields), flow: null };
+
+  const allServicesCount = flowResult.flow.services.length;
+  const wantedIds = (opts.serviceIds ?? []).filter(Boolean);
+  const narrowedFlow = wantedIds.length ? narrowFlowServices(flowResult.flow, wantedIds) : flowResult.flow;
+  const narrowed = wantedIds.length > 0 && narrowedFlow.services.length > 0;
+  const flow = narrowed ? narrowedFlow : flowResult.flow;
   return {
     type: "booking",
-    fields: fields.map((f) => ({
-      key: f.key,
-      label: f.label,
-      type: f.type,
-      required: f.required,
-      config: f.config,
-    })),
-    flow: flowResult?.flow ?? null,
+    fields: hydrateFields(fields),
+    flow,
+    ...(wantedIds.length ? { narrowed, allServicesCount } : {}),
   };
+}
+
+function hydrateFields(fields: { key: string; label: string; type: FieldType; required: boolean; config: FieldConfig }[]): BookingField[] {
+  return fields.map((f) => ({
+    key: f.key,
+    label: f.label,
+    type: f.type,
+    required: f.required,
+    config: f.config,
+  }));
 }
 
 /** The tenant's services as saved knowledge; empty when none are on file. */
@@ -206,18 +309,44 @@ function serviceQuestionKey(fields: BookingField[]): string | null {
   return (["service", "reason"] as const).find((k) => fields.some((f) => f.key === k)) ?? null;
 }
 
+/** A ServiceCard's own price, in serviceIndex's numeric form, for filtering/similarity. */
+function servicePriceAmount(c: ServiceCard): number | null {
+  return c.priceLabel ? priceAmountFromLabel(c.priceLabel) : null;
+}
+
+function toServiceMeta(c: ServiceCard): ServiceMeta {
+  return {
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    category: c.category,
+    priceLabel: c.priceLabel,
+    priceAmount: servicePriceAmount(c),
+  };
+}
+
 /**
  * The services card, hydrated from the live booking flow when it has any
  * services (real Service rows, or the legacy bridge's derived ones — either
  * way richer: image, price label, duration, category), else the plain
- * knowledge catalog as before. Null when neither has anything on file:
- * nothing is drawn and the model answers in words, rather than a visitor
- * being shown an empty price list.
+ * knowledge catalog as before (its price derived with priceFromText, same as
+ * serviceIndexLines, so a price still shows). Null when neither has
+ * anything on file, or a non-empty filter matches nothing: nothing is drawn
+ * and the model answers in words, rather than a visitor being shown an empty
+ * price list.
+ *
+ * `input.similar` (0-4) appends the closest other services to the filtered
+ * focus (see similarServices), and — when a filter was given — the block's
+ * `booking.flow.services` is narrowed to exactly the shown items, so the
+ * card's Book button opens on that set rather than the whole catalog.
  */
-export async function servicesBlock(userId: string): Promise<UiBlock | null> {
+export async function servicesBlock(
+  userId: string,
+  input: Record<string, unknown> = {},
+): Promise<UiBlock | null> {
   const [catalogItems, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
   const flow = booking?.type === "booking" ? booking.flow : null;
-  const items: ServiceCard[] = flow?.services.length
+  const allItems: ServiceCard[] = flow?.services.length
     ? flow.services.map((s) => ({
         id: s.id,
         name: s.name,
@@ -227,13 +356,37 @@ export async function servicesBlock(userId: string): Promise<UiBlock | null> {
         duration: formatDuration(s.durationMinutes),
         category: s.category,
       }))
-    : catalogItems;
-  if (!items.length) return null;
+    : catalogItems.map((c) => ({ ...c, priceLabel: priceFromText(c.description) || undefined }));
+  if (!allItems.length) return null;
+
+  const filter: ServiceFilter = {
+    ids: sanitizeIds(input.ids),
+    category: typeof input.category === "string" ? input.category : undefined,
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.category && !(filter.query ?? "").trim();
+  const meta = allItems.map(toServiceMeta);
+  const focusMeta = filterServices(meta, filter);
+  if (!isEmpty && focusMeta.length === 0) return null;
+
+  const similarN = typeof input.similar === "number" ? Math.max(0, Math.min(4, Math.floor(input.similar))) : 0;
+  const similarMeta = similarN > 0 && focusMeta.length ? similarServices(meta, focusMeta, similarN).items : [];
+
+  const byId = new Map(allItems.map((c) => [c.id, c]));
+  const combined = [...focusMeta, ...similarMeta];
+  const items = combined.map((m) => byId.get(m.id)).filter((c): c is ServiceCard => !!c);
+
+  const focusIds = !isEmpty ? focusMeta.map((m) => m.id) : undefined;
+  const title = str(input.title, MAX_TITLE) || undefined;
   const fields = booking?.type === "booking" ? booking.fields : null;
+  const narrowedFlow = flow && focusIds ? narrowFlowServices(flow, items.map((i) => i.id)) : flow;
   return {
     type: "services",
+    title,
+    focusIds,
     items,
-    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow } : null,
+    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow: narrowedFlow } : null,
   };
 }
 
@@ -258,24 +411,74 @@ export async function homePhotos(
   }));
 }
 
+/** "Red gel" from tags/query, for when the model didn't pass a title. */
+function deriveGalleryTitle(filter: PhotoFilter): string | undefined {
+  const words = [...(filter.tags ?? []), ...(filter.query ? [filter.query] : [])]
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  if (!words.length) return undefined;
+  const joined = words.join(" ");
+  return joined[0].toUpperCase() + joined.slice(1);
+}
+
+/**
+ * The gallery card: every curated photo when the filter is empty (canned
+ * rows and the old whole-gallery callers depend on this), or the ones a
+ * filter (ids/tags/query/limit) names. Null when a non-empty filter matches
+ * nothing — the caller turns that into a "no such tag" tool result instead
+ * of an empty gallery. `layout` stays required; `title` is the model's own
+ * when given, else derived from the filter, else unset.
+ */
 export async function galleryBlock(
   userId: string,
-  layout: "carousel" | "filmstrip",
-): Promise<UiBlock> {
+  input: { layout: "carousel" | "filmstrip" } & Record<string, unknown>,
+): Promise<UiBlock | null> {
+  const { layout } = input;
   // Custom ingestion sources mark their photos `ingest:*`; the public
   // gallery shows only the owner's curated photo kinds.
   const photos = await prisma.photo.findMany({
     where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
     orderBy: { order: "asc" },
   });
+  const metas: PhotoMeta[] = photos.map((ph) => ({
+    id: ph.id,
+    src: `/api/uploads/${ph.filename}`,
+    caption: ph.caption ?? "",
+    description: ph.description ?? "",
+    tags: parsePhotoTags(ph.tags),
+  }));
+
+  const filter: PhotoFilter = {
+    ids: sanitizeIds(input.ids),
+    tags: sanitizeIds(input.tags),
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const matched = filterPhotos(metas, filter);
+  if (!isEmpty && matched.length === 0) return null;
+
+  const title = str(input.title, MAX_TITLE) || (!isEmpty ? deriveGalleryTitle(filter) : undefined);
   return {
     type: "gallery",
     layout,
-    items: photos.map((ph) => ({
-      id: ph.id,
-      src: `/api/uploads/${ph.filename}`,
-      description: ph.description || ph.caption || "",
-      caption: ph.caption,
+    title,
+    items: matched.map((m) => ({
+      id: m.id,
+      src: m.src,
+      description: m.description || m.caption || "",
+      caption: m.caption || null,
+      tags: m.tags,
     })),
   };
+}
+
+/** Tag vocabulary for a "no match" tool result, over this tenant's curated photos. */
+export async function galleryTagVocabulary(userId: string): Promise<string[]> {
+  const photos = await prisma.photo.findMany({
+    where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
+    select: { tags: true },
+  });
+  return tagVocabulary(photos.map((ph) => ({ id: "", src: "", caption: "", description: "", tags: parsePhotoTags(ph.tags) })));
 }

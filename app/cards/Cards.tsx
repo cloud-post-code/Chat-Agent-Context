@@ -8,6 +8,7 @@ import type { BookingField } from "./BookingQuestion";
 import { MenuCard, type MenuBlockView } from "./MenuCard";
 import { CartCard } from "./CartCard";
 import type { CartCheckout } from "@/lib/menu";
+import { SocialCard } from "./SocialCard";
 import { card, cf, linkBtn, liveBtn, textBtn, clamp2 } from "./styles";
 
 export type { BookingField } from "./BookingQuestion";
@@ -30,6 +31,7 @@ export type PhotoCard = {
   src: string;
   description: string;
   caption: string | null;
+  tags?: string[];
 };
 export type CustomElement =
   | { kind: "heading"; text: string }
@@ -51,26 +53,43 @@ export type ServiceCard = {
   category?: string;
 };
 export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow?: BookingFlow | null };
+export type SocialItem = { platform: string; url: string };
 export type UiBlock =
-  | { type: "projects"; items: ProjectCard[] }
+  | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
-  | { type: "gallery"; layout: "carousel" | "filmstrip"; items: PhotoCard[] }
+  | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
   | { type: "contact" }
-  | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
+  | {
+      type: "services";
+      title?: string;
+      focusIds?: string[];
+      items: ServiceCard[];
+      booking: ServiceBooking | null;
+    }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
-  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null }
+  | {
+      type: "booking";
+      fields: BookingField[];
+      flow?: BookingFlow | null;
+      narrowed?: boolean;
+      allServicesCount?: number;
+    }
   | ({ type: "menu" } & MenuBlockView)
-  | { type: "cart"; checkout: CartCheckout };
+  | { type: "cart"; checkout: CartCheckout }
+  | { type: "social"; title?: string; items: SocialItem[] };
 
 export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "projects") {
     if (block.items.length === 0) return <Empty>No projects yet.</Empty>;
     return (
-      <div style={grid}>
-        {block.items.map((p) => (
-          <ProjectCardView key={p.id} p={p} />
-        ))}
+      <div>
+        {block.title && <TitleHeading title={block.title} />}
+        <div style={grid}>
+          {block.items.map((p) => (
+            <ProjectCardView key={p.id} p={p} />
+          ))}
+        </div>
       </div>
     );
   }
@@ -84,23 +103,35 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   }
   if (block.type === "gallery") {
     if (block.items.length === 0) return <Empty>No photos yet.</Empty>;
-    return block.layout === "carousel" ? (
-      <Carousel items={block.items} />
-    ) : (
-      <Filmstrip items={block.items} />
-    );
+    return <GalleryCard layout={block.layout} title={block.title} items={block.items} />;
   }
   if (block.type === "services") {
     if (!Array.isArray(block.items) || block.items.length === 0) {
       return <Empty>No services listed yet.</Empty>;
     }
-    return <ServicesCard slug={slug} items={block.items} booking={block.booking} />;
+    return (
+      <ServicesCard
+        slug={slug}
+        title={block.title}
+        focusIds={block.focusIds}
+        items={block.items}
+        booking={block.booking}
+      />
+    );
   }
   if (block.type === "contact") {
     return <ContactForm slug={slug} />;
   }
   if (block.type === "booking") {
-    return <BookingFlowCard slug={slug} fields={block.fields} flow={block.flow} />;
+    return (
+      <BookingFlowCard
+        slug={slug}
+        fields={block.fields}
+        flow={block.flow}
+        narrowed={block.narrowed}
+        allServicesCount={block.allServicesCount}
+      />
+    );
   }
   if (block.type === "menu") {
     return <MenuCard block={block} slug={slug} />;
@@ -114,7 +145,28 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "html") {
     return <HtmlCard html={block.html} height={block.height} />;
   }
+  if (block.type === "social") {
+    return <SocialCard title={block.title} items={block.items} />;
+  }
   return null;
+}
+
+/** Small heading shared by any card that gained an optional `title`. */
+function TitleHeading({ title }: { title: string }) {
+  return (
+    <strong
+      style={{
+        display: "block",
+        fontSize: 13,
+        fontFamily: "var(--font-heading)",
+        color: "var(--on-bg-soft)",
+        opacity: 0.85,
+        margin: "0 0 8px",
+      }}
+    >
+      {title}
+    </strong>
+  );
 }
 
 /**
@@ -310,10 +362,14 @@ const SERVICE_BLURB = 140;
  */
 function ServicesCard({
   slug,
+  title,
+  focusIds,
   items,
   booking,
 }: {
   slug: string;
+  title?: string;
+  focusIds?: string[];
   items: ServiceCard[];
   booking: ServiceBooking | null;
 }) {
@@ -346,32 +402,55 @@ function ServicesCard({
     );
   }
 
-  const shown = all ? items : items.slice(0, SERVICES_SHOWN);
+  const focusSet = new Set(focusIds ?? []);
+  const hasFocus = focusSet.size > 0;
+  const focusItems = hasFocus ? items.filter((s) => focusSet.has(s?.id)) : [];
+  const restItems = hasFocus ? items.filter((s) => !focusSet.has(s?.id)) : items;
+  // A focused card, or one small enough to fit, never folds behind "Show all".
+  const noFold = hasFocus || items.length <= SERVICES_SHOWN;
+  const shownRest = noFold ? restItems : all ? restItems : restItems.slice(0, SERVICES_SHOWN);
+  const bookHandler = (s: ServiceCard) => (canBook ? () => setPicked(s) : undefined);
+
   return (
     <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
-      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Services</strong>
+      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>{title ?? "Services"}</strong>
       {canBook && (
         <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 4px" }}>
           Tap Book on any service to pick a time.
         </p>
       )}
-      <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
-        {shown.map((s, i) => (
-          <ServiceRow
-            key={s?.id ?? i}
-            service={s}
-            first={i === 0}
-            onBook={canBook ? () => setPicked(s) : undefined}
-          />
+      {hasFocus && (
+        <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
+          {focusItems.map((s, i) => (
+            <ServiceRow key={s?.id ?? `focus-${i}`} service={s} first={i === 0} onBook={bookHandler(s)} />
+          ))}
+        </ul>
+      )}
+      {hasFocus && restItems.length > 0 && (
+        <span
+          style={{
+            display: "block",
+            fontSize: 12,
+            color: "var(--on-bg-soft)",
+            opacity: 0.75,
+            margin: "12px 0 2px",
+          }}
+        >
+          Similar
+        </span>
+      )}
+      <ul style={{ listStyle: "none", margin: hasFocus ? 0 : "8px 0 0", padding: 0 }}>
+        {shownRest.map((s, i) => (
+          <ServiceRow key={s?.id ?? i} service={s} first={i === 0 && !hasFocus} onBook={bookHandler(s)} />
         ))}
       </ul>
-      {items.length > SERVICES_SHOWN && (
+      {!noFold && restItems.length > SERVICES_SHOWN && (
         <button
           onClick={() => setAll((v) => !v)}
           aria-expanded={all}
           style={{ ...linkBtn, cursor: "pointer", marginTop: 10 }}
         >
-          {all ? "Show fewer ▴" : `Show all ${items.length} ▾`}
+          {all ? "Show fewer ▴" : `Show all ${restItems.length} ▾`}
         </button>
       )}
     </div>
@@ -680,6 +759,81 @@ function Carousel({ items }: { items: PhotoCard[] }) {
   );
 }
 
+/** Small sets (≤3) and larger sets share this lightbox, opened by thumbnail index. */
+function PhotoLightbox({ items, open, onClose }: { items: PhotoCard[]; open: number | null; onClose: () => void }) {
+  if (open === null) return null;
+  const ph = items[open];
+  return (
+    <div style={lightbox} onClick={onClose}>
+      <div data-fill="surface" style={lightboxInner} onClick={(e) => e.stopPropagation()}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={ph.src} alt={ph.description} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: "var(--radius-sm)" }} />
+        {ph.description && <p style={{ color: "var(--on-surface)", fontSize: 15, marginTop: 12 }}>{ph.description}</p>}
+        <button style={{ ...linkBtn, marginTop: 14 }} onClick={onClose}>
+          Close ✕
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Above this count a compact thumbnail row gives way to Carousel/Filmstrip. */
+const COMPACT_GALLERY_MAX = 3;
+
+/**
+ * Gallery dispatch: an optional `title`, then a compact thumbnail row for
+ * small sets (no carousel prev/next controls, regardless of `layout`) or the
+ * existing Carousel/Filmstrip for larger ones.
+ */
+function GalleryCard({
+  layout,
+  title,
+  items,
+}: {
+  layout: "carousel" | "filmstrip";
+  title?: string;
+  items: PhotoCard[];
+}) {
+  return (
+    <div>
+      {title && <TitleHeading title={title} />}
+      {items.length <= COMPACT_GALLERY_MAX ? (
+        <CompactPhotoRow items={items} />
+      ) : layout === "carousel" ? (
+        <Carousel items={items} />
+      ) : (
+        <Filmstrip items={items} />
+      )}
+    </div>
+  );
+}
+
+/** A row of full-size thumbnails, each opening the shared lightbox. No nav controls. */
+function CompactPhotoRow({ items }: { items: PhotoCard[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  return (
+    <div data-fill="bg-soft" style={card}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        {items.map((ph, idx) => (
+          <button
+            key={ph.id}
+            onClick={() => setOpen(idx)}
+            style={{ flex: "0 0 auto", border: "none", background: "none", padding: 0, cursor: "pointer" }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={ph.src}
+              alt={ph.description}
+              style={{ height: 140, width: "auto", borderRadius: "var(--radius-sm)", border: "1px solid var(--border)", display: "block" }}
+            />
+          </button>
+        ))}
+      </div>
+      <PhotoLightbox items={items} open={open} onClose={() => setOpen(null)} />
+    </div>
+  );
+}
+
 function Filmstrip({ items }: { items: PhotoCard[] }) {
   const [open, setOpen] = useState<number | null>(null);
   return (
@@ -702,20 +856,7 @@ function Filmstrip({ items }: { items: PhotoCard[] }) {
           </button>
         ))}
       </div>
-      {open !== null && (
-        <div style={lightbox} onClick={() => setOpen(null)}>
-          <div data-fill="surface" style={lightboxInner} onClick={(e) => e.stopPropagation()}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={items[open].src} alt={items[open].description} style={{ maxWidth: "100%", maxHeight: "70vh", borderRadius: "var(--radius-sm)" }} />
-            {items[open].description && (
-              <p style={{ color: "var(--on-surface)", fontSize: 15, marginTop: 12 }}>{items[open].description}</p>
-            )}
-            <button style={{ ...linkBtn, marginTop: 14 }} onClick={() => setOpen(null)}>
-              Close ✕
-            </button>
-          </div>
-        </div>
-      )}
+      <PhotoLightbox items={items} open={open} onClose={() => setOpen(null)} />
     </div>
   );
 }

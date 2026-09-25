@@ -248,7 +248,12 @@ export async function indexPhoto(
   const photo = await prisma.photo.findFirst({ where: { id, userId } });
   if (!photo) return dropOrigin(userId, "photo", id);
 
-  const text = [photo.caption?.trim() ?? "", photo.description?.trim() ?? ""]
+  const tags = safeTags(photo.tags);
+  const text = [
+    photo.caption?.trim() ?? "",
+    photo.description?.trim() ?? "",
+    tags.length ? `Tags: ${tags.join(", ")}.` : "",
+  ]
     .filter(Boolean)
     .join("\n\n");
 

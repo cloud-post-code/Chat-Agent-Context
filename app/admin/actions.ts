@@ -108,7 +108,8 @@ import { regenerateStarterQuestions } from "@/lib/starterQuestions";
 import { PERSONA_SECTIONS, writePersonaSections } from "@/lib/persona";
 import { COLOR_ROLES } from "@/lib/theme";
 import { saveUpload, saveBytes } from "@/lib/uploads";
-import { describeImage } from "@/lib/vision";
+import { wipeAccountContent } from "@/lib/accountWipe";
+import { describeAndTagImage } from "@/lib/vision";
 import path from "node:path";
 
 /** The logged-in user, or a redirect to the login page. */
@@ -297,47 +298,14 @@ export async function saveProfile(formData: FormData) {
  * The button lives at the bottom of the Profile tab; clearing onboardedAt is
  * what routes the next admin visit into the flow again.
  *
- * "Wipe" is a full content reset, not just the profile: everything onboarding
- * or the dashboard populated — knowledge (sources/chunks and the entity graph
- * hanging off them), photos, projects, chat history, canned answers,
- * directives, UI cards, ingestion sources and their item classifications,
- * address book, contacts, A2A tasks, persona, and theme — so a re-run starts
- * from a genuinely empty account instead of stacking on stale data. The login
- * itself and the Gmail connection (GmailAuth) are kept.
+ * "Wipe" is a full content reset, not just the profile — see
+ * lib/accountWipe.ts for exactly what goes (everything onboarding or the
+ * dashboard populated, including the booking domain, menu, orders and the
+ * uploaded files on the volume) and what stays (the login and GmailAuth).
  */
 export async function restartOnboarding() {
   const user = await requireUser();
-  const where = { where: { userId: user.id } };
-  await prisma.$transaction([
-    // Chunks first, then entities — mentions/edges/edge-origins cascade.
-    prisma.chunk.deleteMany(where),
-    prisma.source.deleteMany(where),
-    prisma.entity.deleteMany(where),
-    prisma.mergeDismissal.deleteMany(where),
-    prisma.photo.deleteMany(where),
-    prisma.project.deleteMany(where),
-    prisma.chatSession.deleteMany(where), // messages cascade
-    prisma.cannedAnswer.deleteMany(where),
-    prisma.agentDirective.deleteMany(where),
-    prisma.uiCard.deleteMany(where),
-    prisma.itemClassification.deleteMany(where),
-    prisma.ingestionSource.deleteMany(where),
-    prisma.addressBookEntry.deleteMany(where),
-    prisma.contact.deleteMany(where),
-    prisma.a2ATask.deleteMany(where),
-    prisma.personaConfig.deleteMany(where),
-    prisma.themeConfig.deleteMany(where),
-    prisma.profile.upsert({
-      where: { userId: user.id },
-      update: {
-        company_name: "", owner_name: "", company_address: "",
-        company_phone_number: "", company_email: "", company_hours: "",
-        social_links: "[]",
-      },
-      create: { userId: user.id },
-    }),
-    prisma.user.update({ where: { id: user.id }, data: { onboardedAt: null } }),
-  ]);
+  await wipeAccountContent(user.id);
 
   // The transaction above clears the rows a NEW account is provisioned with —
   // ingestion sources, A2UI cards, starter answers, persona and theme. Without
@@ -656,15 +624,17 @@ export async function uploadPhoto(formData: FormData) {
   const bytes = Buffer.from(await file.arrayBuffer());
   const filename = await saveBytes(bytes, file.type);
 
-  // Ask Claude vision for a one-paragraph description (best-effort).
+  // Ask Claude vision for a one-paragraph description plus facet tags
+  // (best-effort — a failure leaves description/tags empty, not the upload).
   const ext = path.extname(filename);
-  const description = await describeImage(bytes, ext);
+  const { description, tags } = await describeAndTagImage(bytes, ext);
 
   const photo = await prisma.photo.create({
     data: {
       userId: user.id,
       filename,
       description,
+      tags: JSON.stringify(tags),
       caption: String(formData.get("caption") ?? ""),
       kind: String(formData.get("kind") ?? "gallery"),
       order: Number(formData.get("order") ?? 0) || 0,

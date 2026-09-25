@@ -87,7 +87,7 @@ function computeSteps(flow: BookingFlow, selection: BookingSelection, intake: Bo
     if (needsOptions) steps.push({ kind: "options" });
   }
 
-  if (flow.rules.staffSelection !== "hidden" && providerCandidates(flow, service).length >= 1) {
+  if (flow.rules?.staffSelection !== "hidden" && providerCandidates(flow, service).length >= 1) {
     steps.push({ kind: "provider" });
   }
 
@@ -113,6 +113,8 @@ export function BookingFlowCard({
   flow: flowProp,
   preselectServiceId,
   prefill,
+  narrowed,
+  allServicesCount,
 }: {
   slug: string;
   fields: BookingField[];
@@ -122,10 +124,16 @@ export function BookingFlowCard({
   preselectServiceId?: string | null;
   /** Legacy-mode prefill (no flow): an intake answer the visitor already gave elsewhere. */
   prefill?: Record<string, string>;
+  /** True when `flow.services` was narrowed to what the visitor was looking at. */
+  narrowed?: boolean;
+  /** The tenant's full service count, so "See all services" knows there's more. */
+  allServicesCount?: number;
 }) {
   const [remote, setRemote] = useState<{ flow: BookingFlow | null; fields: BookingField[] } | null>(
     flowProp ? { flow: flowProp, fields } : null,
   );
+  // Set once the visitor asks to see the full service list (narrowed block only).
+  const [unnarrowed, setUnnarrowed] = useState<BookingFlow | null>(null);
 
   // A block with no flow (an old stored sample, or a server-rendered card)
   // draws the intake-only wizard from the fields it was handed straight away
@@ -143,15 +151,35 @@ export function BookingFlowCard({
     };
   }, [slug, flowProp, preselectServiceId]);
 
-  const flow = remote?.flow ?? null;
+  const baseFlow = remote?.flow ?? null;
+  const flow = unnarrowed ?? baseFlow;
   const intake = remote?.fields ?? fields;
+  const showSeeAll = !!(narrowed && baseFlow && (allServicesCount ?? 0) > baseFlow.services.length && !unnarrowed);
+
+  async function revealAllServices() {
+    const res = await getBookingFlow(slug);
+    if (res.ok && res.flow) setUnnarrowed(res.flow);
+  }
 
   if (!flow) {
     return <LegacyWizard slug={slug} fields={intake} prefill={prefill} />;
   }
 
   return (
-    <FlowWizard slug={slug} flow={flow} intake={intake} preselectServiceId={preselectServiceId ?? flow.preselect.serviceId} />
+    <div>
+      {showSeeAll && (
+        <button type="button" onClick={revealAllServices} style={{ ...linkBtn, marginBottom: 8 }}>
+          See all services
+        </button>
+      )}
+      <FlowWizard
+        key={unnarrowed ? "all" : "narrowed"}
+        slug={slug}
+        flow={flow}
+        intake={intake}
+        preselectServiceId={preselectServiceId ?? flow.preselect?.serviceId ?? null}
+      />
+    </div>
   );
 }
 

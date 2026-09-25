@@ -101,11 +101,24 @@ async function saveLocations(userId: string, L: Record<string, unknown>): Promis
  * saving is row creation over reviewed captions. Only app-upload paths are
  * accepted. Replace semantics keep a restart from stacking duplicates.
  */
+const strTags = (v: unknown): string[] => {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of v) {
+    const tag = str(t).toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+  }
+  return out;
+};
+
 async function saveGallery(userId: string, gallery: Record<string, unknown>): Promise<void> {
   const images = (Array.isArray(gallery.images) ? gallery.images : [])
     .map((i: unknown) => {
       const img = (i ?? {}) as Record<string, unknown>;
-      return { src: str(img.src), caption: str(img.caption) };
+      return { src: str(img.src), caption: str(img.caption), tags: strTags(img.tags) };
     })
     .filter((i) => /^\/api\/uploads\//.test(i.src))
     .slice(0, 25);
@@ -116,6 +129,7 @@ async function saveGallery(userId: string, gallery: Record<string, unknown>): Pr
       filename: img.src.replace(/^\/api\/uploads\//, ""),
       caption: img.caption || null,
       description: img.caption,
+      tags: JSON.stringify(img.tags),
       kind: "gallery",
       order,
     })),

@@ -15,12 +15,84 @@ file whenever prompts, tools or routing change.
    are served whole.
 3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
    `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
-   `show_card`), `show_booking` when booking is on (with an optional
-   `service` to open the flow on the service the visitor named),
-   `add_to_cart` whenever the menu is in the catalog, and `search_knowledge`
-   on every unscripted turn.
+   `show_card`), each narrowable with `ids`/`tags`/`query`/`limit`/`title`
+   where it applies (`show_gallery` also takes the required `layout`;
+   `show_services` also takes `category` and `similar`) — see "Composable
+   elements" below. `show_booking` when booking is on (`service`, `services`,
+   or `query` to open the flow narrowed to what the visitor was just looking
+   at), `show_social` gated on the tenant actually having social links on
+   file rather than on the card catalog (`platforms`, `title`), `add_to_cart`
+   whenever the menu is in the catalog, and `search_knowledge` on every
+   unscripted turn.
 4. **Loop**: up to 4 model turns; tool results are fed back so the model can
    close.
+
+## Composable elements
+
+Several small, focused cards beat one big one (the `COMPOSING CARDS` prompt
+paragraph, `lib/knowledge.ts`). `show_gallery`/`show_services`/`show_projects`
+share one filter idiom, built on pure, import-free modules so a proof can
+exercise them without a database: `lib/terms.ts` (`meaningfulWords`,
+`idfWeights`, `overlapScore`), `lib/photoIndex.ts` (`filterPhotos`,
+`tagVocabulary`, `photoIndexLines`), and `lib/serviceIndex.ts`
+(`filterServices`, `similarServices`, `filterProjects`, `serviceIndexLines`).
+
+**Filter semantics** (all three follow the same rule): an EMPTY filter (no
+`ids`, no `tags`/`category`, no `query`) returns EVERY item with NO limit —
+canned rows (a starter question or a catalog row with no arguments) depend on
+this to render the full gallery/list. A non-empty filter defaults to 6 items
+and caps at 12. `ids` come back in caller order with unknown ids dropped.
+`tags` are ANDed, and a tag matches an item whose own `tags` carry it OR whose
+caption/description contains it as a word (`meaningfulWords`) — an untagged
+photo captioned "red gel nails" still matches `tags:["red"]`. `query` is free
+text, scored by IDF-weighted term overlap and sorted best-first.
+`show_services`'s `similar` (0-4) adds that many close neighbours around the
+matched services — same category weighted highest, then shared name/description
+terms, then similar price — and is never empty when other services exist:
+a catalog with no shared category or terms falls back to catalog order
+(`close: false`) rather than returning nothing.
+
+**PHOTO INDEX / SERVICE INDEX** (`lib/knowledge.ts`): the prompt gets a
+`PHOTO INDEX (id | caption | tags)` section only when `show_gallery` is
+actually offered — naming photos the model can't draw is how you get an
+apology instead of a card — and a `SERVICE INDEX (id | name | category |
+price | terms)` section whenever `show_services` is offered OR booking is
+on, built from the live booking flow's services when there are any, else the
+knowledge catalog. Both sections, and the `COMPOSING CARDS` paragraph, are
+built once per prompt from `getBookingConfig`/`getBookingFlow` read once and
+threaded through, not re-fetched per section.
+
+**Card memory**: each rendered card's summary is folded into the assistant
+history the model sees on its NEXT turn, so "book that" or "the red ones" can
+resolve against a card the visitor actually saw. `app/cards/shown.ts`
+(`shownFromCards`, pure and client-safe) derives a capped `ShownCard[]` from a
+message's rendered cards — gallery/services/projects → item ids (gallery also
+carries the tag union); social → ids = platform names; booking → just
+`{type:"booking"}` — capped at 4 cards per message and 12 ids/tags per card.
+`app/Chat.tsx` attaches this to each assistant message it sends back; the
+server (`app/api/chat/route.ts`) re-sanitizes it (types ≤20 chars, ids ≤64
+chars, same caps) before `lib/brain.ts`'s `runModel` renders history content
+as `content + "\n\n[shown: gallery ids=p1,p2 tags=red,gel · services
+ids=s1]"` (only when non-empty). The `COMPOSING CARDS` paragraph tells the
+model what that marker means and to reuse its ids/tags for "those"/"that
+one"/"book that" instead of asking the visitor to repeat themselves — it is
+bookkeeping, never displayed to the visitor, logged, or spoken back.
+
+`hydrate()` (`lib/brain.ts`) turns a tool call into its `UiBlock` plus the
+tool-result string the model actually reads — "Rendered N photos: id
+(caption), …", "No photos match. Tags on file: a, b, c", "Rendered N
+services: id (name, price), …", "Rendered booking with N of M services", "No
+social links for: tiktok" — never a blind "Card rendered to the user.", so a
+filter that matched nothing can be retried with different words instead of
+the model hearing a content-free acknowledgement.
+
+**Photo tags**: `Photo.tags` (JSON string array) is set by the vision
+curator and the upload flow for new photos, parsed everywhere through
+`parsePhotoTags` (never throws). `scripts/tagPhotos.ts` backfills tags for
+photos uploaded before tagging existed — not run automatically; an operator
+runs it once per tenant that needs it.
+
+Proof: `docs/features/composable-a2ui-elements/proof.ts`.
 
 ## Booking
 

@@ -5,9 +5,12 @@ import {
   allProjectsBlock,
   singleProjectBlock,
   galleryBlock,
+  galleryTagVocabulary,
   contactBlock,
   bookingBlock,
   servicesBlock,
+  filterServices,
+  type ServiceMeta,
   type UiBlock,
 } from "@/lib/cards";
 import { getBookingConfig } from "@/lib/appointments";
@@ -18,6 +21,7 @@ import { cartBlock, cartPromptSection, findMenuItem, menuBlock, menuPromptSectio
 import type { MenuItemData } from "@/lib/menuTypes";
 import { prisma } from "@/lib/db";
 import { formatContext, retrieve } from "@/lib/retrieval/search";
+import { hasSocialLinks, socialBlock } from "@/lib/social";
 
 /**
  * The chatbot, independent of how it was reached. `answer()` is the one entry
@@ -30,7 +34,35 @@ import { formatContext, retrieve } from "@/lib/retrieval/search";
  * escalation tier — a cheap router that itself costs a model call isn't cheap.
  */
 
-export type Msg = { role: "user" | "assistant"; content: string };
+export type Msg = { role: "user" | "assistant"; content: string; shown?: ShownCard[] };
+
+/**
+ * What a card, once rendered, told the visitor it was showing — folded into
+ * the history the model sees on the NEXT turn so "book that" or "the red
+ * ones" can resolve against ids/tags from a card the visitor already saw,
+ * not just its own prose. Structured and out of band, the same idiom as the
+ * cart (Chat.tsx -> route.ts -> BrainInput.cart -> cartPromptSection).
+ */
+export type ShownCard = { type: string; ids?: string[]; tags?: string[]; title?: string };
+
+/**
+ * A ShownCard folded into one compact clause: "gallery ids=p1,p2 tags=red,gel".
+ * Exported as a pure helper so a proof can assert the exact folding without
+ * driving the whole model loop.
+ */
+function renderOneShown(s: ShownCard): string {
+  const parts = [s.type];
+  if (s.ids?.length) parts.push(`ids=${s.ids.join(",")}`);
+  if (s.tags?.length) parts.push(`tags=${s.tags.join(",")}`);
+  if (s.title) parts.push(`title=${s.title}`);
+  return parts.join(" ");
+}
+
+/** Every ShownCard on a turn, folded into one "[shown: … · …]" suffix; "" when none. */
+export function renderShown(shown: ShownCard[] | undefined): string {
+  if (!shown?.length) return "";
+  return `\n\n[shown: ${shown.map(renderOneShown).join(" · ")}]`;
+}
 
 /** What the brain emits. The web transport writes these straight out as NDJSON. */
 export type BrainEvent =
@@ -87,8 +119,19 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_projects",
     description:
-      "Render cards for ALL of the owner's projects. Use when the visitor asks about their projects in general.",
-    input_schema: { type: "object", properties: {} },
+      "Render cards for the owner's projects. With no arguments, ALL of them — use that only when the " +
+      "visitor asks for their projects in general. Otherwise narrow it: ids for specific ones, tags for a " +
+      "theme, or query for free text describing what they're after.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, description: "Specific project ids" },
+        tags: { type: "array", items: { type: "string" }, description: "Tags every project must carry" },
+        query: { type: "string", description: "Free text describing what the visitor wants" },
+        limit: { type: "integer", description: "Max projects to show" },
+        title: { type: "string", description: "Heading for the card" },
+      },
+    },
   },
   {
     name: "show_project",
@@ -103,11 +146,20 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_gallery",
     description:
-      "Render the owner's photos as a gallery. layout 'carousel' is a slideshow; 'filmstrip' is a browsable thumbnail strip with a lightbox.",
+      "Render the owner's photos as a gallery. layout 'carousel' is a slideshow; 'filmstrip' is a browsable " +
+      "thumbnail strip with a lightbox. Pick photos with ids from PHOTO INDEX when the visitor named specific " +
+      "ones, tags ONLY from the vocabulary PHOTO INDEX lists (never invent a tag), or query for free text " +
+      "('storefront', 'behind the scenes'). Leave every filter off ONLY when the visitor explicitly asks to " +
+      "see everything — the default is a few photos that fit what they asked, not the whole gallery.",
     input_schema: {
       type: "object",
       properties: {
         layout: { type: "string", enum: ["carousel", "filmstrip"] },
+        ids: { type: "array", items: { type: "string" }, description: "Specific photo ids from PHOTO INDEX" },
+        tags: { type: "array", items: { type: "string" }, description: "Tags from PHOTO INDEX's vocabulary, e.g. red, gel" },
+        query: { type: "string", description: "Free text describing the photos wanted" },
+        limit: { type: "integer", description: "Max photos to show" },
+        title: { type: "string", description: "Heading for the card" },
       },
       required: ["layout"],
     },
@@ -115,8 +167,23 @@ const TOOLS: Anthropic.Tool[] = [
   {
     name: "show_services",
     description:
-      "Render the business's services as a card: each service with what it includes, and a Book button when appointments are on. Use when the visitor asks what the business offers, or about its services, treatments, packages or pricing in general.",
-    input_schema: { type: "object", properties: {} },
+      "Render the business's services as a card: each service with what it includes, and a Book button when " +
+      "appointments are on. With no arguments it shows ALL services — use that only for an explicit 'what do " +
+      "you offer' / 'full price list' ask. Otherwise narrow it: ids or category from SERVICE INDEX, or query " +
+      "for free text ('gel nails'). Pass similar (1-4) to also show that many close neighbours (same category " +
+      "or shared terms) alongside the ones matched — good for 'how much is X' so the visitor sees related " +
+      "options too.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ids: { type: "array", items: { type: "string" }, description: "Specific service ids from SERVICE INDEX" },
+        category: { type: "string", description: "One category name from SERVICE INDEX" },
+        query: { type: "string", description: "Free text describing the service wanted" },
+        similar: { type: "integer", minimum: 0, maximum: 4, description: "How many close neighbours to add" },
+        limit: { type: "integer", description: "Max services to show" },
+        title: { type: "string", description: "Heading for the card" },
+      },
+    },
   },
   {
     name: "show_menu",
@@ -172,25 +239,61 @@ const ADD_TO_CART_TOOL: Anthropic.Tool = {
 const BOOKING_TOOL: Anthropic.Tool = {
   name: "show_booking",
   description:
-    "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to book, schedule, or set up an appointment, call, or meeting.",
+    "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to " +
+    "book, schedule, or set up an appointment, call, or meeting. Narrow which services the wizard opens to " +
+    "with services (ids or names they mentioned) or query (free text, e.g. 'red gel nails' after a gallery " +
+    "card) — especially right after showing photos or services, so the booking card opens on what they were " +
+    "just looking at rather than the whole list. Leave both off for a plain 'book an appointment' with no " +
+    "context; a wrong narrowing never traps the visitor, the card always offers the full list too.",
   input_schema: {
     type: "object",
     properties: {
       service: {
         type: "string",
-        description: "The service the visitor wants, by name, when they named one.",
+        description: "The service the visitor wants, by name, when they named exactly one.",
+      },
+      services: {
+        type: "array",
+        items: { type: "string" },
+        description: "Several services the visitor wants, by id or name.",
+      },
+      query: {
+        type: "string",
+        description: "Free text describing what the visitor was looking at, e.g. 'red gel nails'.",
       },
     },
   },
 };
 
 /**
- * The `service` name/id a show_booking call named → a real flow service id,
- * or null when nothing matches. Exact id first (the card round-tripping its
- * own id), then an exact name, then a loose substring — a visitor's or the
+ * The gated `show_social` tool: offered on the tenant's OWN data (whether
+ * they have any social links at all), not on the card catalog — mirroring
+ * BOOKING_TOOL, since no existing tenant has a show_social UiCard row and
+ * bootstrap never seeds one.
+ */
+const SHOW_SOCIAL_TOOL: Anthropic.Tool = {
+  name: "show_social",
+  description:
+    "Render the business's social links as a card, one button per platform. With no arguments it shows " +
+    "every link on file — use that for a plain 'follow you' ask. Narrow it with platforms " +
+    "(instagram, facebook, twitter, tiktok, youtube, linkedin) when the visitor named a specific one, e.g. " +
+    "'do you have Instagram?' shows only Instagram, not every platform.",
+  input_schema: {
+    type: "object",
+    properties: {
+      platforms: { type: "array", items: { type: "string" }, description: "Platforms the visitor asked about" },
+      title: { type: "string", description: "Heading for the card" },
+    },
+  },
+};
+
+/**
+ * A name/id show_booking (or show_services) named -> a real service id, or
+ * null when nothing matches. Exact id first (the card round-tripping its own
+ * id), then an exact name, then a loose substring — a visitor's or the
  * model's wording is rarely the service's exact stored name.
  */
-function resolvePreselect(services: { id: string; name: string }[], wanted: string): string | null {
+function resolveOneService(services: { id: string; name: string }[], wanted: string): string | null {
   const w = wanted.trim().toLowerCase();
   if (!w) return null;
   return (
@@ -199,6 +302,20 @@ function resolvePreselect(services: { id: string; name: string }[], wanted: stri
     services.find((s) => s.name.toLowerCase().includes(w))?.id ??
     null
   );
+}
+
+/** Every name/id in `wanted` resolved against the flow's services, deduped, unknowns dropped. */
+function resolvePreselectList(services: { id: string; name: string }[], wanted: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const w of wanted) {
+    const id = resolveOneService(services, w);
+    if (id && !seen.has(id)) {
+      seen.add(id);
+      out.push(id);
+    }
+  }
+  return out;
 }
 
 /**
@@ -261,47 +378,127 @@ KNOWLEDGE above is only a first guess at what this question needs. If it doesn't
   }`;
 }
 
-/** Turn a tool call into the UI block it names. Shared by both tiers. */
-async function hydrate(
-  userId: string,
-  name: string,
-  input: Record<string, unknown>,
-): Promise<UiBlock | null> {
+/** What hydrate() actually drew (or didn't), for the tool result and for logging. */
+export type Hydrated = { block: UiBlock | null; summary: string };
+
+const ok = (block: UiBlock | null, summary: string): Hydrated => ({ block, summary });
+
+/** "Rendered N photos: id (caption), …", capped so the tool result stays short. */
+function summarizeGallery(block: { items: { id: string; caption: string | null }[] }): string {
+  const shown = block.items.slice(0, 8).map((i) => `${i.id} (${i.caption || "photo"})`);
+  const tail = block.items.length > 8 ? `, and ${block.items.length - 8} more` : "";
+  return `Rendered ${block.items.length} photos: ${shown.join(", ")}${tail}.`;
+}
+
+/** "Rendered N services: id (name, price), …" */
+function summarizeServices(block: { items: { id: string; name: string; priceLabel?: string }[] }): string {
+  const shown = block.items.slice(0, 8).map((i) => `${i.id} (${i.name}${i.priceLabel ? `, ${i.priceLabel}` : ""})`);
+  const tail = block.items.length > 8 ? `, and ${block.items.length - 8} more` : "";
+  return `Rendered ${block.items.length} services: ${shown.join(", ")}${tail}.`;
+}
+
+/** Services (as ServiceMeta) filtered by an id/name list or a free-text query, for show_booking. */
+function narrowServicesForBooking(
+  flowServices: { id: string; name: string; category?: string; description?: string }[],
+  services: string[] | undefined,
+  query: string | undefined,
+): string[] {
+  const meta: ServiceMeta[] = flowServices.map((s) => ({
+    id: s.id,
+    name: s.name,
+    description: s.description ?? "",
+    category: s.category,
+  }));
+  if (services?.length) return resolvePreselectList(flowServices, services);
+  if (query?.trim()) {
+    // No similarServices fallback here per the contract: an empty match means
+    // the full list, not a guess at "close enough" services. A non-empty
+    // match DOES widen to the matched item(s)' whole category, though — "red
+    // gel nails" naming one nail service should open the wizard on every
+    // nail service, the way "book after seeing red nails" narrows to the
+    // services close to those photos, not just the one exact word match.
+    const focus = filterServices(meta, { query });
+    if (!focus.length) return [];
+    const categories = new Set(focus.map((s) => s.category).filter((c): c is string => !!c?.trim()));
+    if (!categories.size) return focus.map((s) => s.id);
+    const widened = meta.filter((s) => s.category && categories.has(s.category));
+    return widened.length ? widened.map((s) => s.id) : focus.map((s) => s.id);
+  }
+  return [];
+}
+
+/**
+ * Turn a tool call into the UI block it names, plus a summary the model
+ * hears back as the tool result — "Rendered N photos: …" instead of a blind
+ * "Card rendered to the user.", so the 4-turn loop can retry a filter that
+ * matched nothing, and later turns can quote what was actually shown.
+ */
+export async function hydrate(userId: string, name: string, input: Record<string, unknown>): Promise<Hydrated> {
   switch (name) {
-    case "show_projects":
-      return allProjectsBlock(userId);
+    case "show_projects": {
+      const block = await allProjectsBlock(userId, input);
+      if (!block || block.type !== "projects") return ok(null, "No projects match.");
+      return ok(block, `Rendered ${block.items.length} projects.`);
+    }
     case "show_project":
-      return singleProjectBlock(userId, String(input.id ?? ""));
-    case "show_gallery":
-      return galleryBlock(userId, input.layout === "carousel" ? "carousel" : "filmstrip");
-    case "show_services":
-      // Null when no services are on file — the model answers in words.
-      return servicesBlock(userId);
+      return ok(await singleProjectBlock(userId, String(input.id ?? "")), "Rendered the project card.");
+    case "show_gallery": {
+      const layout = input.layout === "carousel" ? "carousel" : "filmstrip";
+      const block = await galleryBlock(userId, { ...input, layout });
+      if (!block || block.type !== "gallery") {
+        const vocab = await galleryTagVocabulary(userId);
+        return ok(null, vocab.length ? `No photos match. Tags on file: ${vocab.join(", ")}` : "No photos match.");
+      }
+      return ok(block, summarizeGallery(block));
+    }
+    case "show_services": {
+      const block = await servicesBlock(userId, input);
+      if (!block || block.type !== "services") return ok(null, "No services match.");
+      return ok(block, summarizeServices(block));
+    }
     case "show_menu":
       // Null when nothing is on file or nothing matches — the model answers in words.
-      return menuBlock(userId, input);
+      return ok(await menuBlock(userId, input), "Card rendered to the user.");
     case "show_cart":
-      return cartBlock(userId);
+      return ok(await cartBlock(userId), "Card rendered to the user.");
     case "show_contact_form":
-      return contactBlock();
+      return ok(await contactBlock(), "Card rendered to the user.");
     case "show_booking": {
       // Null when booking was disabled after the tool was seen (or a stale
       // canned answer names it) — nothing is drawn rather than a dead booker.
-      const wanted = typeof input.service === "string" ? input.service : "";
-      let preselect: string | null = null;
-      if (wanted) {
+      const single = typeof input.service === "string" ? input.service : "";
+      const list = Array.isArray(input.services)
+        ? input.services.filter((s): s is string => typeof s === "string")
+        : [];
+      const query = typeof input.query === "string" ? input.query : undefined;
+      let serviceIds: string[] = [];
+      if (single || list.length || query) {
         const { getBookingFlow } = await import("./booking/store");
         const flowResult = await getBookingFlow(userId);
-        preselect = flowResult ? resolvePreselect(flowResult.flow.services, wanted) : null;
+        if (flowResult) {
+          serviceIds = narrowServicesForBooking(flowResult.flow.services, [single, ...list].filter(Boolean), query);
+        }
       }
-      return bookingBlock(userId, preselect);
+      const preselect = serviceIds.length === 1 ? serviceIds[0] : null;
+      const block = await bookingBlock(userId, { preselect, serviceIds });
+      if (!block || block.type !== "booking") return ok(null, "Booking is not available.");
+      const total = block.flow?.services.length ?? block.allServicesCount ?? 0;
+      return ok(block, `Rendered booking with ${block.narrowed ? serviceIds.length : total} of ${block.allServicesCount ?? total} services.`);
+    }
+    case "show_social": {
+      const block = await socialBlock(userId, input);
+      if (!block) {
+        const wanted = Array.isArray(input.platforms) ? input.platforms.filter((p): p is string => typeof p === "string") : [];
+        return ok(null, wanted.length ? `No social links for: ${wanted.join(", ")}` : "No social links on file.");
+      }
+      return ok(block, `Rendered ${block.items.length} social links: ${block.items.map((i) => i.platform).join(", ")}.`);
     }
     case "show_card":
       // Null when the key doesn't name a custom card any more — a canned
       // answer can outlive the card it pointed at.
-      return customCardBlock(userId, String(input.key ?? ""));
+      return ok(await customCardBlock(userId, String(input.key ?? "")), "Card rendered to the user.");
     default:
-      return null;
+      return ok(null, "No data available.");
   }
 }
 
@@ -331,11 +528,12 @@ async function* runModel(
 ): AsyncGenerator<BrainEvent> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [corePrompt, catalog, booking, searchSection] = await Promise.all([
+  const [corePrompt, catalog, booking, searchSection, socialEnabled] = await Promise.all([
     buildSystemPrompt(userId, message),
     cardCatalog(userId),
     getBookingConfig(userId),
     searchPromptSection(userId),
+    hasSocialLinks(userId),
   ]);
   // A tool is offered only when a catalog card names it — the catalog (the
   // admin's A2UI tab) decides what exists.
@@ -355,12 +553,17 @@ async function* runModel(
   // Custom-designed cards share one keyed tool, built from the catalog.
   const customKeys = catalog.filter((c) => c.tool === "show_card").map((c) => c.key);
   if (customKeys.length) tools.push(customCardTool(customKeys));
-  // Booking is gated by its own toggle, not the catalog.
+  // Booking and social are gated by their own data, not the catalog.
   if (booking.enabled && booking.fields.length > 0) tools.push(BOOKING_TOOL);
+  if (socialEnabled) tools.push(SHOW_SOCIAL_TOOL);
   if (!script) tools.push(SEARCH_TOOL);
   const convo: Anthropic.MessageParam[] = history.map((m) => ({
     role: m.role,
-    content: m.content,
+    // Fold what a past assistant turn's cards showed into its content, so
+    // "those", "that one", "the red ones" can resolve against ids/tags the
+    // visitor actually saw rather than only the words around them. Never
+    // shown to the visitor or logged — it only ever reaches the model.
+    content: m.role === "assistant" ? m.content + renderShown(m.shown) : m.content,
   }));
   convo.push({ role: "user", content: message });
 
@@ -414,13 +617,9 @@ async function* runModel(
         });
         continue;
       }
-      const block = await hydrate(userId, tu.name, (tu.input ?? {}) as Record<string, unknown>);
+      const { block, summary } = await hydrate(userId, tu.name, (tu.input ?? {}) as Record<string, unknown>);
       if (block) yield { t: "card", v: block };
-      results.push({
-        type: "tool_result",
-        tool_use_id: tu.id,
-        content: block ? "Card rendered to the user." : "No data available.",
-      });
+      results.push({ type: "tool_result", tool_use_id: tu.id, content: summary });
     }
 
     // Feed the tool results back so Claude can add closing words.
@@ -455,7 +654,7 @@ export async function* answer(
       spoken = canned.answer;
       yield { t: "text", v: canned.answer };
       if (cards && canned.cardTool) {
-        const block = await hydrate(userId, canned.cardTool, parseCardInput(canned.cardInput));
+        const { block } = await hydrate(userId, canned.cardTool, parseCardInput(canned.cardInput));
         if (block) yield { t: "card", v: block };
       }
       await recordCannedHit(canned.id);
