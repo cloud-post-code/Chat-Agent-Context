@@ -7,22 +7,48 @@ Read both before touching anything below. Nothing here is markup: the card is
 handed data and renders from a closed vocabulary, the server never trusts the
 card, and every uncertain state fails closed.
 
-## The visitor's flow (what the card draws)
+## The visitor's flow (a conversation of cards)
+
+The booking is a SEQUENCE of cards down the chat, one per step, not one card
+with a wizard inside it (see
+[`docs/features/booking-in-chat/FEATURE.md`](../booking-in-chat/FEATURE.md)).
+`show_booking` — or Book on the services card — starts a session; for each
+step the host appends an assistant line with the step's intro (typed in) and
+the step's card under it; the finished card answers back as one user line
+and the next ask appends below:
 
 ```
-Service → Options (variant / add-ons / quantity, only when the service has any)
-        → Provider (only when the tenant shows providers)
-        → Location (only when there is a choice: >1 location, or the service
-                    is offered online / mobile)
-        → Date & time
-        → Your details (customer core + configurable fields)
-        → A few questions (intake, conditional)
-        → Review → Confirm → Booked (or Waitlisted)
+Which service would you like?        [service tiles]
+                                          Picked: Gel Manicure · $35
+Any options or add-ons?              [variant / add-ons / quantity — only when the service has any]
+                                          Options: Shoulder length
+Who would you like to see?           [providers — only when the tenant shows providers]
+                                          Provider: Katherine   (or: anyone available)
+Where?                               [locations — only when there is a choice]
+                                          Where: 12 Sea Road
+When works for you?                  [calendar + slots]
+                                          When: Fri, Sep 25, 10:00 AM
+<the business's own screen title>    [that screen's fields]
+                                          Details: Ada · ada@… · 555-1234   /  Answers: …
+Here's your booking — check it over. [review + Confirm]
+                                          Booked: …
+You're booked — the details are below.  [confirmation]
 ```
 
-Steps that have nothing to ask are skipped, but the review screen always lists
-every part of the appointment. Each review section has an Edit link back to
-its step. The visitor's answers are never lost on an error.
+The order is the business's own (`rules.flow`, `planSteps`); review is
+always last; steps with nothing to ask are skipped; the intro is the
+business's screen title when it has one, else the fixed line
+(`lib/booking/session.ts` `intro`). Every earlier card stays on the page and
+stays editable ("Update"): an edit rewrites that step's line in place (ids
+`<sessionId>:<stepId>:ask` / `:reply`), and a step the edit makes necessary
+(options after switching to a service with variants) is asked below the
+review with Confirm disabled — "One more thing to answer — see the step
+below." — until answered. A typed question mid-booking is answered in the
+thread (the model is sent one `Booking so far: …` line for the session) and
+the booking carries on. The review lists every part of the appointment; the
+visitor's answers are never lost on an error; confirming locks the cards.
+The owner's onboarding preview runs the same sequence over a local thread
+and books nothing.
 
 ## Data
 

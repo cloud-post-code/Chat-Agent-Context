@@ -99,6 +99,35 @@ Booking panels use, so a chat edit claims the form (no longer `generated`).
 The knowledge stage skips `services` once the booking stage ran. Proof:
 `docs/features/onboarding-booking-form-step/proof.ts`.
 
+## Booking in the chat: a conversation of cards
+
+A visitor's booking is a sequence of cards down the thread, never a wizard
+inside one bubble. A `booking` block from `show_booking` (or Book on the
+services card) starts a session: the chat gives it a `sessionId`, appends
+`<sessionId>:start`, then asks each planned step (`lib/booking/flowSteps.ts`
+`planSteps`, the business's own order, review last) as an assistant message
+whose text is the step's intro — the business's own screen title, else the
+fixed line from `lib/booking/session.ts` `intro()` — with the step card
+mounted once the typing ends. A finished card answers as one user line
+(`Picked: Gel Manicure · $35`, `Options: …`, `Provider: Katherine`,
+`Where: …`, `When: …`, `Details: name · email · phone`, `Answers: …`) and the
+next ask appends. Ids are stable — `<sessionId>:<stepId>:ask` / `:reply`,
+`<sessionId>:confirmed:ask`; StepId `service | options | provider | location
+| time | screen:<n> | review` — so an edit on a card that is still on the
+page rewrites its line in place (`app/ChatThread.tsx` `appendMessages`
+replaces by id); a step the edit makes necessary is asked below the review
+with Confirm disabled until answered. Confirm → `POST /api/booking` →
+`Booked: …` and "You're booked — the details are below." with a
+`booking_confirmed` card; the cards lock. The model never sees the cards'
+lines one by one: `foldBookingLines` sends it ONE user line `Booking so far:
+…` per session at the position of the session's last reply and drops empty
+turns; while a session is live the model answers questions and draws no
+second booking card — a second `booking` block renders "Your booking is in
+progress above — keep going there, or say 'start over'." The session lives
+beside the chat in localStorage (`booking:<slug>:<sessionId>` next to
+`chat:<slug>:<id>`); without it the session's messages are pruned by id and
+the first step asked again. Proof: `docs/features/booking-in-chat/proof.ts`.
+
 ## Site-cards agent: A2UI cards from the imported site
 
 The A2UI tab's "Build cards from my site" button runs `buildCardsFromSite`

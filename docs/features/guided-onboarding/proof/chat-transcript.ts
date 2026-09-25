@@ -283,8 +283,11 @@ async function main() {
 
     // Try it: the real card, in preview.
     await click("Try the form");
-    await waitFor("the preview card", () => text().includes("Preview — nothing gets booked.") && text().includes("Step 1 of"));
-    check("the card opens on the service step with the service on file", text().includes("Gel Manicure"));
+    // The preview is the same conversation of cards a visitor gets (booking-in-chat):
+    // the first step's intro, typed in, with its card under it — no step counter.
+    await waitFor("the preview card", () => text().includes("Preview — nothing gets booked.") && text().includes("Which service would you like?"));
+    check("the preview opens on the first ask with the service on file", text().includes("Gel Manicure"));
+    check("the preview is a conversation, not a wizard — no step counter", !text().includes("Step 1 of"));
 
     // Say what's missing: the change is applied and the form shown again.
     const ask = container.querySelector("textarea[placeholder*='how many guests']") as HTMLTextAreaElement;
