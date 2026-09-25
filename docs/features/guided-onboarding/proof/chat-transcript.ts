@@ -88,10 +88,11 @@ function advanceTo(stage: string) {
   }
 }
 
-// ── The booking form the step reads and re-reads: one service, no questions,
-// then the question the scripted "model" adds when asked. Built with the real
-// step describer so the step list is what the app would show. ──
-type FormShape = { slug: string; enabled: boolean; flow: unknown; fields: unknown[]; steps: unknown[] };
+// ── The booking form the step reads and re-reads: one service, the contact
+// details on one screen (the migrated form of an existing tenant), then the
+// question the scripted "model" adds when asked. Built with the real step
+// describer so the step list is what the app would show. ──
+type FormShape = { slug: string; enabled: boolean; flow: unknown; fields: unknown[]; empty: boolean; steps: unknown[] };
 let formNow: FormShape | null = null;
 let formAfterChange: FormShape | null = null;
 async function buildForms() {
@@ -110,9 +111,18 @@ async function buildForms() {
     }],
     categories: ["Manicures"], staff: [], locations: [], rules, preselect: { serviceId: null },
   } as unknown as import("../../../../lib/booking/types").BookingFlow;
-  const guests = { key: "how_many_guests", label: "How many guests?", type: "number", required: true, order: 0, config: { min: 1, max: 8 } } as const;
-  formNow = { slug: "moonlight", enabled: true, flow, fields: [], steps: S.describeBookingSteps(flow, []) };
-  formAfterChange = { slug: "moonlight", enabled: true, flow, fields: [guests], steps: S.describeBookingSteps(flow, [guests]) };
+  type Row = import("../../../../lib/appointmentTypes").AppointmentFieldRow;
+  const row = (key: string, label: string, type: Row["type"], required: boolean, role: Row["role"], screen: number, config: Row["config"] = {}): Row =>
+    ({ key, label, type, required, order: 0, config, role, screen });
+  const contact: Row[] = [
+    row("first_name", "First name", "short_text", true, "first_name", 1),
+    row("last_name", "Last name", "short_text", true, "last_name", 1),
+    row("email", "Email", "email", true, "email", 1),
+    row("phone", "Phone", "phone", true, "phone", 1),
+  ];
+  const guests = row("how_many_guests", "How many guests?", "number", true, "none", 2, { min: 1, max: 8 });
+  formNow = { slug: "moonlight", enabled: true, flow, fields: contact, empty: false, steps: S.describeBookingSteps(flow, contact) };
+  formAfterChange = { slug: "moonlight", enabled: true, flow, fields: [...contact, guests], empty: false, steps: S.describeBookingSteps(flow, [...contact, guests]) };
 }
 
 globalThis.fetch = (async (input: string | URL, init?: { method?: string; body?: string }) => {
@@ -265,8 +275,10 @@ async function main() {
     check("saved theme collapsed into a user message naming the choices",
       bubbles("user").some((b) => b.includes("sharp") && b.includes("Nails that glow")), bubbles("user").join(" | "));
     await waitFor("the form's steps", () => text().includes("Pick a service") && text().includes("Review and confirm"));
-    const stepOrder = inOrder(["Pick a service", "Date and time", "Your details", "Review and confirm"]);
-    check("the steps are listed in the order a customer meets them", stepOrder === "", stepOrder);
+    const stepOrder = inOrder(["Pick a service", "Date and time", "First name*, Last name*, Email*, Phone*", "Review and confirm"]);
+    check("the steps are listed in the order a customer meets them, the contact screen titled by its labels", stepOrder === "", stepOrder);
+    check("the contact screen's fields are listed under it, one line each",
+      text().includes("First name* · short answer · required") && text().includes("Phone* · phone number · required"), text().slice(-600));
     check("no question step yet", !text().includes("How many guests?"));
 
     // Try it: the real card, in preview.

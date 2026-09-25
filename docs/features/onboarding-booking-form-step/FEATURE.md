@@ -44,13 +44,21 @@ the form builder.
 - The assistant says what it built ("I built your booking form from your site
   — 12 services and 3 questions"), or that it found no services, or that it
   couldn't read them; on the manual path it introduces the form.
-- **The steps**: a numbered list in the order a customer meets them — pick a
-  service (count, sections), options and add-ons (when any service has them,
-  marked "sometimes"), choose who you'd like to see, where, date and time,
-  your details (the asked customer fields, required ones starred), each intake
-  question (type, required, range, "only when…"), review and confirm (instant
-  or a request). `lib/booking/steps.ts` (pure) describes them from the same
-  `BookingFlow` the card draws, so the list is the card.
+- **The steps**: a numbered list in the business's own order
+  (`flow.rules.flow`, resolved by `sanitizeFlow` exactly as the card's planner
+  resolves it) — pick a service (count, sections), options and add-ons (when
+  any service has them, marked "sometimes"), choose who you'd like to see,
+  where, date and time, each screen of questions, review and confirm (instant
+  or a request; always last). A screen holding one field is a `question` step
+  (`q:<key>`: the label; type, required, range, "only when…"); a screen holding
+  several is one `screen` step (`screen:<n>`: the flow step's title or the
+  fields' labels with required ones starred, each field listed under it).
+  Contact details are ordinary fields with a `role`, so there is no fixed
+  "Your details" step — an existing tenant's migrated form shows its contact
+  screen (First name*, Last name*, Email*, Phone*, Text me appointment
+  reminders) as the first screen step. `lib/booking/steps.ts` (pure) describes
+  them from the same `BookingFlow` and fields the card draws, so the list is
+  the card. A form with no fields says "No questions yet." above the chat.
 - **Try the form**: the real `BookingFlowCard` in a new `preview` mode — every
   step is real (live availability from the hours, the real quote), confirming
   draws the real confirmation screen but books nothing, and the card can be
@@ -58,8 +66,9 @@ the form builder.
 - **The chat**: a text box ("What's missing or wrong?"). Each message goes to
   `POST /api/admin/onboarding/booking-form` and one round of
   `lib/onboarding/bookingFormChat.ts` runs: the model, told the form as it
-  stands (services with ids, providers, customer fields' state, questions with
-  keys, the step order), makes the change with tools and answers in a sentence.
+  stands (services with ids, providers, then the steps in order with every
+  field under its step — key, wording, type, required, role, screen, options,
+  placeholder), makes the change with tools and answers in a sentence.
   The reply and the list of changes appear in the step's chat, the form is
   re-read and shown again with new and changed steps marked (and removed ones
   named), and the preview card remounts on the new form.
@@ -71,17 +80,23 @@ the form builder.
 ### What the chat can change (tools)
 `add_question` (label, type, required, options with price/duration/group,
 allowOther, min/max, waiver text, only-when condition, `after` a key or
-"first"), `edit_question`, `remove_question`, `reorder_questions`,
-`set_customer_field` (ask / required / label on the details step),
-`set_staff_selection` (hidden / optional / required), `set_confirmation`
-(instant / request — counts as the owner's choice), `add_service` /
-`edit_service` / `remove_service` (price only as stated; none → "varies").
+"first", `role` — one of `FIELD_ROLES`: none / name / first_name / last_name /
+email / phone / notes / policy — and `screen`: `"new"` = a screen of its own,
+`"previous"` = the screen of the question before it in order (or the last
+screen), or a screen number), `edit_question` (the same, only the fields given
+change), `remove_question`, `reorder_questions`, `set_staff_selection` (hidden
+/ optional / required), `set_confirmation` (instant / request — counts as the
+owner's choice), `add_service` / `edit_service` / `remove_service` (price only
+as stated; none → "varies"). There is no separate customer-details tool:
+`set_customer_field` is gone.
 
-Rules the model is given: name, email and phone are customer details, never
-questions; pick the right question type; keep labels short and written to the
-customer; several changes in one message are all made; an ambiguous request
-gets one question and no change; never invent services, prices, staff or
-options.
+Rules the model is given: name, email and phone are ordinary questions with a
+`role` so the calendar knows which answer is which — add or change them with
+the question tools and set the role, keep the owner's wording, and several
+questions can share a screen; never add a question the form already asks;
+pick the right question type; keep labels short and written to the customer;
+several changes in one message are all made; an ambiguous request gets one
+question and no change; never invent services, prices, staff or options.
 
 ### Whose form it is
 A chat edit is an admin edit: every write goes through the same store the

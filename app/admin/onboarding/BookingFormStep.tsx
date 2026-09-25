@@ -168,6 +168,10 @@ export function BookingFormStep({
             )}
           </div>
 
+          {form.empty && (
+            <p style={{ fontSize: 13, fontStyle: "italic", opacity: 0.75, margin: "0 0 8px" }}>No questions yet.</p>
+          )}
+
           {/* The chat: what's missing, what to change. */}
           <div style={{ ...a2uiCard, background: "transparent", color: "inherit", padding: 12 }}>
             <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
@@ -232,6 +236,7 @@ export function BookingFormStep({
 const KIND_NOTE: Partial<Record<FormStep["kind"], string>> = {
   options: "sometimes",
   question: "question",
+  screen: "questions",
 };
 
 function StepList({ steps, marks }: { steps: FormStep[]; marks: Marks }) {
@@ -277,7 +282,19 @@ function StepList({ steps, marks }: { steps: FormStep[]; marks: Marks }) {
               {KIND_NOTE[s.kind] && !mark && (
                 <span style={{ marginLeft: 8, fontSize: 11, opacity: 0.6, fontStyle: "italic" }}>{KIND_NOTE[s.kind]}</span>
               )}
-              <span style={{ display: "block", fontSize: 13, opacity: 0.75 }}>{s.detail}</span>
+              {s.kind === "screen" && s.fields ? (
+                // A screen asks several questions together: one sub-line each.
+                <ul style={{ margin: "4px 0 0", paddingLeft: 16, fontSize: 13, opacity: 0.75 }}>
+                  {s.fields.map((f) => (
+                    <li key={f.key}>
+                      {f.label}
+                      {f.required ? "*" : ""} · {f.detail}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <span style={{ display: "block", fontSize: 13, opacity: 0.75 }}>{s.detail}</span>
+              )}
             </span>
           </li>
         );
