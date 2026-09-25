@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { prisma } from "@/lib/db";
-import { claude, claudeModel } from "@/lib/claude";
+import { claude, claudeModel, textOf } from "@/lib/claude";
 import { buildSystemPrompt } from "@/lib/knowledge";
 
 /**
@@ -69,18 +69,6 @@ verbatim to every visitor who asks this question, so:
   warmly, and point them to how they can reach the owner — do not invent anything.
 - Two to four sentences, in the owner's voice, as if they are speaking.
 - No preamble about drafting, no headings, no sign-off. Just the answer.`;
-
-/** The text blocks of a completion, joined. */
-function textOf(content: unknown[]): string {
-  return content
-    .filter((b): b is { type: "text"; text: string } => {
-      const block = b as { type?: string; text?: string };
-      return block.type === "text" && typeof block.text === "string";
-    })
-    .map((b) => b.text)
-    .join("")
-    .trim();
-}
 
 /** One draft, from the real knowledge prompt for that question. */
 async function generate(userId: string, question: string, client: DraftClient): Promise<string> {

@@ -1,3 +1,4 @@
+import { sniffImageType } from "@/lib/util/images";
 import type { CheerioAPI } from "cheerio";
 import type { Element } from "domhandler";
 import { prisma } from "@/lib/db";
@@ -167,22 +168,6 @@ function serviceImageCandidates(pages: Page[]): { src: string; text: string }[] 
 // ── Downloading a matched image ──────────────────────────────────────────────
 
 const ALLOWED_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
-
-/** The type the BYTES say they are — the images.ts sniffImageType precedent,
- *  kept local and small since it isn't exported there. */
-function sniffImageType(bytes: Buffer): string | null {
-  if (bytes.length < 12) return null;
-  if (bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
-  if (bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e) return "image/png";
-  if (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46) return "image/gif";
-  if (
-    bytes.subarray(0, 4).toString("ascii") === "RIFF" &&
-    bytes.subarray(8, 12).toString("ascii") === "WEBP"
-  ) {
-    return "image/webp";
-  }
-  return null;
-}
 
 /** Fetch one matched image and store it through the app's upload store.
  *  10s timeout, jpeg/png/webp/gif only, ≤ 3.5 MB. Null on any failure. */

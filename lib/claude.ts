@@ -32,3 +32,10 @@ export function claudeModel(): string {
 export function cardBuilderModel(): string {
   return process.env.CARD_BUILDER_MODEL || claudeModel();
 }
+
+/** The text of a response's content blocks, joined; non-text blocks contribute nothing. */
+export function textOf(content: unknown[]): string {
+  return content
+    .map((b) => (b && typeof b === "object" && "text" in b ? String((b as { text: unknown }).text) : ""))
+    .join("");
+}

@@ -1,3 +1,10 @@
+import { flat } from "@/lib/util/text";
+import { parsePrice } from "@/lib/util/money";
+import { durationMinutes } from "@/lib/util/duration";
+
+/** The number inside a price; see lib/util/money.ts. */
+export const priceAmount = parsePrice;
+export { durationMinutes };
 /**
  * The appointment shapes, with no imports.
  *
@@ -194,9 +201,6 @@ const MAX_OPTIONS = 60;
 const MAX_PICKS = 20;
 const OTHER_ANSWER_CAP = 200;
 
-const flat = (v: unknown, max: number): string =>
-  typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
-
 /**
  * Anything → a config this field type can actually use. Never throws: the
  * input is stored JSON, a posted admin form, or model output. Options on a
@@ -371,32 +375,6 @@ export function formatOptionLines(options: FieldOption[] | undefined): string {
     lines.push(parts.join(" | "));
   }
   return lines.join("\n");
-}
-
-/**
- * The number inside a price, and whether the price is exactly that number.
- * "$35" is exact; "$35+", "from $35" and "$35–50" are a floor. Null when the
- * text holds no amount at all ("varies", "call us").
- */
-export function priceAmount(price?: string): { amount: number; exact: boolean; symbol: string } | null {
-  const text = (price ?? "").trim();
-  if (!text) return null;
-  if (/^free$/i.test(text)) return { amount: 0, exact: true, symbol: "" };
-  const m = text.match(/(\p{Sc})?\s*(\d[\d,]*(?:\.\d{1,2})?)/u);
-  if (!m) return null;
-  const amount = Number.parseFloat(m[2].replace(/,/g, ""));
-  if (!Number.isFinite(amount)) return null;
-  return { amount, exact: /^\p{Sc}?\s*\d[\d,]*(?:\.\d{1,2})?$/u.test(text), symbol: m[1] ?? "" };
-}
-
-/** Minutes in "45 min", "1 hr", "1h 30m", "1.5 hours"; null when it isn't a length of time. */
-export function durationMinutes(duration?: string): number | null {
-  const text = (duration ?? "").trim().toLowerCase();
-  if (!text) return null;
-  const h = text.match(/(\d+(?:\.\d+)?)\s*(?:hours?|hrs?|h)\b/);
-  const m = text.match(/(\d+)\s*(?:minutes?|mins?|m)\b/);
-  if (!h && !m) return null;
-  return Math.round((h ? Number.parseFloat(h[1]) * 60 : 0) + (m ? Number.parseInt(m[1], 10) : 0));
 }
 
 function formatMinutes(total: number): string {

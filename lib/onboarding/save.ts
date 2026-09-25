@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { savePersonaBrand } from "@/lib/brand";
 import { saveSocialLinks, sanitizeSocialLinks } from "@/lib/socialLinks";
@@ -24,8 +25,6 @@ export type ReviewSave = {
 const RADII = new Set(["sharp", "rounded", "pill"]);
 const WEIGHTS = new Set(["", "500", "600", "700", "800"]);
 const HEXISH = /^#[0-9a-fA-F]{3,8}$/;
-
-const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 const toHours = (v: unknown): string =>
   typeof v === "string"

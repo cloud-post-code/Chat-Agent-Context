@@ -1,3 +1,5 @@
+import { flat } from "@/lib/util/text";
+export { flat };
 /**
  * The booking flow's shapes and pure rules, with no imports.
  *
@@ -389,8 +391,6 @@ export type BookingFlow = {
 
 const MAX_LIST = 60;
 
-export const flat = (v: unknown, max: number): string =>
-  typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
 export const text = (v: unknown, max: number): string =>
   typeof v === "string" ? v.replace(/\r\n?/g, "\n").trim().slice(0, max) : "";
 const num = (v: unknown): number | undefined => {

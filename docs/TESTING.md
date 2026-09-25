@@ -15,7 +15,7 @@ database, so run them yourself and record the result in the PR.
 
 ## Unit tests
 
-- `vitest.config.ts` aliases `@/` to the repo root and loads `tests/setup.ts`, which
+- `vitest.config.mts` aliases `@/` to the repo root and loads `tests/setup.ts`, which
   mocks `@/lib/db` so **any database call throws**. A test that needs Postgres is a
   proof, not a test.
 - Server-rendered components are checked with `react-dom/server`

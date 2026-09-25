@@ -1,4 +1,4 @@
-import { claude, cardBuilderModel } from "@/lib/claude";
+import { claude, cardBuilderModel, textOf } from "@/lib/claude";
 import { safeCardHtml } from "@/lib/uiCards";
 import {
   UPLOAD_METHODS,
@@ -85,15 +85,6 @@ Answer EVERY turn as a single JSON object, nothing else:
  "draft": {<the full current config>} }
 Refine the draft across turns from the whole conversation. If you still need
 information before proposing anything, set "draft": null and ask in "reply".`;
-
-function textOf(content: unknown[]): string {
-  return content
-    .map((b) => {
-      const block = b as { type?: string; text?: string };
-      return block?.type === "text" && typeof block.text === "string" ? block.text : "";
-    })
-    .join("");
-}
 
 function validateDraft(v: unknown): SourceDraft | null {
   if (!v || typeof v !== "object") return null;

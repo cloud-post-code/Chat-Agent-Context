@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import type { Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 
@@ -28,9 +29,6 @@ Rules:
 
 Respond with ONLY this JSON, no other text:
 {"tagline":"","tagline_source":"","values":[],"tone":""}`;
-
-const str = (v: unknown, max: number): string =>
-  typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /** Brand identity from the crawled pages. `extract` is injectable so proofs
  *  run offline; production always uses the real model path. */

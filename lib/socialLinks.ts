@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import { prisma } from "./db";
 
 /**
@@ -10,9 +11,6 @@ import { prisma } from "./db";
 export type SocialLink = { platform: string; url: string };
 
 const MAX_LINKS = 12;
-
-const str = (v: unknown, max: number): string =>
-  typeof v === "string" ? v.trim().slice(0, max) : "";
 
 /** Clamp unknown input into a clean bounded list. Junk never throws. */
 export function sanitizeSocialLinks(raw: unknown): SocialLink[] {

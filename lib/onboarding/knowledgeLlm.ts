@@ -1,3 +1,4 @@
+import { str as strMax } from "@/lib/util/text";
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { Page } from "./crawl";
@@ -162,8 +163,7 @@ export async function llmExtractVision(
   }
 }
 
-const str = (v: unknown, max = 4000): string =>
-  typeof v === "string" ? v.trim().slice(0, max) : "";
+const str = (v: unknown, max = 4000): string => strMax(v, max);
 
 export function sanitizePost(
   raw: Record<string, unknown> | null,

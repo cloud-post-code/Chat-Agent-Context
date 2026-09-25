@@ -1,3 +1,4 @@
+import { str } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { getBookingConfig } from "@/lib/appointments";
 import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/lib/cards";
@@ -119,8 +120,6 @@ const MAX_LABEL = 80;
 const MAX_TEXT = 300;
 const MAX_BRIEF = 1200;
 const PLAN_MAX_TOKENS = 2000;
-
-const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "gallery") return signals.photos > 0;

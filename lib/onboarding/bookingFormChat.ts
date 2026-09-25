@@ -1,3 +1,4 @@
+import { str as strMax } from "@/lib/util/text";
 import type Anthropic from "@anthropic-ai/sdk";
 import { claude, claudeModel } from "@/lib/claude";
 import type { ModelClient, Msg } from "@/lib/brain";
@@ -332,7 +333,7 @@ function formTools(): Anthropic.Tool[] {
 
 // ── Running a tool for real ──────────────────────────────────────────────────
 
-const str = (v: unknown, max = 200): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const str = (v: unknown, max = 200): string => strMax(v, max);
 const int = (v: unknown): number | undefined =>
   typeof v === "number" && Number.isFinite(v) ? Math.round(v) : typeof v === "string" && /^-?\d+$/.test(v.trim()) ? Number(v) : undefined;
 

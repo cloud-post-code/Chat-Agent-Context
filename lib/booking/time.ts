@@ -57,7 +57,7 @@ export function zonedParts(d: Date, tz: string): ZonedParts {
   return { y, m, d: day, hh, mm, weekday, date: `${pad4(y)}-${pad2(m)}-${pad2(day)}` };
 }
 
-function pad2(n: number): string {
+export function pad2(n: number): string {
   return String(n).padStart(2, "0");
 }
 function pad4(n: number): string {

@@ -1,3 +1,7 @@
+import { priceAmountOf } from "@/lib/util/money";
+
+/** The numeric amount a price label states, or null when it states none — "$45", "$45+", "from $45" all yield 45. */
+export const priceAmountFromLabel = priceAmountOf;
 /**
  * Service and project selection: the small addressable index behind
  * show_services, show_booking, and show_projects, in the same spirit as
@@ -97,17 +101,6 @@ export function filterServices<T extends ServiceMeta>(items: T[], f: ServiceFilt
     pool = scored.map((s) => s.it);
   }
   return pool.slice(0, clampLimit(f.limit));
-}
-
-const PRICE_AMOUNT = /\$?(\d+(?:\.\d+)?)/;
-
-/** The numeric amount a price label states, or null when it states none —
- *  "$45", "$45+", "from $45" all yield 45; a range keeps its stated floor. */
-export function priceAmountFromLabel(label: string): number | null {
-  const match = label.match(PRICE_AMOUNT);
-  if (!match) return null;
-  const value = Number.parseFloat(match[1]);
-  return Number.isFinite(value) ? value : null;
 }
 
 function priceOf(s: ServiceMeta): number | null {

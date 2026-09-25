@@ -45,8 +45,8 @@ Details: `docs/TESTING.md`.
 3. Every tenant-scoped query takes `userId` explicitly; nothing reads across tenants.
 4. A feature ships with `FEATURE.md`, `PROOF.md`, `proof.ts` and a `status.json` entry.
    Pure logic also gets a Vitest test. Never mark a status green over a red proof.
-5. Reuse before adding: check `lib/` for an existing helper (price, duration, money,
-   text, image) before writing another. No new style-object sets; use
+5. Reuse before adding: `lib/util/*` holds the shared helpers (text, money, duration,
+   images, async); check there and `lib/CLAUDE.md` before writing another. No new style-object sets; use
    `app/cards/styles.ts` (cards) or `app/admin/ui.tsx` (admin).
 6. Postgres only; migrations get unique timestamps. Read config from env; bind to
    `PORT`; keep the app platform-agnostic (Railway deploys it).

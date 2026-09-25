@@ -1,3 +1,4 @@
+import { flat } from "@/lib/util/text";
 /**
  * The text format of the services catalog, stated once for its writer
  * (lib/onboarding/services.ts) and its reader (servicesBlock in lib/cards.ts).
@@ -18,8 +19,6 @@ export type ServiceItem = { name: string; description: string };
 export const SERVICES_SOURCE_TITLE = "Services";
 
 /** A line break inside a field would read as structure, so none survives. */
-const flat = (s: string) => s.replace(/\s+/g, " ").trim();
-
 export function formatServiceCatalog(services: ServiceItem[]): string {
   return services
     .map((s) => ({ name: flat(s.name), description: flat(s.description) }))
@@ -45,7 +44,7 @@ function isLegacyCatalog(paragraphs: string[][]): boolean {
 export function parseServiceCatalog(raw: string | null | undefined): ServiceItem[] {
   const paragraphs = (raw ?? "")
     .split(/\n\s*\n/)
-    .map((p) => p.split("\n").map(flat).filter(Boolean))
+    .map((p) => p.split("\n").map((l) => flat(l)).filter(Boolean))
     .filter((lines) => lines.length > 0);
   if (!paragraphs.length) return [];
 

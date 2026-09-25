@@ -10,7 +10,7 @@
  */
 
 import type { BookingSettings, DayAvailability, DayKey, LocationRow, ServiceRow, Slot, StaffRow, WeeklyHours } from "./types";
-import { addMinutes, shiftDays, ymd, zonedToUtc } from "./time";
+import { addMinutes, pad2, shiftDays, ymd, zonedToUtc } from "./time";
 
 export type Booked = { startsAt: Date; endsAt: Date; staffId: string | null; locationId: string | null; status: string };
 
@@ -27,10 +27,6 @@ export type AvailabilityInput = {
 export type CheckSlotResult =
   | { ok: true; staffId: string | null; endsAt: Date }
   | { ok: false; reason: string; full: boolean };
-
-function pad2(n: number): string {
-  return String(n).padStart(2, "0");
-}
 
 /** The day of week a "YYYY-MM-DD" calendar date names — timezone-independent, it's just the calendar. */
 function weekdayOfDate(date: string): DayKey {

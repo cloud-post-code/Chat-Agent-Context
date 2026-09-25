@@ -1,3 +1,6 @@
+import { flat } from "@/lib/util/text";
+import { parsePrice } from "@/lib/util/money";
+export { parsePrice };
 /**
  * The menu shapes and their pure rules, with no imports.
  *
@@ -97,9 +100,6 @@ const MAX_MODIFIERS = 8;
 const MAX_CHOICES = 20;
 const MAX_QUANTITY = 20;
 export const MAX_ORDER_LINES = 30;
-
-const flat = (v: unknown, max: number): string =>
-  typeof v === "string" ? v.replace(/\s+/g, " ").trim().slice(0, max) : "";
 
 const list = (v: unknown, max = MAX_LIST, each = 80): string[] => {
   if (!Array.isArray(v)) return [];
@@ -231,22 +231,6 @@ export function uniqueKeys(items: MenuItemData[]): MenuItemData[] {
     taken.add(key);
     return { ...it, key };
   });
-}
-
-/**
- * The number inside a price and whether the price is exactly that number.
- * "$24" is exact; "$40+", "from $40", "$30–45" are a floor; "market price"
- * has no amount. A leading "+" ("+$5", an add-on delta) is a plain amount.
- */
-export function parsePrice(text: string | undefined): { amount: number; exact: boolean; symbol: string } | null {
-  const t = (text ?? "").trim().replace(/^\+\s*/, "");
-  if (!t) return null;
-  if (/^free$/i.test(t)) return { amount: 0, exact: true, symbol: "" };
-  const m = t.match(/(\p{Sc})?\s*(\d[\d,]*(?:\.\d{1,2})?)/u);
-  if (!m) return null;
-  const amount = Number.parseFloat(m[2].replace(/,/g, ""));
-  if (!Number.isFinite(amount)) return null;
-  return { amount, exact: /^\p{Sc}?\s*\d[\d,]*(?:\.\d{1,2})?$/u.test(t), symbol: m[1] ?? "" };
 }
 
 export function formatMoney(amount: number, symbol: string): string {
