@@ -1,4 +1,4 @@
-import { saveBookingSettingsAction } from "../actions";
+import { saveBookingSettingsAction } from "@/app/admin/actions/booking";
 import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, panel, SectionTitle, Label } from "../ui";
 import type { BookingSettings } from "@/lib/booking/types";

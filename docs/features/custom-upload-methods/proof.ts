@@ -136,7 +136,7 @@ async function main() {
   // 6. Wiring.
   const dash = readFileSync(path.join(root, "app/admin/dashboard/page.tsx"), "utf8");
   check("dashboard passes urlAction and fileAction", dash.includes("urlAction=") && dash.includes("fileAction="));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check(
     "url/file actions wrap the lib fns",
     /ingestCustomUrlAction[\s\S]{0,300}ingestCustomUrl\(/.test(actions) &&

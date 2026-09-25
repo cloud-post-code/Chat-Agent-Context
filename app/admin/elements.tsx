@@ -7,7 +7,7 @@ import {
   type ElementMeta,
 } from "@/lib/adminElements";
 import { loadElementData } from "@/lib/adminElementsLoad";
-import { AppointmentCard, type CalendarAppointment } from "./CalendarPanel";
+import { AppointmentCard, type CalendarAppointment } from "./AppointmentsPanel";
 import { OrderRow } from "./OrdersPanel";
 import { DirectiveForm } from "./DirectivesPanel";
 import { AnswerForm, answerTabPositions } from "./AnswersPanel";

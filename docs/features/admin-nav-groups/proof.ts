@@ -172,9 +172,9 @@ async function main() {
   check("Home shows the flagged count", />2</.test(home));
 
   // ── 5. Calendar split ──
-  const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
+  const { AppointmentsPanel } = await import("../../../app/admin/AppointmentsPanel");
   const { OrdersPanel } = await import("../../../app/admin/OrdersPanel");
-  const { BookingSettings } = await import("../../../app/admin/BookingPanel");
+  const { BookingSettings } = await import("../../../app/admin/BookingSettingsPanel");
   const noop = async () => {};
   const off = renderToStaticMarkup(
     h(AppointmentsPanel, { rows: [], fieldLabels: {}, cancelAction: noop, bookingEnabled: false }),
@@ -214,12 +214,12 @@ async function main() {
   const dash = src("app/admin/dashboard/page.tsx");
   check("dashboard renders from NAV_GROUPS", dash.includes("NAV_GROUPS"));
   check("dashboard has no literal calendar entry", !dash.includes('key: "calendar"'));
-  const cal = src("app/admin/CalendarPanel.tsx");
+  const cal = src("app/admin/AppointmentsPanel.tsx");
   check("CalendarPanel no longer imports BookingSettings", !cal.includes("import { BookingSettings"));
   const brain = src("lib/adminBrain.ts");
   check("adminBrain has no literal FIXED_PANELS", !brain.includes("FIXED_PANELS"));
   check("adminBrain aliases legacy show_panel keys", brain.includes("TAB_ALIASES"));
-  const panels = src("app/admin/panels.tsx");
+  const panels = src("app/admin/panels/index.tsx");
   for (const k of ["home", "appointments", "orders", "booking"]) {
     check(`panels sets flat.${k}`, panels.includes(`flat.${k} =`));
   }

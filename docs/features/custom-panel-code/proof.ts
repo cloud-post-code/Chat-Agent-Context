@@ -111,7 +111,7 @@ async function main() {
   const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   check("edit + create forms post panelHtml",
     editPage.includes('name="panelHtml"') && newPage.includes('name="panelHtml"'));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check("create/update/built-save actions forward panelHtml",
     /createIngestionSourceAction[\s\S]{0,1200}panelHtml/.test(actions) &&
       /updateIngestionSourceAction[\s\S]{0,1200}panelHtml/.test(actions) &&

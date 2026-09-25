@@ -1,5 +1,5 @@
 import { safeTags } from "@/lib/knowledge";
-import { rescanSource, updateSourceSummary, deleteSource } from "./actions";
+import { rescanSource, updateSourceSummary, deleteSource } from "@/app/admin/actions/content";
 import { Extractor } from "./Extractor";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btnGhost, btnDanger, SectionTitle, Stamp } from "./ui";

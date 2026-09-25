@@ -1,4 +1,4 @@
-import { saveStaffAction, deleteStaffAction, moveStaffAction } from "../actions";
+import { saveStaffAction, deleteStaffAction, moveStaffAction } from "@/app/admin/actions/booking";
 import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, btnGhost, btnDanger, panel, SectionTitle, Label } from "../ui";
 import type { ServiceRow, StaffRow } from "@/lib/booking/types";

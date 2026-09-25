@@ -3,14 +3,7 @@
 import { useState } from "react";
 import { ENTITY_TYPES_LIST } from "@/lib/retrieval/entityTypes";
 import type { GraphEntity, GraphEdge, MergeSuggestion } from "@/lib/retrieval/graph";
-import {
-  saveEntity,
-  removeEntity,
-  createEntityEdge,
-  removeEntityEdge,
-  mergeSuggestedEntities,
-  dismissSuggestedMerge,
-} from "./actions";
+import { saveEntity, removeEntity, createEntityEdge, removeEntityEdge, mergeSuggestedEntities, dismissSuggestedMerge } from "@/app/admin/actions/graph";
 import { PendingButton } from "./PendingButton";
 import { field, btn, btnGhost, btnDanger, Label } from "./ui";
 

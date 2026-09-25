@@ -5,12 +5,7 @@ import { currentUser } from "@/lib/auth";
 import { isEditAuthed } from "@/lib/ingestionAuth";
 import { getIngestionSource, UPLOAD_METHODS, STORAGE_KINDS } from "@/lib/ingestionSources";
 import { listIngestedItems } from "@/lib/ingestedItems";
-import {
-  unlockIngestionEditAction,
-  updateIngestionSourceAction,
-  deleteIngestionSourceAction,
-  setIngestionSourceHiddenAction,
-} from "../../actions";
+import { unlockIngestionEditAction, updateIngestionSourceAction, deleteIngestionSourceAction, setIngestionSourceHiddenAction } from "@/app/admin/actions/ingestion";
 import { SourceBuilder } from "../../SourceBuilder";
 import { PendingButton } from "../../PendingButton";
 import { ClassificationSelect } from "../../ClassificationSelect";

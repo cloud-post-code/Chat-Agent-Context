@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import type { RetrievalPreview } from "@/lib/retrieval/graph";
-import { previewRetrieval } from "./actions";
+import { previewRetrieval } from "@/app/admin/actions/graph";
 import { field, btn, Label } from "./ui";
 
 /**

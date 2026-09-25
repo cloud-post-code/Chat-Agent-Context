@@ -86,8 +86,8 @@ async function main() {
   // 5. The panel set mounts the builder as a Knowledge sub-tab (the
   //    dashboard lays out what panels.tsx builds, in NAV_GROUPS order).
   const dash = readFileSync(path.join(root, "app/admin/dashboard/page.tsx"), "utf8");
-  const panels = readFileSync(path.join(root, "app/admin/panels.tsx"), "utf8");
-  const nav = readFileSync(path.join(root, "app/admin/contentTabs.ts"), "utf8");
+  const panels = readFileSync(path.join(root, "app/admin/panels/index.tsx"), "utf8");
+  const nav = readFileSync(path.join(root, "lib/admin/contentTabs.ts"), "utf8");
   check("panel set renders NewSourcePanel", panels.includes("NewSourcePanel"));
   check("panel set keys the tab by NEW_SOURCE_TAB_KEY", panels.includes("[NEW_SOURCE_TAB_KEY]"));
   check("nav config labels the tab", nav.includes('label: "+ New source"'));
@@ -103,7 +103,7 @@ async function main() {
     "/admin/sources/new redirects to the sub-tab",
     newPage.includes("redirect") && newPage.includes("tab=new-source"),
   );
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check(
     "create action error redirect lands on the sub-tab",
     /createIngestionSourceAction[\s\S]{0,1500}tab=new-source/.test(actions),

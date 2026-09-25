@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { tenantBySlug } from "@/lib/tenant";
 import { createOrder } from "@/lib/orders";
 
 export const runtime = "nodejs";
@@ -16,7 +16,7 @@ export async function POST(req: Request) {
     return Response.json({ ok: false, error: "Bad request." }, { status: 400 });
   }
   const slug = typeof body.slug === "string" ? body.slug.trim() : "";
-  const user = slug ? await prisma.user.findUnique({ where: { slug } }) : null;
+  const user = await tenantBySlug(slug);
   if (!user) return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
 
   const result = await createOrder(user.id, {

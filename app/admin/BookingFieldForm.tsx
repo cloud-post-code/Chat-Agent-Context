@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { saveAppointmentFieldAction } from "./actions";
+import { saveAppointmentFieldAction } from "@/app/admin/actions/booking";
 import { PendingButton } from "./PendingButton";
 import { field as fieldStyle, btn, Label } from "./ui";
 import {

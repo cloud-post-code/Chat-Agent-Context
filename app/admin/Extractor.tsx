@@ -1,4 +1,4 @@
-import { addSource } from "./actions";
+import { addSource } from "@/app/admin/actions/content";
 import { PendingButton } from "./PendingButton";
 import { field, btn } from "./ui";
 

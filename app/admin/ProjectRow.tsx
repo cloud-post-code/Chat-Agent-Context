@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { updateProject, deleteProject } from "./actions";
+import { updateProject, deleteProject } from "@/app/admin/actions/content";
 import { PendingButton } from "./PendingButton";
 import { field, btn, btnGhost, btnDanger, Label } from "./ui";
 

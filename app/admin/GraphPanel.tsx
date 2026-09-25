@@ -4,7 +4,7 @@ import { GraphCanvas } from "./GraphCanvas";
 import { Count, EntitiesPane, RelationsPane } from "./GraphView";
 import { RetrievalPlayground } from "./RetrievalPlayground";
 import { SubTabs } from "./SubTabs";
-import { backfillEmbeddings, rebuildOverviews } from "./actions";
+import { backfillEmbeddings, rebuildOverviews } from "@/app/admin/actions/graph";
 import { PendingButton } from "./PendingButton";
 import { SectionTitle, Label, btnGhost } from "./ui";
 

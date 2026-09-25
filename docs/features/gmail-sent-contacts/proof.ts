@@ -433,7 +433,7 @@ async function main() {
     const read = (p: string) => readFileSync(path.join(root, p), "utf8");
     const connect = read("app/api/admin/gmail/connect/route.ts");
     const callback = read("app/api/admin/gmail/callback/route.ts");
-    const actions = read("app/admin/actions.ts");
+    const actions = read("app/admin/actions/addressbook.ts");
     check("connect route checks isAuthed", connect.includes("isAuthed()"));
     check("callback route checks isAuthed", callback.includes("isAuthed()"));
     // The property that matters is that a callback we did not issue is turned

@@ -109,7 +109,7 @@ async function main() {
   // 5. Wiring.
   const dash = readFileSync(path.join(root, "app/admin/dashboard/page.tsx"), "utf8");
   check("dashboard passes deleteItemAction", dash.includes("deleteItemAction="));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check("action wraps deleteIngestedItem behind admin auth",
     /deleteIngestedItemAction[\s\S]{0,300}requireAuth[\s\S]{0,300}deleteIngestedItem\(/.test(actions));
   const lib = readFileSync(path.join(root, "lib/customIngest.ts"), "utf8");

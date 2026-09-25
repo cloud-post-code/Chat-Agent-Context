@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
-import { logout } from "../actions";
+import { logout } from "@/app/admin/actions/auth";
 import { OnboardingFlow } from "./OnboardingFlow";
 
 export const dynamic = "force-dynamic";
