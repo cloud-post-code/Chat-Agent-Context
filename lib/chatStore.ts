@@ -28,7 +28,7 @@ export type StoredMsg = {
 
 /** A message as it is saved: the transient `typed` flag never survives a reload. */
 export function stripTransient(m: StoredMsg): StoredMsg {
-  if (!m.typed) return m;
+  if (!("typed" in m)) return m;
   const { typed, ...rest } = m;
   void typed;
   return rest;

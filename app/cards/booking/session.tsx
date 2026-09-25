@@ -189,12 +189,17 @@ export class BookingSessions {
   }
 
   /** The newest session still in progress, among those this chat has touched. */
+  /**
+   * The booking under way in this chat: the first live session that has
+   * asked a step. A store merely instantiated for a block that is about to
+   * check for one (its own) is not "under way" yet.
+   */
   live(): BookingSessionStore | null {
-    let found: BookingSessionStore | null = null;
     for (const store of this.stores.values()) {
-      if (store.get().status === "live") found = store;
+      const s = store.get();
+      if (s.status === "live" && s.asked.length > 0) return store;
     }
-    return found;
+    return null;
   }
 }
 

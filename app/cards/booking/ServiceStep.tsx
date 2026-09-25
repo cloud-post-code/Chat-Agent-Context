@@ -91,6 +91,7 @@ export function ServiceStep({
       <div style={tileGrid}>
         {filtered.map((s) => (
           <ServiceTile
+            disabled={locked}
             key={s.id}
             service={s}
             currency={flow.business.currency}
@@ -109,17 +110,19 @@ function ServiceTile({
   currency,
   selected,
   onClick,
+  disabled = false,
 }: {
   service: ServiceRow;
   currency: string;
   selected: boolean;
   onClick: () => void;
+  disabled?: boolean;
 }) {
   const pricing = effectivePricing(service, null);
   const modesToShow = service.modes.filter((m) => m !== "in_person");
   const letter = (service.name[0] || "?").toUpperCase();
   return (
-    <Tile selected={selected} onClick={onClick} ariaLabel={service.name} role="button">
+    <Tile selected={selected} onClick={onClick} ariaLabel={service.name} role="button" disabled={disabled}>
       <div
         style={{
           aspectRatio: "4 / 3",

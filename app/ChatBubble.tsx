@@ -42,6 +42,10 @@ export function Bubble({
   const types = !!typed && !isUser && content !== "";
   const [typingDone, setTypingDone] = useState(!types);
   const showCards = hasCards && (!types || typingDone);
+  // A booking step's line introduces its card, so it leads — typed live or
+  // restored from storage alike; every other card still leads its words.
+  const textLeads =
+    !isUser && content !== "" && !!cards?.some((c) => c.type === "booking_step" || c.type === "booking_confirmed");
 
   const onSettledRef = useRef(onSettled);
   onSettledRef.current = onSettled;
@@ -57,11 +61,11 @@ export function Bubble({
     </div>
   ) : null;
 
-  if (types) {
+  if (types || textLeads) {
     return (
       <div data-message-id={id} style={{ ...styles.row, flexDirection: "column", alignItems: "flex-start", gap: 8 }}>
-        <div data-fill="surface" style={styles.botBubble}>
-          <Typewriter text={content} onDone={() => setTypingDone(true)} />
+        <div data-fill="surface" data-who="assistant" style={styles.botBubble}>
+          {types ? <Typewriter text={content} onDone={() => setTypingDone(true)} /> : <Markdown text={content} />}
         </div>
         {showCards && cardList}
       </div>
@@ -73,7 +77,7 @@ export function Bubble({
       {/* A2UI cards always lead; the agent's words follow. */}
       {hasCards && <div style={{ width: "100%", marginBottom: content ? 8 : 0 }}>{cardList}</div>}
       {(content || !hasCards) && (
-        <div data-fill="surface" style={isUser ? styles.userBubble : styles.botBubble}>
+        <div data-fill="surface" data-who={isUser ? "user" : "assistant"} style={isUser ? styles.userBubble : styles.botBubble}>
           {content ? (
             isUser ? (
               <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>

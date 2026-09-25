@@ -105,7 +105,8 @@ export function BookingStepCard({ block, slug }: { block: StepBlock; slug: strin
     case "screen":
       body = (
         <ScreenStep
-          step={step}
+          // The screen's own title is the assistant's line above this card.
+          step={{ ...step, title: "" }}
           answers={sel.answers as Answers}
           setAnswer={(key: string, value: Answer) =>
             store.update((st) => ({ ...st, selection: { ...st.selection, answers: { ...st.selection.answers, [key]: value } } }))
@@ -136,7 +137,8 @@ export function BookingStepCard({ block, slug }: { block: StepBlock; slug: strin
           selection={sel}
           setSelection={setSelection}
           fields={fields}
-          title={step.title}
+          // The review's title (the business's own, or the default) is the line above this card.
+          title=""
           slug={slug}
           onEdit={(target) => {
             if (thread) focusStep(thread, store, target);

@@ -180,8 +180,11 @@ export function reviewReady(
   sel: BookingSelection,
   answered: ReadonlyArray<StepId>,
 ): { ok: true } | { ok: false; missing: StepId[] } {
+  // Options never hold an answer the server needs, but once the card is on
+  // the page the visitor must pass it (Next) before confirming — a service
+  // switched after review may have put it below the Confirm button.
   const missing = steps
-    .filter((s) => s.kind !== "review" && s.kind !== "options")
+    .filter((s) => s.kind !== "review")
     .filter((s) => !answered.includes(stepId(s)) || !stepValid(flow, fields, s, sel))
     .map(stepId);
   return missing.length ? { ok: false, missing } : { ok: true };
