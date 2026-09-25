@@ -17,6 +17,9 @@ import { MenuCard, type MenuBlockView } from "./MenuCard";
 import { CartCard } from "./CartCard";
 import type { CartCheckout } from "@/lib/menu";
 import { SocialCard } from "./SocialCard";
+import { HtmlFrame } from "./HtmlFrame";
+import type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "@/lib/cards.types";
+export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem };
 import { card, cf, linkBtn, liveBtn, textBtn, clamp2 } from "./styles";
 
 export type { BookingField } from "./BookingQuestion";
@@ -24,44 +27,7 @@ export type { BookingField } from "./BookingQuestion";
 export { card, cf } from "./styles";
 
 /** Shared A2UI block types (mirrors lib/cards.ts). */
-export type ProjectCard = {
-  id: string;
-  name: string;
-  blurb: string;
-  detail: string | null;
-  githubUrl: string | null;
-  liveUrl: string | null;
-  imageUrl: string | null;
-  tags: string[];
-};
-export type PhotoCard = {
-  id: string;
-  src: string;
-  description: string;
-  caption: string | null;
-  tags?: string[];
-};
-export type CustomElement =
-  | { kind: "heading"; text: string }
-  | { kind: "text"; text: string }
-  | { kind: "list"; items: string[] }
-  | { kind: "badges"; items: string[] }
-  | { kind: "stats"; items: { label: string; value: string }[] }
-  | { kind: "buttons"; items: { label: string; url: string }[] }
-  | { kind: "image"; src: string; alt?: string }
-  | { kind: "quote"; text: string; by?: string }
-  | { kind: "divider" };
-export type ServiceCard = {
-  id: string;
-  name: string;
-  description: string;
-  imageUrl?: string | null;
-  priceLabel?: string;
-  duration?: string;
-  category?: string;
-};
 export type ServiceBooking = { fields: BookingField[]; flow?: BookingFlow | null };
-export type SocialItem = { platform: string; url: string };
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
@@ -190,62 +156,8 @@ function TitleHeading({ title }: { title: string }) {
  * would go off-palette the moment the admin changes the theme.
  */
 function HtmlCard({ html, height }: { html: string; height?: number }) {
-  const [themeCss, setThemeCss] = useState("");
-  useEffect(() => {
-    // The COMPLETE live token set, so coded cards see the same design system
-    // the rest of the site computes — including per-theme readable-on variants.
-    const root = getComputedStyle(document.documentElement);
-    const names = [
-      "--bg", "--bg-soft", "--surface", "--border", "--text",
-      "--primary", "--accent", "--on-primary", "--on-accent",
-      "--on-surface", "--on-bg-soft",
-      "--accent-on-bg", "--accent-on-bg-soft", "--accent-on-surface",
-      "--danger-on-bg-soft", "--danger-on-surface",
-      "--success-on-bg-soft", "--success-on-surface",
-      "--font-heading", "--heading-weight",
-      "--radius-sm", "--radius-md", "--radius-lg", "--radius-pill",
-    ];
-    const vars = names.map((n) => `${n}:${root.getPropertyValue(n)};`).join("");
-    const font = getComputedStyle(document.body).fontFamily;
-    // Base element styles mirroring the site's card idiom, so even markup the
-    // model leaves unstyled lands on-theme: body text 14/1.55 in the body
-    // font, headings in the heading font at the site's card sizes, links in
-    // the accent that is readable on this exact background.
-    setThemeCss(
-      `:root{${vars}}` +
-        `body{margin:0;background:transparent;color:var(--on-bg-soft);font-family:${font};font-size:14px;line-height:1.55;}` +
-        `h1,h2,h3,h4{font-family:var(--font-heading),${font};font-weight:var(--heading-weight,700);margin:0 0 8px;}` +
-        `h1{font-size:17px}h2{font-size:15px}h3,h4{font-size:14px}` +
-        `a{color:var(--accent-on-bg-soft);}`,
-    );
-  }, []);
-
-  const doc =
-    `<!doctype html><html><head>` +
-    // img-src also allows this origin, so a coded card can show a real photo
-    // from the owner's library or one the builder generated — both are served
-    // from /api/uploads on our own host. Everything else stays denied, so the
-    // card still cannot phone out to a third party.
-    `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data: 'self';">` +
-    `<style>${themeCss}</style></head><body>${html}</body></html>`;
   const h = typeof height === "number" && height >= 40 && height <= 1200 ? height : 300;
-
-  return (
-    <iframe
-      sandbox="allow-popups allow-popups-to-escape-sandbox"
-      srcDoc={doc}
-      title="Custom card"
-      style={{
-        width: "100%",
-        maxWidth: 480,
-        height: h,
-        border: "1px solid var(--border)",
-        borderRadius: "var(--radius-md)",
-        background: "var(--bg-soft)",
-        display: "block",
-      }}
-    />
-  );
+  return <HtmlFrame html={html} height={h} title="Custom card" tone="bg-soft" style={{ maxWidth: 480, background: "var(--bg-soft)" }} />;
 }
 
 /**

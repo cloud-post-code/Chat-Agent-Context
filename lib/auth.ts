@@ -127,3 +127,33 @@ export async function currentUser(): Promise<User | null> {
 export async function isAuthed(): Promise<boolean> {
   return (await currentUser()) !== null;
 }
+
+// ── Login ──
+
+/** Reserved and never routable — the "no email" placeholder domain. */
+export const USERNAME_DOMAIN = "bulk.invalid";
+
+/** The email a login identifier maps to: as-is if it already has an "@",
+ *  else stitched onto the reserved bulk-account domain. */
+export function loginEmailFor(identifier: string): string {
+  const id = identifier.trim().toLowerCase();
+  return id.includes("@") ? id : `${id}@${USERNAME_DOMAIN}`;
+}
+
+// A real scrypt hash of a random throwaway value; never matches anything.
+// Verifying against it when the identifier is unknown keeps login's response
+// time from revealing which usernames/emails have accounts.
+const DUMMY_HASH =
+  "scrypt:16384:8:1:6c6f67696e2d74696d696e672d70616464696e67:" +
+  "0000000000000000000000000000000000000000000000000000000000000000" +
+  "0000000000000000000000000000000000000000000000000000000000000000";
+
+/** Login credential check: identifier is an email or a bulk-account username. */
+export async function authenticate(identifier: string, password: string): Promise<User | null> {
+  const email = loginEmailFor(identifier);
+  const user = email ? await prisma.user.findUnique({ where: { email } }) : null;
+  const ok = user
+    ? verifyPassword(password, user.passwordHash)
+    : (verifyPassword(password, DUMMY_HASH), false);
+  return ok && user && accountActive(user) ? user : null;
+}

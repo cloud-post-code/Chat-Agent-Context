@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { readNdjson } from "@/lib/client/ndjson";
 import { useRouter } from "next/navigation";
 import type { SiteCardsEvent, SiteCardsReport } from "@/lib/siteCards";
 import { btnGhost } from "./ui";
@@ -36,27 +37,8 @@ function toLine(e: WireEvent): Line {
   return { kind: "status", text: e.v };
 }
 
-/** Read an NDJSON body line by line; a chunk can split a line, so hold the partial. */
-async function readEvents(body: ReadableStream<Uint8Array>, onEvent: (e: WireEvent) => void) {
-  const reader = body.getReader();
-  const decoder = new TextDecoder();
-  let buf = "";
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    buf += decoder.decode(value, { stream: true });
-    const lines = buf.split("\n");
-    buf = lines.pop() ?? "";
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      try {
-        onEvent(JSON.parse(line) as WireEvent);
-      } catch {
-        /* a malformed line is skipped, not fatal */
-      }
-    }
-  }
-}
+const readEvents = (body: ReadableStream<Uint8Array>, onEvent: (e: WireEvent) => void) =>
+  readNdjson<WireEvent>(body, onEvent);
 
 export function useSiteCardsRun() {
   const router = useRouter();

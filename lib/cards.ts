@@ -1,3 +1,4 @@
+import type { ProjectCard, PhotoCard, ServiceCard, CustomElement } from "./cards.types";
 import { str } from "@/lib/util/text";
 import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
@@ -57,37 +58,6 @@ export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
  * list.
  */
 
-export type ProjectCard = {
-  id: string;
-  name: string;
-  blurb: string;
-  detail: string | null;
-  githubUrl: string | null;
-  liveUrl: string | null;
-  imageUrl: string | null;
-  tags: string[];
-};
-
-export type PhotoCard = {
-  id: string;
-  src: string;
-  description: string;
-  caption: string | null;
-  tags?: string[];
-};
-
-export type ServiceCard = {
-  id: string;
-  name: string;
-  description: string;
-  /** Present when the service comes from the live booking flow (a Service
-   *  row) rather than the plain knowledge catalog. */
-  imageUrl?: string | null;
-  priceLabel?: string;
-  duration?: string;
-  category?: string;
-};
-
 /**
  * What a services card needs to book from: the form's fields, and the full
  * booking flow (services, staff, locations, rules) the card books through
@@ -95,21 +65,7 @@ export type ServiceCard = {
  */
 export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow | null };
 
-/**
- * One element of a custom-designed card. A closed vocabulary rather than
- * markup: the card builder's model output becomes visitor-facing UI, and a
- * fixed set of typed elements is what keeps that safe and on-theme.
- */
-export type CustomElement =
-  | { kind: "heading"; text: string }
-  | { kind: "text"; text: string }
-  | { kind: "list"; items: string[] }
-  | { kind: "badges"; items: string[] }
-  | { kind: "stats"; items: { label: string; value: string }[] }
-  | { kind: "buttons"; items: { label: string; url: string }[] }
-  | { kind: "image"; src: string; alt?: string }
-  | { kind: "quote"; text: string; by?: string }
-  | { kind: "divider" };
+export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "./cards.types";
 
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }

@@ -3,7 +3,8 @@
  *
  *   PROOF_BASE_URL=http://localhost:3120 npm run smoke
  *
- * signup → guided onboarding skipped (manual) → dashboard and admin chat
+ * signup → login (right and wrong password) → guided onboarding skipped
+ * (manual) → dashboard and admin chat
  * render → the public agent page, llms.txt and the A2A agent card serve →
  * /api/a2a refuses an anonymous caller → /api/chat streams NDJSON for the
  * new tenant → /api/booking answers → the account is wiped and deleted, and
@@ -77,6 +78,17 @@ async function main() {
   check("signup seeds starter ingestion sources, none builtin", sources.length > 0 && sources.every((s) => !s.builtin), `${sources.length} rows`);
   const skip = await fetch(`${BASE}/api/admin/onboarding/complete`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: jar.header() }, body: JSON.stringify({ mode: "manual" }) });
   check("guided onboarding can be skipped (manual mode)", skip.ok, `status ${skip.status}`);
+
+  // ── login (the same credentials, through the real form action) ──
+  const fresh = new Jar();
+  const { text: loginHtml } = await get(fresh, "/admin");
+  const loginAction = actionOf(loginHtml, /name="email"/);
+  if (!loginAction) throw new Error("login form not found");
+  const loginRes = await postForm(fresh, "/admin", { [loginAction]: "", email: EMAIL, password: PASSWORD });
+  check("login redirects and sets a session", loginRes.status === 303 && fresh.cookies.has("agent_session"), `status ${loginRes.status}`);
+  const badLogin = new Jar();
+  const badRes = await postForm(badLogin, "/admin", { [loginAction]: "", email: EMAIL, password: "wrong-" + PASSWORD });
+  check("a wrong password is refused", badRes.status === 303 && !badLogin.cookies.has("agent_session") && (badRes.headers.get("location") ?? "").includes("error"), `status ${badRes.status} → ${badRes.headers.get("location")}`);
 
   // ── admin ──
   const dash = await get(jar, "/admin/dashboard");
