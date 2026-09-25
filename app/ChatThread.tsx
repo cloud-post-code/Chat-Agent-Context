@@ -52,12 +52,16 @@ export function LocalChatThreadProvider({
   chatId = "local",
   initial = [],
   onChange,
+  onScrollToEnd,
   children,
 }: {
   slug: string;
   chatId?: string;
   initial?: StoredMsg[];
   onChange?: (msgs: StoredMsg[]) => void;
+  /** How this thread scrolls itself into view; a caller with no scroll
+   *  container of its own (server render) can leave this out. */
+  onScrollToEnd?: () => void;
   children: (msgs: StoredMsg[]) => ReactNode;
 }) {
   const [msgs, setMsgs] = useState<StoredMsg[]>(initial);
@@ -65,6 +69,8 @@ export function LocalChatThreadProvider({
   latest.current = msgs;
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const onScrollToEndRef = useRef(onScrollToEnd);
+  onScrollToEndRef.current = onScrollToEnd;
 
   const update = useCallback((fn: (m: StoredMsg[]) => StoredMsg[]) => {
     setMsgs((m) => {
@@ -84,7 +90,7 @@ export function LocalChatThreadProvider({
       removeMessages: (pred) => update((m) => m.filter((x) => !pred(x))),
       has: (id) => latest.current.some((x) => x.id === id),
       snapshot: () => latest.current,
-      scrollToEnd: () => {},
+      scrollToEnd: () => onScrollToEndRef.current?.(),
     }),
     [chatId, slug, update],
   );

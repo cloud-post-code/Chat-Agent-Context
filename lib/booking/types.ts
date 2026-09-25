@@ -849,9 +849,13 @@ export function sanitizeFlow(raw: unknown, fields: ReadonlyArray<{ screen: numbe
     seenKinds.add(step.kind);
     out.push(step);
   }
-  for (const kind of ["service", "provider", "location", "time"] as const) {
-    if (!seenKinds.has(kind)) out.push({ kind });
-  }
+  // Only `time` is forced in when the business's own order left it out — a
+  // booking needs a moment to book, however the site itself asks for one.
+  // `service`/`provider`/`location` are never invented: a real order that
+  // never asked the visitor to pick a service, a person or a place is
+  // exactly what it looks like — those steps just aren't part of this
+  // business's flow, whatever else exists in the tenant's catalogs.
+  if (!seenKinds.has("time")) out.push({ kind: "time" });
   for (const screen of screens) {
     if (!seenScreens.has(screen)) out.push({ kind: "questions", screen });
   }

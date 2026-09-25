@@ -65,6 +65,29 @@ export async function writeFormSpec(
     return out;
   }
 
+  // The flow, in the form's own order, saved BEFORE the fields it describes.
+  // A form whose questions arrived but whose order didn't would read back
+  // through the generic default order (service first, whatever the site
+  // actually showed) — a card that invents a step the real site never had is
+  // worse than a form left untouched, so a step-order failure stops here.
+  const flow: FlowStep[] = spec.steps.map((s) => {
+    const step: FlowStep = { kind: s.kind };
+    if (s.title) step.title = s.title;
+    if (s.kind === "questions" && s.screen !== undefined) step.screen = s.screen;
+    return step;
+  });
+  try {
+    const patch: Partial<BookingSettings> = { flow };
+    // The staff rule only while the tenant has no providers of their own
+    // (a hand-written roster means a hand-set rule).
+    if ((await listStaff(userId)).length === 0) patch.staffSelection = staffSelectionFor(spec);
+    await saveBookingSettings(userId, patch);
+    out.steps = flow.length;
+  } catch (err) {
+    log(`Booking form: couldn't save the step order — ${errMsg(err)}`);
+    return out;
+  }
+
   // The fields, in one transaction: the old generated rows go, the copied
   // ones come, or neither.
   const keys = specKeys(spec.fields.map((f) => f.label));
@@ -103,24 +126,10 @@ export async function writeFormSpec(
     out.fields = rows.length;
   } catch (err) {
     log(`Booking form: couldn't write the copied questions — ${errMsg(err)}`);
+    // The order is saved but nothing asks it anything yet; the tenant's
+    // catalog is untouched (deleteMany never ran), so the next onboarding
+    // pass sees an empty, still-untouched form and can retry cleanly.
     return out;
-  }
-
-  // The flow, in the form's own order; the staff rule only while the tenant
-  // has no providers of their own (a hand-written roster means a hand-set rule).
-  try {
-    const flow: FlowStep[] = spec.steps.map((s) => {
-      const step: FlowStep = { kind: s.kind };
-      if (s.title) step.title = s.title;
-      if (s.kind === "questions" && s.screen !== undefined) step.screen = s.screen;
-      return step;
-    });
-    const patch: Partial<BookingSettings> = { flow };
-    if ((await listStaff(userId)).length === 0) patch.staffSelection = staffSelectionFor(spec);
-    await saveBookingSettings(userId, patch);
-    out.steps = flow.length;
-  } catch (err) {
-    log(`Booking form: couldn't save the step order — ${errMsg(err)}`);
   }
 
   // The people the provider screen listed, only when the tenant has none.

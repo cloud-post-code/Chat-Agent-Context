@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bubble as ChatBubble } from "@/app/ChatBubble";
 import { LocalChatThreadProvider, useChatThread } from "@/app/ChatThread";
 import type { StoredMsg } from "@/lib/chatStore";
@@ -27,6 +27,11 @@ export function BookingUnavailable() {
  * same controller; only the thread is local. A block with no flow (an old
  * stored sample) fetches one first; until it arrives nothing is drawn, and
  * when none comes back one line says booking is unavailable.
+ *
+ * Unlike the visitor chat, nothing above this component owns a scrollable
+ * page, so this thread scrolls itself: an anchor sits after the last message
+ * and is brought into view whenever a card settles (types in, or mounts with
+ * no intro) or a new message is appended.
  */
 export function BookingThread({
   slug,
@@ -43,6 +48,10 @@ export function BookingThread({
 }) {
   const [remote, setRemote] = useState<{ flow: BookingFlow; fields: BookingField[] } | null>(flow ? { flow, fields } : null);
   const [failed, setFailed] = useState(false);
+  const endRef = useRef<HTMLDivElement | null>(null);
+  const scrollToEnd = useCallback(() => {
+    endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, []);
 
   useEffect(() => {
     if (flow) return;
@@ -63,7 +72,7 @@ export function BookingThread({
   if (!remote) return failed ? <BookingUnavailable /> : null;
 
   return (
-    <LocalChatThreadProvider slug={slug} initial={[]}>
+    <LocalChatThreadProvider slug={slug} initial={[]} onScrollToEnd={scrollToEnd}>
       {(msgs) => (
         <BookingSessionsProvider slug={slug} preview={preview}>
           <ThreadColumn
@@ -73,6 +82,8 @@ export function BookingThread({
             fields={remote.fields}
             preselectServiceId={preselectServiceId ?? remote.flow.preselect.serviceId}
             preview={preview}
+            endRef={endRef}
+            onSettled={scrollToEnd}
           />
         </BookingSessionsProvider>
       )}
@@ -87,6 +98,8 @@ function ThreadColumn({
   fields,
   preselectServiceId,
   preview,
+  endRef,
+  onSettled,
 }: {
   slug: string;
   msgs: StoredMsg[];
@@ -94,6 +107,8 @@ function ThreadColumn({
   fields: BookingField[];
   preselectServiceId: string | null;
   preview: boolean;
+  endRef: React.RefObject<HTMLDivElement | null>;
+  onSettled: () => void;
 }) {
   const thread = useChatThread();
   const { sessions } = useBookingSessions();
@@ -106,6 +121,13 @@ function ThreadColumn({
     // Once, on mount: the thread then carries the session.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // A message appended without a typed intro (e.g. the very first, or one
+  // restored from storage) never fires ChatBubble's onSettled, so the list
+  // itself is a second, redundant trigger — belt and braces, cheap either way.
+  useEffect(() => {
+    onSettled();
+  }, [msgs, onSettled]);
 
   // The other way to book stays in view until a service card carries it.
   const phone = flow.business.phone;
@@ -123,8 +145,19 @@ function ThreadColumn({
         </p>
       )}
       {msgs.map((m, i) => (
-        <ChatBubble key={m.id ?? i} id={m.id} role={m.role} content={m.content} cards={m.cards} loading={false} slug={slug} typed={m.typed} />
+        <ChatBubble
+          key={m.id ?? i}
+          id={m.id}
+          role={m.role}
+          content={m.content}
+          cards={m.cards}
+          loading={false}
+          slug={slug}
+          typed={m.typed}
+          onSettled={onSettled}
+        />
       ))}
+      <div ref={endRef} />
     </div>
   );
 }
