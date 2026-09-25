@@ -521,11 +521,20 @@ async function runTheme(job: Job): Promise<void> {
 /**
  * The services-and-booking read (lib/onboarding/services.ts) as its own stage:
  * the services pages and the business's real booking page, the services saved
- * to knowledge and the booking catalog, and the intake form built. Fail-soft,
- * unlike the other stages: the chat's next step shows whatever form is on
- * file and lets the owner shape it, so a read that fails costs a pre-filled
- * form, not the onboarding.
+ * to knowledge and the booking catalog, and the site's own booking form copied
+ * into the tenant's. Fail-soft, unlike the other stages: the chat's next step
+ * shows whatever form is on file and lets the owner shape it, so a read that
+ * fails costs a pre-filled form, not the onboarding.
  */
+/** What the booking-form read did, in one line for the log. */
+function formCopiedLine(r: ServicesReport): string {
+  if (!r.formFound) return "No booking form found on your site — you'll build one in the next step";
+  if (!r.seededFields) return "Found your booking form — your existing booking questions were left as they are";
+  const k = r.seededFields;
+  const m = Math.max(1, r.formScreens);
+  return `Copied your booking form: ${k} question${k === 1 ? "" : "s"} on ${m} screen${m === 1 ? "" : "s"}`;
+}
+
 async function runBooking(job: Job): Promise<void> {
   const onEvent = (m: string) => log(job, m);
   job.progress = 10;
@@ -534,14 +543,12 @@ async function runBooking(job: Job): Promise<void> {
     const svcPages = await discoverServicePages(job.crawler!, job.home!, job.extras ?? []);
     job.servicePages = svcPages;
     job.progress = 50;
-    const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent);
+    const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent, { crawler: job.crawler });
     job.stepBooking = { report: svc.report, chunks: svc.chunks };
     log(job, svc.report.services
       ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
       : "No services described on this site");
-    log(job, svc.report.seededFields
-      ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}`
-      : "Booking is on — your existing booking questions were left as they are");
+    log(job, formCopiedLine(svc.report));
     if (svc.report.seededServices) {
       log(job, `Booking: added ${svc.report.seededServices} service${svc.report.seededServices === 1 ? "" : "s"}${svc.report.imagedServices ? `, ${svc.report.imagedServices} with photos` : ""}`);
     }
@@ -641,15 +648,13 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       const svcPages = await discoverServicePages(crawler, home, job.extras ?? []);
       svcPages.forEach((p) => covered.add(p.url));
       goalPages = svcPages;
-      const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent);
+      const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent, { crawler });
       report.services = svc.report;
       chunks += svc.chunks;
       log(job, svc.report.services
         ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
         : "No services described on this site");
-      log(job, svc.report.seededFields
-        ? `Booking is on — built your form with ${svc.report.seededFields} question${svc.report.seededFields === 1 ? "" : "s"}, editable under Booking › Questions`
-        : "Booking is on — your existing booking questions were left as they are");
+      log(job, formCopiedLine(svc.report));
       if (svc.report.seededServices) {
         log(job, `Booking: added ${svc.report.seededServices} service${svc.report.seededServices === 1 ? "" : "s"}${svc.report.imagedServices ? `, ${svc.report.imagedServices} with photos` : ""}`);
       }

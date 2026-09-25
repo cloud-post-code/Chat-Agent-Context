@@ -1,5 +1,5 @@
 import { prisma } from "./db";
-import { durationFromText, priceFromText } from "./bookingMenu";
+import { durationFromText, priceFromText } from "./serviceCatalog";
 import { listServices, type BookingField } from "./cards";
 import {
   filterMenu,
@@ -19,8 +19,8 @@ import {
  * cards live in app/cards/MenuCard.tsx and CartCard.tsx.
  *
  * A tenant with no rows still has a menu: the services catalog on file is
- * read as items (price and duration out of the prose, as the booking picker
- * does), so every business with services gets the card without re-onboarding.
+ * read as items (price and duration out of the prose, lib/serviceCatalog.ts's
+ * readers), so every business with services gets the card without re-onboarding.
  */
 
 /** Replace the whole menu; the site's order is kept. Returns how many were written. */

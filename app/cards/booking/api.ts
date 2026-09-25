@@ -100,15 +100,6 @@ export function createBooking(slug: string, selection: BookingSelection) {
   });
 }
 
-/** POST /api/booking with the legacy { slug, startsAt, answers } body — the pre-flow wizard. */
-export function createLegacyBooking(slug: string, startsAt: string, answers: Record<string, unknown>) {
-  return call<{ id?: string }>("/api/booking", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ slug, startsAt, answers }),
-  });
-}
-
 /** POST /api/booking/upload (multipart) — images and PDF, ≤ 8 MB. */
 export async function uploadBookingFile(slug: string, file: File): Promise<ApiResult<{ path: string }>> {
   try {

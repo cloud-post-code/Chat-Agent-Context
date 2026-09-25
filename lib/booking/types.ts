@@ -13,6 +13,8 @@
  * inside WeeklyHours, always in the business's own timezone.
  */
 
+import type { CustomerContact } from "../appointmentTypes";
+
 // ── Pricing ────────────────────────────────────────────────────────────────
 
 export const PRICING_KINDS = [
@@ -176,59 +178,14 @@ export type LocationRow = {
 };
 
 // ── Customer information ───────────────────────────────────────────────────
-//
-// LEGACY. The locked "Your details" step (a fixed key set, five always asked,
-// first name and email always required) is being replaced by ordinary form
-// fields with a `role` (lib/appointmentTypes.ts FIELD_ROLES). Everything in
-// this section is kept only until its last consumer is gone; nothing new may
-// depend on it.
 
-/** @deprecated Contact details are role-tagged fields now (FIELD_ROLES). */
-export const CUSTOMER_FIELD_KEYS = [
-  "firstName",
-  "lastName",
-  "email",
-  "phone",
-  "smsConsent",
-  "address",
-  "company",
-  "birthday",
-  "preferredContact",
-  "customerStatus",
-  "referralSource",
-  "notes",
-] as const;
-export type CustomerFieldKey = (typeof CUSTOMER_FIELD_KEYS)[number];
-/** @deprecated The universal core: always asked. */
-export const CORE_CUSTOMER_KEYS: readonly CustomerFieldKey[] = ["firstName", "lastName", "email", "phone", "smsConsent"];
-
-/** @deprecated */
-export type CustomerFieldConfig = {
-  key: CustomerFieldKey;
-  enabled: boolean;
-  required: boolean;
-  /** Tenant's wording; empty = the default label. */
-  label: string;
-};
-
-/** @deprecated */
-export const CUSTOMER_FIELD_LABELS: Record<CustomerFieldKey, string> = {
-  firstName: "First name",
-  lastName: "Last name",
-  email: "Email",
-  phone: "Phone",
-  smsConsent: "Text me appointment reminders",
-  address: "Address",
-  company: "Company",
-  birthday: "Birthday",
-  preferredContact: "Preferred contact method",
-  customerStatus: "Have you visited us before?",
-  referralSource: "How did you hear about us?",
-  notes: "Anything else we should know?",
-};
-
-/** What a visitor filled in; smsConsent is "yes" | "no". */
-export type Customer = Partial<Record<CustomerFieldKey, string>>;
+/**
+ * The customer as the calendar, the confirmation and the .ics file read it,
+ * found through the form's role-tagged fields (lib/appointmentTypes.ts
+ * `customerFromAnswers`). A type-only import, so this module stays free of
+ * runtime imports for the client bundle.
+ */
+export type Customer = CustomerContact;
 
 // ── The business's own flow ────────────────────────────────────────────────
 
@@ -295,8 +252,6 @@ export type BookingSettings = {
   /** hidden: never asked. optional: "Anyone available" first. required: must pick a person. */
   staffSelection: "hidden" | "optional" | "required";
   genderPreference: boolean;
-  /** @deprecated Contact details are role-tagged fields now; kept until the last reader is gone. */
-  customerFields: CustomerFieldConfig[];
   /**
    * The business's own step order (FlowStep). Stored shape-only; resolved
    * against the tenant's fields by `sanitizeFlow` when the flow is read.
@@ -711,27 +666,6 @@ export function sanitizeLocationConfig(raw: unknown): LocationConfig {
   };
 }
 
-export function sanitizeCustomerFields(raw: unknown): CustomerFieldConfig[] {
-  const given = new Map<string, Record<string, unknown>>();
-  for (const f of list(raw)) {
-    const src = obj(f);
-    if (typeof src.key === "string") given.set(src.key, src);
-  }
-  // Every key is always present so the admin form and the card iterate one
-  // list; the core five are always on, and firstName/email always required.
-  return CUSTOMER_FIELD_KEYS.map((key) => {
-    const src = given.get(key) ?? {};
-    const core = CORE_CUSTOMER_KEYS.includes(key);
-    const always = key === "firstName" || key === "email";
-    return {
-      key,
-      enabled: core ? true : bool(src.enabled, false),
-      required: always ? true : key === "smsConsent" ? false : bool(src.required, key === "lastName" || key === "phone"),
-      label: flat(src.label, 80),
-    };
-  });
-}
-
 export function sanitizePromoCodes(raw: unknown): PromoCode[] {
   const out: PromoCode[] = [];
   const seen = new Set<string>();
@@ -823,7 +757,6 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
     recurring: bool(src.recurring, false),
     staffSelection,
     genderPreference: bool(src.genderPreference, false),
-    customerFields: sanitizeCustomerFields(src.customerFields),
     flow: sanitizeFlowShape(src.flow),
     taxRate: Math.min(100, Math.max(0, num(src.taxRate) ?? 0)),
     taxLabel: flat(src.taxLabel, 30) || "Tax",

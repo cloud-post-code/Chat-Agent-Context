@@ -5,7 +5,6 @@ import {
   isFieldRole,
   keyFromLabel,
   parseFieldConfig,
-  resolveAnswer,
   sanitizeFieldConfig,
   type FieldConfig,
   type FieldRole,
@@ -13,27 +12,19 @@ import {
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
-import { indexAppointment } from "./retrieval/origins";
-import { dropOrigin } from "./retrieval/indexer";
-import { sanitizeBookingSettings } from "./booking/types";
-import { addMinutes } from "./booking/time";
 
 /**
- * The appointment store: the per-tenant booking toggle, the field catalog the
- * wizard asks from, and the appointments themselves. Data only — the booking
- * card is hydrated in lib/cards.ts and rendered in app/cards/Cards.tsx; the
- * admin Calendar panel reads listAppointments.
+ * The form store: the per-tenant booking toggle and the field catalog the
+ * booking cards ask from. Data only — the booking card is hydrated in
+ * lib/cards.ts and rendered in app/cards/; the booking itself (validation,
+ * the race, the calendar rows) is lib/booking/store.ts's createBooking.
  *
  * The form is the business's own: what is stored is what is asked, in the
  * stored order — nothing seeded on enable, nothing rewritten on read. A
  * field's `role` says which answer is the customer's name/email/phone; its
- * `screen` says which questions are asked together.
- *
- * Every validation the visitor-facing submit needs lives in
- * createAppointment, because the client wizard is untrusted: disabled means
- * rejected, required means required, the past is unbookable, and the unique
- * (userId, startsAt) constraint — not a read-then-write check — decides who
- * wins a race for the same instant.
+ * `screen` says which questions are asked together. Onboarding writes a
+ * transcribed form through lib/booking/formSpec.ts, and only while the form
+ * is untouched (`isUntouchedForm`).
  */
 
 // Shapes live in lib/appointmentTypes.ts (import-free, so the client Calendar
@@ -46,13 +37,6 @@ export {
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
-
-export type AppointmentRow = {
-  id: string;
-  startsAt: Date;
-  answers: Record<string, string>;
-  createdAt: Date;
-};
 
 function toFieldRow(f: {
   key: string;
@@ -79,7 +63,7 @@ function toFieldRow(f: {
 }
 
 /**
- * Nobody has edited this form, so onboarding may rebuild it: it is empty, or
+ * Nobody has edited this form, so onboarding may rewrite it: it is empty, or
  * every question is one onboarding wrote (`generated`). One admin save,
  * delete, reorder or screen change ends that (`claimForm`).
  */
@@ -134,7 +118,7 @@ export async function saveAppointmentField(
   if (config && isChoiceType(type) && !config.options?.length) {
     return "A choice question needs at least one option.";
   }
-  // Onboarding's own writes are marked so it can rebuild them later; any other
+  // Onboarding's own writes are marked so it may rewrite them later; any other
   // save means a person now owns this form.
   const kept: FieldConfig | undefined = input.generated ? { ...(config ?? {}), generated: true } : config;
   const stored = kept === undefined ? {} : { config: JSON.stringify(kept) };
@@ -166,7 +150,7 @@ export async function saveAppointmentField(
   return null;
 }
 
-/** The tenant has edited their form: nothing in it is onboarding's to rebuild. */
+/** The tenant has edited their form: nothing in it is onboarding's to rewrite. */
 async function claimForm(userId: string): Promise<void> {
   const rows = await prisma.appointmentField.findMany({
     where: { userId, config: { contains: '"generated":true' } },
@@ -177,43 +161,6 @@ async function claimForm(userId: string): Promise<void> {
     delete config.generated;
     await prisma.appointmentField.update({ where: { id: r.id }, data: { config: JSON.stringify(config) } });
   }
-}
-
-/**
- * Replace an untouched form with the questions onboarding planned. Returns how
- * many were written — 0 when the form is the tenant's, which is never rewritten.
- */
-export async function rebuildUntouchedForm(
-  userId: string,
-  plan: {
-    key: string;
-    label: string;
-    type: string;
-    required: boolean;
-    config?: FieldConfig;
-    role?: FieldRole;
-    /** Left out = a screen of its own, after every screen written so far. */
-    screen?: number;
-  }[],
-): Promise<number> {
-  const rows = await prisma.appointmentField.findMany({ where: { userId } });
-  if (!isUntouchedForm(rows.map(toFieldRow))) return 0;
-  await prisma.appointmentField.deleteMany({ where: { userId } });
-  let written = 0;
-  for (const f of plan) {
-    const saved = await saveAppointmentField(userId, {
-      key: f.key,
-      label: f.label,
-      type: f.type,
-      required: f.required,
-      config: f.config ?? {},
-      generated: true,
-      ...(f.role !== undefined ? { role: f.role } : {}),
-      ...(f.screen !== undefined ? { screen: f.screen } : {}),
-    });
-    if (saved === null) written++;
-  }
-  return written;
 }
 
 export async function deleteAppointmentField(userId: string, key: string): Promise<void> {
@@ -293,83 +240,6 @@ export async function renumberScreens(userId: string): Promise<void> {
   await claimForm(userId);
 }
 
-export type CreateAppointmentResult = { ok: true; id: string } | { ok: false; error: string };
-
-/** The tenant's default appointment length — the one BookingSettings field
- *  this intake-only path needs, read without pulling in lib/booking/store.ts
- *  (which imports back into this module for the legacy bridge). */
-async function defaultDurationMinutes(userId: string): Promise<number> {
-  const row = await prisma.bookingSettings.findUnique({ where: { userId } });
-  let raw: unknown = {};
-  try {
-    raw = row ? JSON.parse(row.config) : {};
-  } catch {
-    raw = {};
-  }
-  return sanitizeBookingSettings(raw).defaultDurationMinutes;
-}
-
-/**
- * The one write path for a booking, shared by the API route and anything
- * later. Fail closed: every uncertain state is a rejection with a reason.
- *
- * Two appointments may legitimately share an instant once services, staff
- * and locations exist (lib/booking/store.ts's createBooking), so the race
- * guard is no longer a unique (userId, startsAt) index — this path books with
- * no provider, so "the same instant is already booked" is still exactly one
- * taken slot, decided under a per-tenant advisory lock instead.
- */
-export async function createAppointment(
-  userId: string,
-  input: { startsAt: string; answers: Record<string, unknown> },
-): Promise<CreateAppointmentResult> {
-  const { enabled, fields } = await getBookingConfig(userId);
-  if (!enabled) return { ok: false, error: "Booking isn't available right now." };
-
-  const startsAt = new Date(input.startsAt);
-  if (Number.isNaN(startsAt.getTime())) return { ok: false, error: "That date doesn't look right." };
-  if (startsAt.getTime() <= Date.now()) return { ok: false, error: "Pick a time in the future." };
-
-  // Keep only answers to questions that exist, each held to what its question
-  // allows (a pick must be on the menu, a count inside its bounds); reject a
-  // missing required one.
-  const answers: Record<string, string> = {};
-  for (const f of fields) {
-    const resolved = resolveAnswer(f, input.answers?.[f.key]);
-    if (!resolved.ok) return resolved;
-    if (f.required && !resolved.value) return { ok: false, error: `"${f.label}" is required.` };
-    if (resolved.value) answers[f.key] = resolved.value;
-  }
-
-  const duration = await defaultDurationMinutes(userId);
-
-  try {
-    const result = await prisma.$transaction(async (tx) => {
-      // $executeRaw, not $queryRaw: pg_advisory_xact_lock returns void, which
-      // $queryRaw's row deserializer can't handle.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}))`;
-      const clash = await tx.appointment.findFirst({ where: { userId, startsAt, status: "confirmed" } });
-      if (clash) return { ok: false as const, error: "That time was just taken — pick another." };
-      const row = await tx.appointment.create({
-        data: { userId, startsAt, endsAt: addMinutes(startsAt, duration), durationMinutes: duration, answers: JSON.stringify(answers) },
-      });
-      return { ok: true as const, id: row.id };
-    });
-    if (!result.ok) return result;
-    // Best-effort: an indexing failure must never lose the booking.
-    await indexAppointment(userId, result.id).catch(() => {});
-    return result;
-  } catch {
-    return { ok: false, error: "Could not save the booking. Try again." };
-  }
-}
-
-/** Cancel = delete: the slot frees up and the knowledge entry is retracted. */
-export async function cancelAppointment(userId: string, id: string): Promise<void> {
-  await prisma.appointment.deleteMany({ where: { userId, id } });
-  await dropOrigin(userId, "appointment", id).catch(() => {});
-}
-
 export function safeAnswers(raw: string): Record<string, string> {
   try {
     const parsed: unknown = JSON.parse(raw);
@@ -382,17 +252,4 @@ export function safeAnswers(raw: string): Record<string, string> {
   } catch {
     return {};
   }
-}
-
-export async function listAppointments(userId: string): Promise<AppointmentRow[]> {
-  const rows = await prisma.appointment.findMany({
-    where: { userId },
-    orderBy: { startsAt: "asc" },
-  });
-  return rows.map((r) => ({
-    id: r.id,
-    startsAt: r.startsAt,
-    answers: safeAnswers(r.answers),
-    createdAt: r.createdAt,
-  }));
 }

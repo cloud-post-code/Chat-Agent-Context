@@ -38,7 +38,7 @@ export type ServiceCard = {
   name: string;
   description: string;
   /** Present when the service comes from the live booking flow (a Service
-   *  row, or a legacy-derived one) rather than the plain knowledge catalog. */
+   *  row) rather than the plain knowledge catalog. */
   imageUrl?: string | null;
   priceLabel?: string;
   duration?: string;
@@ -46,13 +46,11 @@ export type ServiceCard = {
 };
 
 /**
- * What a services card needs to book from: the live wizard fields, and which
- * of them the chosen service pre-answers (null when the tenant asks no such
- * question, so the wizard opens with nothing filled in). `flow` carries the
- * full booking flow (services, staff, locations, rules) when one exists, so
- * the new flow-aware card can book straight through it.
+ * What a services card needs to book from: the form's fields, and the full
+ * booking flow (services, staff, locations, rules) the card books through
+ * with the tapped service already chosen.
  */
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow: BookingFlow | null };
+export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow | null };
 
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
@@ -86,11 +84,11 @@ export type UiBlock =
   // rides in the block when appointments are on, so each service opens the
   // wizard with itself already chosen; null draws the list with no Book button.
   | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
-  // The booking wizard: one question per configured field, then a time, then
-  // a confirm. The fields ride in the block so the card asks exactly what the
-  // tenant configured at the moment it was drawn. `flow` is the full booking
-  // flow (services, staff, locations, rules) for the new flow-aware card;
-  // null on an old stored sample, which falls back to the intake-only wizard.
+  // The booking conversation: the business's own steps and questions. The
+  // fields ride in the block so the card asks exactly what the tenant
+  // configured at the moment it was drawn. `flow` is the full booking flow
+  // (services, staff, locations, rules); null on an old stored sample, which
+  // the card fetches before drawing itself.
   | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null }
   // The menu — the whole thing grouped by section, or a curated list — and the
   // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
@@ -156,17 +154,16 @@ export type BookingField = {
 };
 
 /**
- * The booking wizard, hydrated from the live flow in one read. Null when
+ * The booking block, hydrated from the live flow in one read. Null when
  * booking is disabled, or when there is nothing to ask and nothing to sell —
  * the guard that keeps a stale canned answer (or a model that saw the tool a
  * moment ago) from drawing a broken booker. The fields are every field the
  * form asks, role-tagged and screen-grouped, so the card walks the
  * business's own form; the flow carries the order.
  *
- * `preselect` is a service id (or legacy service id) the visitor already
- * named — show_booking's `service` input, resolved by brain.ts — carried
- * into the flow's `preselect.serviceId` so the card can skip straight past
- * the service step.
+ * `preselect` is a service id the visitor already named — show_booking's
+ * `service` input, resolved by brain.ts — carried into the flow's
+ * `preselect.serviceId` so the card can skip straight past the service step.
  */
 export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
   const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
@@ -203,19 +200,9 @@ export async function listServices(userId: string): Promise<ServiceCard[]> {
 }
 
 /**
- * The question a chosen service pre-answers: the picker onboarding seeds
- * (key "service"), else the generic "reason" default. Anything else would be
- * guessing which of the tenant's questions a service name belongs in.
- */
-function serviceQuestionKey(fields: BookingField[]): string | null {
-  return (["service", "reason"] as const).find((k) => fields.some((f) => f.key === k)) ?? null;
-}
-
-/**
  * The services card, hydrated from the live booking flow when it has any
- * services (real Service rows, or the legacy bridge's derived ones — either
- * way richer: image, price label, duration, category), else the plain
- * knowledge catalog as before. Null when neither has anything on file:
+ * services (Service rows: image, price label, duration, category), else the
+ * plain knowledge catalog as before. Null when neither has anything on file:
  * nothing is drawn and the model answers in words, rather than a visitor
  * being shown an empty price list.
  */
@@ -238,7 +225,7 @@ export async function servicesBlock(userId: string): Promise<UiBlock | null> {
   return {
     type: "services",
     items,
-    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow } : null,
+    booking: fields ? { fields, flow } : null,
   };
 }
 
