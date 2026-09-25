@@ -250,6 +250,7 @@ export function Tile({
       aria-label={ariaLabel}
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={disabled ? "true" : undefined}
       style={{
         textAlign: "left",
         display: "block",

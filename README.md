@@ -257,6 +257,7 @@ branches: old shapes live only in the bootstrap migrations.
 | **Answers** | The canned-answer table: hits counter (model calls avoided), unreviewed-draft markers, per-row **Redraft**, an optional card to render alongside, enable/disable without losing the text. |
 | **Graph** | See and fix the extracted graph — index-health stats, per-origin breakdown, warnings for missing embeddings and mixed-model indexes, orphan flags, a **Cytoscape.js force-directed visual graph**, and paginated Entities/Relations panes. Rename (renaming onto an existing name **merges**: mentions move, edges rewire, self-loops drop), retype, delete, and add relations by hand. |
 | **Photos** | Upload → **Claude vision writes a one-paragraph description** (editable), plus caption, kind, order. |
+| **Booking** | Settings (the on/off switch and the tenant-wide rules), Services, Providers, Locations, Hours, **Form** (`app/admin/booking/FormPanel.tsx`) — the booking form exactly as the visitor meets it, step by step, with the order and the screens editable in place — and Pricing. No separate customer tab: name/email/phone are ordinary questions on the form, told apart by a `role`. |
 | **Activity** | Every visitor conversation replayed, with metrics (chats, this week, questions, messages, avg/chat, flagged 👎). Rate any answer 👍/👎 and attach a correction note. |
 | **Contacts** | Submissions from the in-chat contact form, with an unhandled badge. |
 
@@ -391,23 +392,39 @@ blocks:
 | `show_gallery` | Photos as a `carousel` or a `filmstrip` with lightbox (required `layout`). With no other filter, every photo; narrowed with `ids`, `tags` (from the prompt's `PHOTO INDEX` vocabulary — a tag also matches a caption/description word, not just an explicit tag), `query` (free text) and `limit`, plus an optional `title` |
 | `show_services` | The business's services — photo, price label, duration — read from the booking catalog (or the services knowledge onboarding saved), each with a **Book** button that opens the booking flow with that service already chosen (no button while booking is off; no card when no services are on file). With no arguments, every service; narrowed with `ids`, `category`, `query` and `limit`, plus `similar` (0-4) to add that many close neighbours (same category, shared terms, similar price) around the matched ones, and an optional `title` |
 | `show_menu` | The business's menu the visitor can order from (`lib/menu.ts`): every `MenuItem` on file — prices, sale prices, options and add-ons with their rules, dietary tags, allergens, availability, images and the rest of what the site states — grouped by section with every section after the first folded, or a curated list when the model passes `keys`, `tags` or `category` (from the prompt's `MENU INDEX`). Each row opens to its detail and customizer and adds to the cart; tenants with only a services record get the menu read from it |
-| `show_cart` | The visitor's cart — one per agent, shared by every card in the thread, kept in `localStorage` — with quantity steppers, Edit, Remove, the subtotal, and checkout posted to `/api/order`, where `createOrder` re-prices every line from the menu on file. `add_to_cart` lets the agent put an on-menu item in it; a timed order also lands on the calendar through `createAppointment` |
+| `show_cart` | The visitor's cart — one per agent, shared by every card in the thread, kept in `localStorage` — with quantity steppers, Edit, Remove, the subtotal, and checkout posted to `/api/order`, where `createOrder` re-prices every line from the menu on file. `add_to_cart` lets the agent put an on-menu item in it; a timed order also lands on the calendar through `createBooking`, answered from the tenant's own form by its fields' roles |
 | `show_contact_form` | An in-chat contact form, posted to `/api/contact` |
-| `show_booking` | The full booking flow, as good as a booking site: photographed service tiles with prices, add-ons and packages → provider ("anyone available" or a person with photo, bio and their own price) → location (branch, online, or the visitor's address in a service area) → a live calendar and time slots (hours, holidays, lead time, cutoff, buffers, provider diaries, waitlist, repeats) → the tenant's customer fields → their intake questions (uploads, signature, waiver, conditions) → a review with the price breakdown, promo code, tip, deposit and policy → **Confirm booking**. `service` (one name), `services` (several ids/names) or `query` (free text, e.g. after a gallery or services card) narrows which services the wizard opens to, with a "See all services" escape back to the full list; offered only when the Appointments toggle is on ([docs/features/booking-flow](docs/features/booking-flow/DESIGN.md)) |
+| `show_booking` | Draws the booking as a conversation of cards in the business's own order: service (photographed tiles, prices, add-ons and packages) → provider ("anyone available" or a person with photo, bio and their own price) → location (branch, online, or the visitor's address in a service area) → a live calendar and time slots (hours, holidays, lead time, cutoff, buffers, provider diaries, waitlist, repeats) → the business's own screens of questions, in the business's own words → a review with the price breakdown, promo code, tip, deposit and policy → **Confirm booking**. Each finished card answers back as one line in the thread and stays editable; the server re-checks every id and re-validates the slot on submit, so a step can come in any order the business's form put it in (time before service, questions before either) without anything going untrusted. Optional `service` input opens it on a named service. Offered only when the Appointments toggle is on ([docs/features/booking-flow](docs/features/booking-flow/DESIGN.md), [docs/features/booking-in-chat](docs/features/booking-in-chat/FEATURE.md)) |
 | `show_social` | The business's social links, one button per platform, read straight from `Profile.social_links` — offered whenever the tenant has any link on file, independent of the admin card catalog. With no arguments, every link; narrowed with `platforms` (accepts aliases like `ig`/`insta`, `fb`, `x`, `yt`) and an optional `title` |
 
-**Where the booking questions come from.** Onboarding's services stage reads the
-business's own booking page — the one offsite page it may load, found from the
-homepage's booking link (`lib/onboarding/bookingPage.ts`; public `https` hosts
-only) — and `lib/bookingFormPlan.ts` builds the form that business would have
-built itself: what the site shows it asking, and where the site is silent, what
-that kind of business (salon, restaurant, trade, class, consultancy) normally
-asks. Questions onboarding writes are marked `generated`; it rebuilds a form
-nobody has edited, and one admin save, delete or reorder makes the form the
-tenant's for good. An untouched default form with services on file is shown
-with the services menu straight away, no re-onboarding needed. The rules and the
-real booking page they were checked against are in
-`docs/features/booking-form-planner/`.
+**Where the booking questions come from.** The business's booking form is
+copied, not reinvented. Onboarding's services stage reads the business's own
+booking page — the one offsite page it may load, found from the homepage's
+booking link (`lib/onboarding/bookingPage.ts`; public `https` hosts only) —
+and drives it screen by screen in a real headless browser
+(`lib/onboarding/formReader.ts`), reading every label, required mark and
+option exactly as a customer would meet them (a static HTML fallback when the
+browser can't). One model call transcribes that snapshot verbatim — never
+adding, renaming, merging, reordering or dropping a question
+(`lib/onboarding/formTranscribe.ts`) — and `lib/booking/formSpec.ts` writes it
+into the tenant: the same fields, the same screens, the same step order, the
+same words. Questions onboarding writes are marked `generated`; it rebuilds a
+form nobody has edited, and one admin save, delete or reorder makes the form
+the tenant's for good. No form found on the site → nothing is written and the
+onboarding booking-form step opens empty, asking the owner directly. An
+untouched default form with services on file is shown with the services menu
+straight away, no re-onboarding needed.
+`docs/features/custom-booking-form/`.
+
+**The booking-form step.** The services read runs as its own onboarding stage,
+second to last, so the chat can show the form it built before extraction: the
+steps a customer meets, the real booking card in a preview that books nothing,
+and a text box to say what is missing or wrong — "ask how many guests", "make
+the phone optional", "add a $20 beard trim". Each message is applied for real
+through the same store the Booking panels use
+(`lib/onboarding/bookingFormChat.ts`) and the form is shown again with what
+changed marked. A chat edit makes the form the tenant's, like any admin edit.
+`docs/features/onboarding-booking-form-step/`.
 
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)
@@ -481,8 +498,10 @@ app/
   Chat.tsx              Thread, starters, NDJSON stream reader, session id
   Markdown.tsx          Answer rendering
   cards/Cards.tsx       A2UI card renderers
-  cards/booking/        The booking flow card: service, provider, location,
-                        time, details, questions, review, confirmation
+  cards/booking/        Booking as a conversation of cards: service, provider,
+                        location, time, the business's own screens of
+                        questions, review, confirmation — one card per step,
+                        down the chat thread (BookingThread, session.ts)
   agent/page.tsx        Human-readable agent page
   layout.tsx            DB-driven theme <style> injection + PostHog provider
   .well-known/          Agent Card (v1.0 + v0.3) and AgentFacts routes
@@ -517,7 +536,8 @@ lib/
   scrape.ts  vision.ts  github.ts  activity.ts  persona.ts
   theme.ts  fonts.ts  auth.ts  uploads.ts  db.ts  claude.ts  util.ts
 prisma/    schema.prisma, migrations/, seed.ts
-scripts/   reindex.ts, use-postgres.mjs, polyfill-file.cjs
+scripts/   reindex.ts, use-postgres.mjs, polyfill-file.cjs,
+           materialize-legacy-services.ts
 docs/features/<slug>/   FEATURE.md + PROOF.md + proof.ts, per feature
 ```
 

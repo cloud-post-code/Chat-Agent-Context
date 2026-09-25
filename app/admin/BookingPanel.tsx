@@ -4,7 +4,7 @@ import { panel, btn, btnDanger, SectionTitle } from "./ui";
 
 /**
  * The booking on/off switch. The question catalog lives in the Booking
- * section's Questions tab (app/admin/booking/QuestionsPanel.tsx) — this is
+ * section's Form tab (app/admin/booking/FormPanel.tsx) — this is
  * just the toggle, rendered everywhere it must never be more than one click
  * away: Settings › Booking (the fixed home for the switch, on or off),
  * Appointments (there is nothing to show a calendar of while booking is off,

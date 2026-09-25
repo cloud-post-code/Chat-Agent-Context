@@ -3,8 +3,7 @@ import type { Element } from "domhandler";
 import { prisma } from "@/lib/db";
 import type { Page } from "./crawl";
 import type { Location } from "./extract";
-import type { MenuService } from "@/lib/bookingMenu";
-import { priceFromText, durationFromText } from "@/lib/bookingMenu";
+import { priceFromText, durationFromText, type MenuService } from "@/lib/serviceCatalog";
 import { durationMinutes } from "@/lib/appointmentTypes";
 import { saveBytes } from "@/lib/uploads";
 import {
@@ -435,9 +434,6 @@ export async function applyBookingChannels(
     if (!settings.confirmationOwner) {
       const online = channels.includes("online");
       patch.confirmation = online ? "instant" : "request";
-      if (!online && channels.includes("phone")) {
-        patch.customerFields = settings.customerFields.map((f) => (f.key === "phone" ? { ...f, required: true } : f));
-      }
     }
     await saveBookingSettings(userId, patch);
     const how = channels.join(", ").replace("walk_in", "walk-in");

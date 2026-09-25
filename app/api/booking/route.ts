@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/db";
-import { createAppointment } from "@/lib/appointments";
 import { getBookingFlow, createBooking } from "@/lib/booking/store";
 import { sanitizeSelection } from "@/lib/booking/types";
 
@@ -8,8 +7,7 @@ export const runtime = "nodejs";
 /**
  * The booking flow's transport. `slug` names whose agent page the card was
  * on, exactly like /api/contact. All real validation lives in
- * lib/booking/store.ts (or, for the legacy intake-only shape, in
- * lib/appointments.ts); this route only translates it onto HTTP.
+ * lib/booking/store.ts; this route only translates it onto HTTP.
  */
 
 async function userFromSlug(slug: unknown) {
@@ -30,7 +28,7 @@ export async function GET(req: Request) {
   return Response.json({
     ok: true,
     enabled: flowResult !== null,
-    fields: flowResult?.intake ?? [],
+    fields: flowResult?.fields ?? [],
     flow: flowResult?.flow ?? null,
   });
 }
@@ -46,18 +44,6 @@ export async function POST(req: Request) {
   const user = await userFromSlug(body.slug);
   if (!user) {
     return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
-  }
-
-  // The legacy intake-only wizard posts { slug, startsAt, answers } with no
-  // customer/service shape at all; anything carrying either is the new flow.
-  const isLegacyShape = !("customer" in body) && !("serviceId" in body);
-  if (isLegacyShape) {
-    const result = await createAppointment(user.id, {
-      startsAt: String(body.startsAt ?? ""),
-      answers: body.answers && typeof body.answers === "object" ? (body.answers as Record<string, unknown>) : {},
-    });
-    if (!result.ok) return Response.json(result, { status: 400 });
-    return Response.json({ ok: true });
   }
 
   const selection = sanitizeSelection(body);

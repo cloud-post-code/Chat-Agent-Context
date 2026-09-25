@@ -7,22 +7,48 @@ Read both before touching anything below. Nothing here is markup: the card is
 handed data and renders from a closed vocabulary, the server never trusts the
 card, and every uncertain state fails closed.
 
-## The visitor's flow (what the card draws)
+## The visitor's flow (a conversation of cards)
+
+The booking is a SEQUENCE of cards down the chat, one per step, not one card
+with a wizard inside it (see
+[`docs/features/booking-in-chat/FEATURE.md`](../booking-in-chat/FEATURE.md)).
+`show_booking` — or Book on the services card — starts a session; for each
+step the host appends an assistant line with the step's intro (typed in) and
+the step's card under it; the finished card answers back as one user line
+and the next ask appends below:
 
 ```
-Service → Options (variant / add-ons / quantity, only when the service has any)
-        → Provider (only when the tenant shows providers)
-        → Location (only when there is a choice: >1 location, or the service
-                    is offered online / mobile)
-        → Date & time
-        → Your details (customer core + configurable fields)
-        → A few questions (intake, conditional)
-        → Review → Confirm → Booked (or Waitlisted)
+Which service would you like?        [service tiles]
+                                          Picked: Gel Manicure · $35
+Any options or add-ons?              [variant / add-ons / quantity — only when the service has any]
+                                          Options: Shoulder length
+Who would you like to see?           [providers — only when the tenant shows providers]
+                                          Provider: Katherine   (or: anyone available)
+Where?                               [locations — only when there is a choice]
+                                          Where: 12 Sea Road
+When works for you?                  [calendar + slots]
+                                          When: Fri, Sep 25, 10:00 AM
+<the business's own screen title>    [that screen's fields]
+                                          Details: Ada · ada@… · 555-1234   /  Answers: …
+Here's your booking — check it over. [review + Confirm]
+                                          Booked: …
+You're booked — the details are below.  [confirmation]
 ```
 
-Steps that have nothing to ask are skipped, but the review screen always lists
-every part of the appointment. Each review section has an Edit link back to
-its step. The visitor's answers are never lost on an error.
+The order is the business's own (`rules.flow`, `planSteps`); review is
+always last; steps with nothing to ask are skipped; the intro is the
+business's screen title when it has one, else the fixed line
+(`lib/booking/session.ts` `intro`). Every earlier card stays on the page and
+stays editable ("Update"): an edit rewrites that step's line in place (ids
+`<sessionId>:<stepId>:ask` / `:reply`), and a step the edit makes necessary
+(options after switching to a service with variants) is asked below the
+review with Confirm disabled — "One more thing to answer — see the step
+below." — until answered. A typed question mid-booking is answered in the
+thread (the model is sent one `Booking so far: …` line for the session) and
+the booking carries on. The review lists every part of the appointment; the
+visitor's answers are never lost on an error; confirming locks the cards.
+The owner's onboarding preview runs the same sequence over a local thread
+and books nothing.
 
 ## Data
 
@@ -140,32 +166,29 @@ export async function listBookings(userId): Promise<AppointmentDetail[]>      //
 export async function setBookingStatus(userId, id, status: "confirmed" | "cancelled"): Promise<void>
 ```
 
-**The legacy bridge (existing tenants are fixed without doing anything):**
-`getBookingFlow` reads `Service` rows; when a tenant has none, it derives
-services from the intake catalog's service picker (`getBookingConfig(userId)`
-already upgrades the old text box into a `multi_select` menu with prices and
-durations as text) — one `ServiceRow` per option, `id: "legacy:<slugId(label)>"`,
-`pricing: pricingFromText(price)`, `durationMinutes: durationMinutes(duration) ??
-settings.defaultDurationMinutes`, `category: group`, and an `imageUrl` matched
-from the tenant's gallery photos by caption/description word overlap (the
-`Photo` table, non-`ingest:` kinds), else null. When there is no picker either,
-`services` is `[]` and the card books a plain appointment.
+**What replaced the legacy bridge:** this section originally described deriving
+`ServiceRow`s from the intake catalog's old service picker for a tenant with no
+`Service` rows. That picker (`lib/bookingMenu.ts` and the picker bridge) is
+gone: every tenant's services now come from the `Service` table onboarding
+seeds (`lib/onboarding/bookingSeed.ts`), and a tenant with none simply has
+`services: []` and the card books a plain appointment.
 
-The intake handed to the card is the catalog **minus** the keys the flow asks
-elsewhere: `name`, `email`, `phone` (the customer step; fold their `required`
-onto the matching customer fields) and `service` (when the service step
-exists). On `createBooking` with a `legacy:` service, write the picked names
-back into `answers.service` so `resolveAnswer` still validates it and the
-Calendar's old readers see it.
+The fields handed to the card are every stored `AppointmentField` row —
+contact details among them, told apart by their `role`, grouped into steps by
+their `screen` (`sanitizeFlow`, `lib/booking/flowSteps.ts` `planSteps`) —
+there is no separate "customer" catalog to subtract keys from or fold
+`required` onto.
 
 `createBooking` must: check enabled; load the flow; resolve the service /
 variant / add-ons / provider / location by id (reject unknown ids, disabled rows,
 a provider who does not perform the service, a location that does not offer
 it, a mode the service does not allow, a postal code outside a mobile
 location's service area when it lists codes); recompute `durationFor` and
-`priceBreakdown` server-side; validate `customer` against `customerFields`
-(required, email shape, phone shape); run `resolveAnswer` on every intake
-field that `isFieldShown` (required only when shown); then inside one
+`priceBreakdown` server-side; fold `selection.customer` into the answers by
+the fields' roles (`foldCustomerIntoAnswers`) and run `resolveAnswer` on every
+field that `isFieldShown` (required only when shown), reading the customer
+back out of the validated answers by role (`customerFromAnswers`) for the
+calendar, the .ics file and the knowledge index; then inside one
 `prisma.$transaction` take `SELECT pg_advisory_xact_lock(hashtext($userId))`,
 load overlapping confirmed bookings, run `checkSlot` (assigning a provider when
 `staffId` is null), and insert — every occurrence of a recurrence in the same
@@ -174,16 +197,17 @@ transaction (all or nothing), waitlisted status when `full` and
 throws. Index each confirmed booking with `indexAppointment` best-effort
 (unchanged), and drop it on cancel.
 
-Keep `lib/appointments.ts` exports working exactly as they are (`getBookingConfig`,
-`createAppointment`, `listAppointments`, `cancelAppointment`, field CRUD): five
-existing proofs depend on them. `createAppointment` stays the intake-only path
-(`endsAt = startsAt + defaultDurationMinutes`, `durationMinutes` set) and keeps
-"same instant with no provider = taken" through the same lock. `cancelAppointment`
-sets status cancelled (keep the delete semantics for the knowledge origin).
+`lib/appointments.ts` keeps `getBookingConfig`, `listAppointments`,
+`cancelAppointment` and field CRUD working as they always have; the
+intake-only booking path (`createAppointment`) that `createBooking` replaced
+is gone — every booking, timed or not, goes through `createBooking` now (an
+order's own booking included, `lib/orders.ts` `bookFromOrder`).
+`cancelAppointment` still sets status cancelled (keep the delete semantics for
+the knowledge origin).
 
 ### API (`app/api/booking/…`)
-- `GET  /api/booking?slug=…[&service=<id>]` → `{ ok, enabled, fields, flow }` (`fields` = intake, as today; `flow` = `BookingFlow` or null)
-- `POST /api/booking` body `{ slug, ...BookingSelection }` (also still accepts the legacy `{ slug, startsAt, answers }` → `createAppointment`) → the `createBooking` result
+- `GET  /api/booking?slug=…[&service=<id>]` → `{ ok, enabled, fields, flow }` (`fields` = every stored question, contact details included; `flow` = `BookingFlow` or null)
+- `POST /api/booking` body `{ slug, ...BookingSelection }` → the `createBooking` result
 - `GET  /api/booking/availability?slug&serviceId&variantId&addonIds=a,b&staffId&locationId&month=YYYY-MM` → `{ ok, timezone, days, earliest }`; with `&date=YYYY-MM-DD` → `{ ok, timezone, slots, full, earliest }`
 - `POST /api/booking/quote` body `{ slug, ...BookingSelection }` → `{ ok, breakdown }` — the review screen's figures
 - `POST /api/booking/upload` multipart `{ slug, file }` → `{ ok, path: "/api/uploads/…" }`; images (jpeg/png/webp/gif) and PDF, ≤ 8 MB. `lib/uploads.ts` must learn `application/pdf` (`.pdf`) and `readUpload` must serve it.
@@ -191,12 +215,18 @@ sets status cancelled (keep the delete semantics for the knowledge origin).
 All routes resolve the tenant from `slug` exactly like today's route. Every
 error is `{ ok: false, error }` with a 4xx.
 
-### The card (`app/cards/booking/`)
-`Cards.tsx` keeps `{ type: "booking"; fields: BookingField[]; flow?: BookingFlow }`
-and renders `BookingFlowCard` (`app/cards/booking/BookingFlowCard.tsx`). A block
-without `flow` (an old stored sample) fetches `GET /api/booking?slug` on mount
-and renders from that; if that fails it draws the old intake-only wizard
-behaviour (questions → datetime → confirm) so nothing ever goes blank.
+### The cards (`app/cards/booking/`) — superseded by the conversation of cards
+This section described the original single-card wizard. `show_booking` now
+starts a session that draws one card per step down the chat thread instead
+(`BookingSessionCard` → `BookingThread` → `BookingStepCard`, see the "The
+visitor's flow" section above and
+[`docs/features/booking-in-chat/FEATURE.md`](../booking-in-chat/FEATURE.md));
+what is left of the single-card module is `toFlowFields`, the reading of a
+block's fields the planner needs. `Cards.tsx` keeps
+`{ type: "booking"; fields: BookingField[]; flow?: BookingFlow }`. A block
+without `flow` (an old stored sample) fetches `GET /api/booking?slug` on
+mount and renders from that; if that fails it shows one line saying booking
+is unavailable, so nothing ever goes blank.
 
 Card width: the chat column is ~720px; the card may use `maxWidth: 560`. Every
 step is a `data-fill="bg-soft"` card in the existing `card` style with the

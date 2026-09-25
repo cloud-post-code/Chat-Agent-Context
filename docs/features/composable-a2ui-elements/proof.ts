@@ -364,16 +364,12 @@ async function main() {
         ids.includes(gel) && ids.length === 3 && ids.every((id) => nailsIds.includes(id)),
         JSON.stringify(ids),
       );
-      const flowIds = (s?.booking?.flow?.services ?? []).map((x) => x.id);
-      check(
-        "booking.flow.services is narrowed to the same set shown",
-        JSON.stringify(flowIds.sort()) === JSON.stringify([...ids].sort()),
-        JSON.stringify(flowIds),
-      );
       check("similar services never spill into feet/brows categories", !ids.includes(pedicure) && !ids.includes(browWax));
     }
 
-    // ══ 6. Card memory + narrowed booking ════════════════════════════════════
+    // ══ 6. Card memory ══════════════════════════════════════════════════════
+    // (show_booking's own narrowing was retired when booking became a
+    // conversation of cards — the wizard it narrowed no longer exists.)
     {
       const redRun2 = await run(show("show_gallery", { layout: "carousel", tags: ["red"] }));
       const shownIds = (cardsOf(redRun2.events, "gallery")[0] as { items?: { id: string }[] } | undefined)?.items?.map((i) => i.id) ?? [];
@@ -381,32 +377,15 @@ async function main() {
         { role: "user", content: "red nails" },
         { role: "assistant", content: "Here are the red ones.", shown: [{ type: "gallery", ids: shownIds, tags: ["red"] }] },
       ];
-      const bookRun = await run(show("show_booking", { query: "red gel nails" }), history);
+      const bookRun = await run(show("show_booking", {}), history);
       const historyPayload = JSON.stringify(bookRun.seen.messages);
       check(
         "the messages the client received carry the folded shown marker",
         historyPayload.includes("[shown: gallery ids="),
         historyPayload.slice(0, 300),
       );
-      const b = cardsOf(bookRun.events, "booking")[0] as
-        | { narrowed?: boolean; allServicesCount?: number; flow?: { services?: { id: string }[] } }
-        | undefined;
-      const bookedIds = (b?.flow?.services ?? []).map((s) => s.id).sort();
-      check(
-        "show_booking query:'red gel nails' narrows to the nails-category services",
-        JSON.stringify(bookedIds) === JSON.stringify([...nailsIds].sort()),
-        JSON.stringify(bookedIds),
-      );
-      check("narrowed booking card sets narrowed:true", b?.narrowed === true);
-      check("narrowed booking card reports allServicesCount", (b?.allServicesCount ?? 0) >= 5);
-
-      const noMatchBook = await run(show("show_booking", { query: "zzz" }));
-      const bNone = cardsOf(noMatchBook.events, "booking")[0] as { narrowed?: boolean; flow?: { services?: unknown[] } } | undefined;
-      check(
-        "show_booking with no close matches falls back to the full service list",
-        (bNone?.flow?.services ?? []).length >= 5 && bNone?.narrowed !== true,
-        JSON.stringify(bNone),
-      );
+      const b = cardsOf(bookRun.events, "booking")[0] as { flow?: { services?: unknown[] } } | undefined;
+      check("show_booking draws the full booking block", (b?.flow?.services ?? []).length >= 5, JSON.stringify(b).slice(0, 200));
     }
 
     // ══ 7. show_social ═══════════════════════════════════════════════════════
@@ -489,37 +468,6 @@ async function main() {
           check("social card renders one button with the instagram URL", false, String(e));
         }
 
-        try {
-          const narrowedBooking = {
-            type: "booking",
-            fields: [],
-            flow: {
-              services: [],
-              categories: [],
-              staff: [],
-              locations: [],
-              business: { name: "Test Co", timezone: "America/New_York", currency: "USD", phone: "" },
-              rules: {
-                timezone: "America/New_York", currency: "USD", hours: {}, holidays: [],
-                slotIntervalMinutes: 30, leadTimeMinutes: 0, dailyCutoff: "", sameDayBooking: true,
-                maxAdvanceDays: 30, bufferBeforeMinutes: 0, bufferAfterMinutes: 0,
-                defaultDurationMinutes: 30, waitlist: false, recurring: false,
-                staffSelection: "hidden", genderPreference: false, customerFields: [],
-                taxRate: 0, taxLabel: "", serviceFee: { kind: "none" }, hasPromoCodes: false,
-                tips: { enabled: false, presets: [] }, memberships: [], cancellationPolicy: "",
-                depositPolicy: "", confirmationNote: "", channels: [],
-                confirmation: "instant", confirmationOwner: false,
-              },
-              preselect: { serviceId: null },
-            },
-            narrowed: true,
-            allServicesCount: 5,
-          };
-          const bookingHtml = renderToStaticMarkup(h(Cards as never, { block: narrowedBooking } as never));
-          check("narrowed booking card renders 'See all services'", /See all services/i.test(bookingHtml), bookingHtml.slice(0, 300));
-        } catch (e) {
-          check("narrowed booking card renders 'See all services'", false, String(e));
-        }
       } else {
         check("app/cards/Cards.tsx exports a Cards component", false, "module not found");
       }

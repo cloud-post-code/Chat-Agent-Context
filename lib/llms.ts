@@ -97,7 +97,7 @@ export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
       summary: (s.summary ?? "").trim(),
     })),
     booking: {
-      enabled: booking.enabled && booking.fields.length > 0,
+      enabled: booking.enabled,
       questions: booking.fields.map((f) => ({ label: f.label, required: f.required })),
     },
     isFounder: founder?.id === userId,

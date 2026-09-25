@@ -11,12 +11,15 @@ import type {
   StaffRow,
 } from "@/lib/booking/types";
 import { formatDuration, formatMoney } from "@/lib/booking/types";
-import { isUploadType } from "@/lib/appointmentTypes";
+import { customerFromAnswers, isUploadType } from "@/lib/appointmentTypes";
+import type { FlowField } from "@/lib/booking/flowSteps";
 import { priceBreakdown } from "@/lib/booking/pricing";
 import { formatInZone } from "@/lib/booking/time";
 import { createBooking, quoteBooking, type CreateBookingResult } from "./api";
-import { answerLines, hasAnswer, type Answer, type BookingField } from "../BookingQuestion";
+import { answerLines, hasAnswer, type Answer } from "../BookingQuestion";
+import type { EditTarget } from "@/lib/booking/session";
 import { Chip, chipRow, inputStyle, linkBtn, sectionLabel, textBtn } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
 /** The client's stand-in for BookingSettings: the visitor's flow carries only
  * the public `rules`, never the tenant's promo code list, so the local
@@ -35,7 +38,13 @@ function formatHeaderDate(d: Date, tz: string): string {
 }
 
 const DEBOUNCE_MS = 300;
-type EditTarget = "service" | "options" | "provider" | "location" | "time" | "details" | "intake";
+
+/** The answers that are text, as customerFromAnswers reads them (a choice answer is a list, never a contact detail). */
+function textAnswers(answers: Record<string, unknown>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(answers)) if (typeof v === "string") out[k] = v;
+  return out;
+}
 
 export function ReviewStep({
   flow,
@@ -45,11 +54,15 @@ export function ReviewStep({
   location,
   selection,
   setSelection,
-  intake,
+  fields,
+  title = "",
   slug,
   onEdit,
-  onBack,
   onConfirmed,
+  ready = true,
+  notReady,
+  locked = false,
+  preview = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
@@ -58,11 +71,21 @@ export function ReviewStep({
   location: LocationRow | null;
   selection: BookingSelection;
   setSelection: (s: BookingSelection) => void;
-  intake: BookingField[];
+  /** Every field the form asks, role-tagged: the customer and the answers are both read from here. */
+  fields: FlowField[];
+  /** The business's own heading for this step; "" = the card's default. */
+  title?: string;
   slug: string;
+  /** An Edit link: the thread scrolls to that step's card, which stays editable. */
   onEdit: (target: EditTarget) => void;
-  onBack: () => void;
   onConfirmed: (result: CreateBookingResult, waitlisted: boolean) => void;
+  /** False while a planned step before review has no valid answer: Confirm is disabled with `notReady`. */
+  ready?: boolean;
+  notReady?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
+  /** The owner trying their own form: confirm draws the confirmation without booking anything. */
+  preview?: boolean;
 }) {
   const [breakdown, setBreakdown] = useState<PriceBreakdown | null>(null);
   const [promoInput, setPromoInput] = useState(selection.promoCode);
@@ -130,11 +153,36 @@ export function ReviewStep({
       : selection.mode === "mobile"
         ? selection.customerAddress || "Your address"
         : location?.address || location?.name || "";
-  const customerName = [selection.customer.firstName, selection.customer.lastName].filter(Boolean).join(" ");
-  const answered = intake.filter((f) => hasAnswer(f, selection.answers[f.key] as Answer | undefined));
+  // The customer is whatever the role-tagged answers say — the same read the
+  // server makes when it books, so the review shows what the owner will see.
+  const customer = customerFromAnswers(fields, textAnswers(selection.answers));
+  const customerName = [customer.firstName, customer.lastName].filter(Boolean).join(" ");
+  const hasContact = fields.some((f) => f.role !== "none" && f.role !== "policy");
+  const answered = fields.filter((f) => (f.role === "none" || f.role === "notes") && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
+  const agreed = fields.filter((f) => f.role === "policy" && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
+
+  const canConfirm = !sending && ready;
 
   async function submit(waitlist: boolean) {
-    if (sending) return;
+    if (!canConfirm) return;
+    if (preview) {
+      const start = new Date(selection.startsAt || Date.now());
+      onConfirmed(
+        {
+          id: "preview",
+          status: waitlist ? "waitlisted" : "confirmed",
+          startsAt: start.toISOString(),
+          endsAt: new Date(start.getTime() + b.durationMinutes * 60000).toISOString(),
+          breakdown: b,
+          staffName: provider?.name ?? "",
+          locationName: location?.name ?? "",
+          serviceName: service?.name ?? "",
+          ids: [],
+        },
+        waitlist,
+      );
+      return;
+    }
     setSending(true);
     setError("");
     setFull(false);
@@ -149,9 +197,9 @@ export function ReviewStep({
   }
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       <div style={{ marginBottom: 14 }}>
-        <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>Your appointment</p>
+        <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>{title || "Your appointment"}</p>
         <strong style={{ fontSize: 17, fontFamily: "var(--font-heading)", display: "block" }}>{service?.name ?? "Appointment"}</strong>
         <p style={{ margin: "2px 0" }}>{provider?.name ?? "Any available provider"}</p>
         {startDate && <p style={{ margin: "2px 0" }}>{formatHeaderDate(startDate, zone)}</p>}
@@ -187,16 +235,25 @@ export function ReviewStep({
       <ReviewSection label="Duration" onEdit={() => onEdit("time")}>
         {formatDuration(b.durationMinutes)}
       </ReviewSection>
-      <ReviewSection label="Your details" onEdit={() => onEdit("details")}>
-        {customerName || "—"}
-        {selection.customer.email ? ` · ${selection.customer.email}` : ""}
-      </ReviewSection>
-      {answered.length > 0 && (
+      {hasContact && (
+        <ReviewSection label="Your details" onEdit={() => onEdit("details")}>
+          <div>{customerName || "—"}</div>
+          {customer.email && <div>{customer.email}</div>}
+          {customer.phone && <div>{customer.phone}</div>}
+        </ReviewSection>
+      )}
+      {(answered.length > 0 || agreed.length > 0) && (
         <ReviewSection label="Your answers" onEdit={() => onEdit("intake")}>
           {answered.map((f) => (
             <div key={f.key} style={{ marginBottom: 4 }}>
               <span style={{ opacity: 0.75 }}>{f.label}: </span>
               <AnswerSummary field={f} value={selection.answers[f.key] as Answer | undefined} />
+            </div>
+          ))}
+          {agreed.map((f) => (
+            <div key={f.key} style={{ marginBottom: 4 }}>
+              <span style={{ opacity: 0.75 }}>Policy: </span>
+              <span>agreed</span>
             </div>
           ))}
         </ReviewSection>
@@ -275,44 +332,44 @@ export function ReviewStep({
       )}
 
       {error && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginTop: 10 }}>{error}</p>}
+      {!ready && notReady && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginTop: 10 }}>{notReady}</p>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-      </div>
-      <button
-        type="button"
-        onClick={() => submit(false)}
-        disabled={sending}
-        style={{
-          width: "100%",
-          padding: 12,
-          fontSize: 15,
-          fontWeight: 600,
-          marginTop: 10,
-          background: "var(--primary)",
-          color: "var(--on-primary)",
-          border: "none",
-          borderRadius: "var(--radius-sm)",
-          cursor: "pointer",
-          opacity: sending ? 0.55 : 1,
-        }}
-      >
-        {sending ? "Sending…" : flow.rules.confirmation === "request" ? "Request booking" : "Confirm booking"}
-      </button>
-      {flow.rules.confirmation === "request" && (
-        <p style={{ fontSize: 12, fontStyle: "italic", margin: "8px 0 0" }}>
-          {flow.business.name || "The business"} confirms requests
-          {flow.business.phone ? ` — or call ${flow.business.phone} to book now` : ""}.
-        </p>
+      {!locked && (
+        <>
+          <button
+            type="button"
+            onClick={() => submit(false)}
+            disabled={!canConfirm}
+            style={{
+              width: "100%",
+              padding: 12,
+              fontSize: 15,
+              fontWeight: 600,
+              marginTop: 14,
+              background: "var(--primary)",
+              color: "var(--on-primary)",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              cursor: canConfirm ? "pointer" : "default",
+              opacity: canConfirm ? 1 : 0.55,
+            }}
+          >
+            {sending ? "Sending…" : flow.rules.confirmation === "request" ? "Request booking" : "Confirm booking"}
+          </button>
+          {flow.rules.confirmation === "request" && (
+            <p style={{ fontSize: 12, fontStyle: "italic", margin: "8px 0 0" }}>
+              {flow.business.name || "The business"} confirms requests
+              {flow.business.phone ? ` — or call ${flow.business.phone} to book now` : ""}.
+            </p>
+          )}
+          {full && flow.rules.waitlist && (
+            <button type="button" onClick={() => submit(true)} disabled={!canConfirm} style={{ ...linkBtn, width: "100%", marginTop: 8, textAlign: "center" }}>
+              Join waitlist instead
+            </button>
+          )}
+        </>
       )}
-      {full && flow.rules.waitlist && (
-        <button type="button" onClick={() => submit(true)} disabled={sending} style={{ ...linkBtn, width: "100%", marginTop: 8, textAlign: "center" }}>
-          Join waitlist instead
-        </button>
-      )}
-    </div>
+    </fieldset>
   );
 }
 
@@ -335,7 +392,7 @@ function ReviewSection({ label, onEdit, children }: { label: string; onEdit: () 
  * a photo or signature shows as a thumbnail, a document as "Attached"; a
  * waiver reads "Agreed". Everything else lists the way the question step did.
  */
-function AnswerSummary({ field, value }: { field: BookingField; value: Answer | undefined }) {
+function AnswerSummary({ field, value }: { field: FlowField; value: Answer | undefined }) {
   const text = typeof value === "string" ? value : "";
   if (field.type === "waiver") return <span>Agreed</span>;
   if (isUploadType(field.type)) {

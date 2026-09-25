@@ -6,9 +6,9 @@
  * pure engines (time, availability, pricing, hours). Section C runs the real
  * store against the local dev Postgres under throwaway users — services,
  * providers, locations, settings, the flow, availability, quotes, bookings,
- * the race, the waitlist, recurrence, the legacy bridge — with zero model
- * calls. Section D renders the real card to static markup. Everything made
- * is deleted at the end.
+ * the race, the waitlist, recurrence, a hand-written form with a menu
+ * question — with zero model calls. Section D renders the real card to
+ * static markup. Everything made is deleted at the end.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -119,20 +119,20 @@ async function main() {
       slotIntervalMinutes: 17,
       leadTimeMinutes: -5,
       maxAdvanceDays: 9999,
-      customerFields: [{ key: "firstName", enabled: false, required: false }, { key: "company", enabled: true, required: true, label: "Business" }],
       promoCodes: [{ code: " welcome10 ", kind: "percent", amount: 10 }, { code: "BAD", kind: "percent", amount: 500 }],
       memberships: [{ name: "Gold", discountPercent: 15 }],
       tips: { enabled: true, presets: [10, 20, 500] },
       serviceFee: { kind: "percent", amount: 3 },
+      flow: [{ kind: "questions", screen: 2, title: " Your details " }, { kind: "bogus" }, { kind: "questions" }, { kind: "time" }],
     });
     check("A7 an unknown timezone falls back", s.timezone === T.DEFAULT_TIMEZONE);
     check("A7 an odd slot interval falls back to 30", s.slotIntervalMinutes === 30);
     check("A7 lead time and advance window are clamped", s.leadTimeMinutes === 0 && s.maxAdvanceDays === 730);
-    const first = s.customerFields.find((f) => f.key === "firstName")!;
-    const company = s.customerFields.find((f) => f.key === "company")!;
-    check("A7 first name can't be turned off or made optional", first.enabled && first.required);
-    check("A7 a configurable field keeps its wording", company.enabled && company.required && company.label === "Business");
-    check("A7 every customer key is present exactly once", s.customerFields.length === T.CUSTOMER_FIELD_KEYS.length);
+    // The customer is no longer a fixed set of settings: the form's own fields
+    // carry a role, and the customer is read out of the answers by role.
+    check("A7 a first_name-role field is an ordinary field: unanswered, it names nobody", Object.keys(Q.customerFromAnswers([{ key: "fn", role: "first_name" }], {})).length === 0 && Q.customerFromAnswers([{ key: "fn", role: "first_name" }], { fn: "Ada" }).firstName === "Ada");
+    check("A7 a name-role answer splits into first and last; the first field per role wins", JSON.stringify(Q.customerFromAnswers([{ key: "n", role: "name" }, { key: "n2", role: "name" }, { key: "e", role: "email" }], { n: "Ada Lovelace", n2: "Bob", e: "ada@example.invalid" })) === '{"firstName":"Ada","lastName":"Lovelace","email":"ada@example.invalid"}');
+    check("A7 the stored flow keeps its shape only: kinds whitelisted, titles flat, a questions step needs a screen", JSON.stringify(s.flow) === '[{"kind":"questions","title":"Your details","screen":2},{"kind":"time"}]', JSON.stringify(s.flow));
     check("A7 promo codes are upper-cased and a >100% one is dropped", s.promoCodes.length === 1 && s.promoCodes[0].code === "WELCOME10");
     check("A7 memberships get ids", s.memberships[0].id === "gold");
     check("A7 tip presets past 100% are dropped", s.tips.presets.join(",") === "10,20");

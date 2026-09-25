@@ -18,9 +18,9 @@ file whenever prompts, tools or routing change.
    `show_card`), each narrowable with `ids`/`tags`/`query`/`limit`/`title`
    where it applies (`show_gallery` also takes the required `layout`;
    `show_services` also takes `category` and `similar`) — see "Composable
-   elements" below. `show_booking` when booking is on (`service`, `services`,
-   or `query` to open the flow narrowed to what the visitor was just looking
-   at), `show_social` gated on the tenant actually having social links on
+   elements" below. `show_booking` when booking is on (`service` opens the
+   booking conversation on the service the visitor named; the booking itself
+   is a sequence of cards, see "Booking"), `show_social` gated on the tenant actually having social links on
    file rather than on the card catalog (`platforms`, `title`), `add_to_cart`
    whenever the menu is in the catalog, and `search_knowledge` on every
    unscripted turn.
@@ -96,13 +96,16 @@ Proof: `docs/features/composable-a2ui-elements/proof.ts`.
 
 ## Booking
 
-`show_booking` draws the whole flow (`lib/booking/store.ts` → `getBookingFlow`):
-services with photos and prices, providers, locations, live availability,
-customer details, intake questions, review, confirm. The `BOOKING` prompt
-section tells the model to draw it rather than collect details in
-conversation, and never to promise a time the card has not shown. The server
-recomputes duration, price, provider and slot from ids on submit; the card's
-figures are convenience.
+`show_booking` draws the whole flow (`lib/booking/store.ts` → `getBookingFlow`)
+as a conversation of cards, in the business's own order (`rules.flow`): service
+with photos and prices, provider, location, live availability, the business's
+own screens of questions in its own words, review, confirm. The `BOOKING`
+prompt section tells the model to draw it rather than collect details in
+conversation, and never to promise a time the card has not shown. Steps have
+no fixed order beyond review being last — a business whose own form asks for a
+time before a service is asked in that order — because the server recomputes
+duration, price, provider and slot from ids and re-checks the slot is still
+free on submit; the card's figures are convenience.
 
 ## The menu and the cart
 
@@ -138,16 +141,79 @@ everything, give the full list. Then, and only then, hand off to the owner.
 
 ## Onboarding: the booking form
 
-The services extractor (`lib/onboarding/services.ts`, `SERVICES_SYSTEM_PROMPT`)
-also reads the business's own booking page, offsite widgets included
-(`=== BOOKING PAGE <url>`), and reports the booking `kind`, `staff` a customer
-can ask for (kept only when the name is in the text read), whether `phone` /
-`email` are asked, and `notes`. It is told not to report the service choice or
-the date and time as requirements. `lib/bookingFormPlan.ts` turns those facts
-into the questions — no model call; site evidence beats the per-kind norm —
-and `rebuildUntouchedForm` writes them only over a form nobody has edited.
-Checked live against a real booking page by
-`docs/features/booking-form-planner/crosscheck.ts`.
+The business's booking form is copied, not reinvented — there is no fixed set
+of kinds or norms any more. `lib/onboarding/formReader.ts` drives the
+business's own booking page in the job's Playwright browser (`Crawler.drive`),
+screen by screen: every input's label, type, required mark and options, read
+exactly as a customer would meet them (caps on screens/time; a static cheerio
+fallback, `snapshotStatic`, when the browser can't; never clicks a "book" or
+"submit"-like button). One model call transcribes that snapshot verbatim
+(`lib/onboarding/formTranscribe.ts`, `FORM_SYSTEM_PROMPT`: never add, rename,
+merge, reorder or drop anything; `sanitizeFormSpec` caps for safety only) and
+`lib/booking/formSpec.ts` `writeFormSpec` writes the fields (role, screen,
+placeholder/help, `generated`) and the step order into the tenant, only over a
+form nobody has edited (`isUntouchedForm`) — the one coercion is a choice
+question with no options, which becomes a text box. No form found → nothing is
+written and the onboarding booking-form step opens empty and asks the owner.
+The services extractor itself (`lib/onboarding/services.ts`,
+`SERVICES_SYSTEM_PROMPT`) now reports only services, the menu, whether the
+business takes appointments and how (`channels`) — the booking questions come
+from the form reader above, not from a per-kind norm.
+
+## Onboarding: the booking-form step
+
+Second to last in the onboarding chat (before the knowledge pick; last on the
+manual path). The services read runs as its own `booking` stage
+(`lib/onboarding/jobs.ts` `runBooking`, fail-soft) so the form it built can be
+shown before extraction: `BookingFormStep` lists the steps a customer meets
+(`lib/booking/steps.ts`, pure, from the same `BookingFlow` the card draws),
+opens the real booking conversation (`BookingThread`) in a `preview` mode
+(real availability and quote, nothing booked), and takes plain-words requests.
+Each request is one round of `lib/onboarding/bookingFormChat.ts`
+(`POST /api/admin/onboarding/booking-form`): the model is told the form as it
+stands — services with ids, providers, every question with its key, role and
+screen, the step order — and changes it with `add_question` / `edit_question`
+/ `remove_question` / `reorder_questions` / `move_question`,
+`set_screen_title`, `set_step_order`, `set_staff_selection`,
+`set_confirmation`, `add_service` / `edit_service` / `remove_service`, then
+answers in a sentence; the form is re-read and shown again with new, changed
+and removed steps marked. Name, email and phone are ordinary questions with a
+`role` (name / first_name / last_name / email / phone), not a fixed step;
+prices only as stated. A form with no questions yet opens with a line asking
+what the owner needs to know from a customer, and builds every question named,
+in order, on one screen. Every write goes through the store the Booking panels
+use, so a chat edit claims the form (no longer `generated`). The knowledge
+stage skips `services` once the booking stage ran. Proof:
+`docs/features/onboarding-booking-form-step/proof.ts`.
+
+## Booking in the chat: a conversation of cards
+
+A visitor's booking is a sequence of cards down the thread, never a wizard
+inside one bubble. A `booking` block from `show_booking` (or Book on the
+services card) starts a session: the chat gives it a `sessionId`, appends
+`<sessionId>:start`, then asks each planned step (`lib/booking/flowSteps.ts`
+`planSteps`, the business's own order, review last) as an assistant message
+whose text is the step's intro — the business's own screen title, else the
+fixed line from `lib/booking/session.ts` `intro()` — with the step card
+mounted once the typing ends. A finished card answers as one user line
+(`Picked: Gel Manicure · $35`, `Options: …`, `Provider: Katherine`,
+`Where: …`, `When: …`, `Details: name · email · phone`, `Answers: …`) and the
+next ask appends. Ids are stable — `<sessionId>:<stepId>:ask` / `:reply`,
+`<sessionId>:confirmed:ask`; StepId `service | options | provider | location
+| time | screen:<n> | review` — so an edit on a card that is still on the
+page rewrites its line in place (`app/ChatThread.tsx` `appendMessages`
+replaces by id); a step the edit makes necessary is asked below the review
+with Confirm disabled until answered. Confirm → `POST /api/booking` →
+`Booked: …` and "You're booked — the details are below." with a
+`booking_confirmed` card; the cards lock. The model never sees the cards'
+lines one by one: `foldBookingLines` sends it ONE user line `Booking so far:
+…` per session at the position of the session's last reply and drops empty
+turns; while a session is live the model answers questions and draws no
+second booking card — a second `booking` block renders "Your booking is in
+progress above — keep going there, or say 'start over'." The session lives
+beside the chat in localStorage (`booking:<slug>:<sessionId>` next to
+`chat:<slug>:<id>`); without it the session's messages are pruned by id and
+the first step asked again. Proof: `docs/features/booking-in-chat/proof.ts`.
 
 ## Site-cards agent: A2UI cards from the imported site
 
@@ -216,8 +282,11 @@ Settings) are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`).
 shows — never `home`, and `users`/`bulk` for operators only. The old combined
 Calendar became `appointments` (Inbox) + `booking` (Settings, the on/off
 switch); the Booking group holds the setup panels (Services, Providers,
-Locations, Hours, Customer, Questions, Pricing —
-`BOOKING_TAB_KEYS`/`app/admin/booking/*`). `show_panel` maps retired keys
+Locations, Hours, Form, Pricing —
+`BOOKING_TAB_KEYS`/`app/admin/booking/*`; Form draws the booking form exactly
+as the visitor meets it, step by step, order and screens editable in place —
+no separate Customer tab, since name/email/phone are ordinary questions on the
+form now). `show_panel` maps retired keys
 through `TAB_ALIASES` before looking a panel up, so saved chats and canned
 answers naming `calendar` still open Appointments. Chat starter chips point at
 Chats, Presets, Appointments and Cards. Proof:

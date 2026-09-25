@@ -9,12 +9,14 @@ import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
 import { FormCard, type FieldSpec } from "./FormCard";
 import { GalleryCard, type GalleryItem } from "./GalleryCard";
+import { BookingFormStep } from "./BookingFormStep";
 import { ActivityStream, Typewriter, type Eta } from "./ActivityStream";
 
 /**
  * Onboarding as a conversation: the assistant asks for the website link, then
  * walks through the stages one message at a time — contact info (with one
- * form per location), theme (the dashboard's own ThemePicker), then a
+ * form per location), theme (the dashboard's own ThemePicker), the booking
+ * form (built from the site, tried in a preview, changed by chat), then a
  * pick-what-you-have knowledge extraction that keeps running while the user
  * heads to the dashboard. Extraction pre-fills every form before it shows,
  * and the loading state streams the job's REAL activity log.
@@ -31,6 +33,15 @@ type Status = {
   stepSocial?: { links?: { platform?: string; url?: string }[] };
   stepImages?: { images?: { src?: string; caption?: string; tags?: string[] }[] };
   stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
+  stepBooking?: {
+    report?: {
+      services?: number; seededFields?: number; takesAppointments?: boolean;
+      /** Whether a booking form was found on the site to copy (older jobs: absent). */
+      formFound?: boolean;
+      /** How many screens the copied form has (absent when unknown). */
+      formScreens?: number;
+    } | null;
+  };
   chunkCount?: number;
   report?: {
     blog?: { postsSaved: number; existed: boolean };
@@ -51,6 +62,7 @@ type Step =
   | "social-running" | "review-social"
   | "images-running" | "review-images"
   | "theme-running" | "review-theme"
+  | "booking-running" | "review-booking"
   | "select-knowledge" | "knowledge-running";
 
 const COMPANY_FIELDS: FieldSpec[] = [
@@ -126,7 +138,7 @@ const EXTRACTOR_OPTIONS = [
   { key: "blog", label: "Blog / news posts" },
   { key: "testimonials", label: "Testimonials / reviews" },
   { key: "team", label: "Team / about page" },
-  { key: "services", label: "Services & how you take bookings" },
+  // Services and the booking page were already read by the booking stage.
   { key: "sweep", label: "Everything else (pricing, policies…)" },
 ];
 
@@ -203,7 +215,7 @@ function UserEntry({ children, maxWidth = 560 }: { children: React.ReactNode; ma
 
 const RUNNING_STEPS: readonly Step[] = [
   "core-running", "locations-running", "social-running",
-  "images-running", "theme-running", "knowledge-running",
+  "images-running", "theme-running", "booking-running", "knowledge-running",
 ];
 const isRunning = (s: Step) => RUNNING_STEPS.includes(s);
 
@@ -234,6 +246,26 @@ function themeSummary(bodyFont: string, radius: string, tagline: string): string
   const corners = RADIUS_OPTIONS.find((o) => o.key === radius)?.label ?? radius;
   const line = `Theme: ${font} body font, ${corners.toLowerCase()} corners.`;
   return tagline.trim() ? `${line} Tagline: “${tagline.trim()}”` : line;
+}
+
+/**
+ * The assistant's opener for the booking-form step, from what the read found:
+ * a form copied from the site (`formFound`, or — for a job from before the
+ * flag — questions seeded), or none, in which case the step opens empty and
+ * asks the owner to describe it.
+ */
+function bookingIntro(
+  manual: boolean,
+  report: { seededFields?: number; formFound?: boolean; formScreens?: number } | null,
+): string {
+  const found = !manual && !!report && (report.formFound ?? (report.seededFields ?? 0) > 0);
+  if (!found) {
+    return "I couldn't find a booking form on your site to copy, so it's empty. What do you need to know from a customer to book them? Tell me the questions in order and I'll build it.";
+  }
+  const k = report?.seededFields ?? 0;
+  const m = report?.formScreens;
+  const screens = m ? ` on ${m} screen${m === 1 ? "" : "s"}` : "";
+  return `I copied your booking form from your site — ${k} question${k === 1 ? "" : "s"}${screens}, in the same order. Try it, then tell me what to change.`;
 }
 
 function knowledgeSummary(picked: string[]): string {
@@ -436,6 +468,9 @@ export function OnboardingFlow() {
         setTone(String(b.tone ?? ""));
         go("review-theme");
       }
+      if (step === "booking-running" && s.phase === "booking-done") {
+        go("review-booking");
+      }
     }, 1500);
     return () => clearInterval(t);
   }, [jobId, running, step, go]);
@@ -595,12 +630,31 @@ export function OnboardingFlow() {
       setBusy(false);
       return;
     }
+    const summary = themeSummary(v("themeBodyFont"), v("themeRadius"), tagline);
+    if (manual) {
+      // No site to read: the booking form on file is shown as it stands.
+      go("review-booking", summary);
+    } else {
+      await post("/api/admin/onboarding/advance", { jobId, stage: "booking" });
+      go("booking-running", summary);
+    }
+    setBusy(false);
+  }
+
+  /**
+   * The booking form is right. On the site path the knowledge pick is the
+   * last step; on the manual path there is nothing to extract, so this is
+   * where setup completes.
+   */
+  async function finishBookingForm(summary: string) {
+    setBusy(true);
+    setError("");
     if (manual) {
       await post("/api/admin/onboarding/complete", { mode: "manual" });
       router.push("/admin/chat");
       return;
     }
-    go("select-knowledge", themeSummary(v("themeBodyFont"), v("themeRadius"), tagline));
+    go("select-knowledge", summary);
     setBusy(false);
   }
 
@@ -996,6 +1050,33 @@ export function OnboardingFlow() {
                   {busy ? "Saving…" : "Done — use this theme"}
                 </button>
               </form>
+            </UserEntry>
+          ))}
+        </>
+      )}
+
+      {shown("booking-running") && (
+        <Bubble who="assistant">
+          <p style={{ margin: "0 0 10px" }}>
+            <Typewriter text="Saved. Now your booking form — I'm reading your services and your booking page to build it." />
+          </p>
+          <ActivityStream lines={linesFor("booking-running")} progress={progressFor("booking-running")} />
+        </Bubble>
+      )}
+
+      {shown("review-booking") && (
+        <>
+          <Bubble who="assistant">
+            <p style={{ margin: 0 }}>
+              <Typewriter
+                text={bookingIntro(manual, status?.stepBooking?.report ?? null)}
+                onDone={() => setTextDone(true)}
+              />
+            </p>
+          </Bubble>
+          {answer("review-booking", (
+            <UserEntry maxWidth={680}>
+              <BookingFormStep onDone={(summary) => void finishBookingForm(summary)} busy={busy} />
             </UserEntry>
           ))}
         </>

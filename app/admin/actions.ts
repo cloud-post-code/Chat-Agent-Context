@@ -29,13 +29,15 @@ import {
 } from "@/lib/accountAdmin";
 import { createUser, provisionUserDefaults } from "@/lib/users";
 import {
-  cancelAppointment,
   deleteAppointmentField,
+  getBookingConfig,
   moveAppointmentField,
+  renumberScreens,
   saveAppointmentField,
   setBookingEnabled,
+  setFieldScreen,
 } from "@/lib/appointments";
-import { parseOptionLines } from "@/lib/appointmentTypes";
+import { isFieldRole, parseOptionLines } from "@/lib/appointmentTypes";
 import {
   saveService,
   deleteService,
@@ -46,10 +48,12 @@ import {
   saveLocation,
   deleteLocation,
   moveLocation,
+  getBookingSettings,
   saveBookingSettings,
   setBookingStatus,
 } from "@/lib/booking/store";
-import { CUSTOMER_FIELD_KEYS, type Pricing, type Deposit, type ServiceMode, type LocationKind } from "@/lib/booking/types";
+import { sanitizeFlow, type Pricing, type Deposit, type ServiceMode, type LocationKind } from "@/lib/booking/types";
+import { flowFromIds, insertScreenAfter, remapFlowScreens, screenRenumbering, stepFromId } from "@/lib/booking/flowEdit";
 import {
   parseVariantLines,
   parseAddonLines,
@@ -60,6 +64,7 @@ import {
 } from "./booking/lines";
 import { hoursFromForm, numOrUndef, intOrUndef, intOr, strOrUndef, listOf } from "./booking/forms";
 import { refreshServicesFromSite } from "@/lib/onboarding/refreshServices";
+import { isPublicTarget } from "@/lib/onboarding/netGuard";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
@@ -1365,11 +1370,14 @@ export async function saveAppointmentFieldAction(formData: FormData) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const role = formData.get("role");
   await saveAppointmentField(user.id, {
     key: String(formData.get("key") ?? "") || undefined,
     label: String(formData.get("label") ?? ""),
     type: String(formData.get("type") ?? "short_text"),
     required: formData.get("required") === "on",
+    role: isFieldRole(role) ? role : undefined,
+    screen: int("screen"),
     config: {
       options: parseOptionLines(String(formData.get("options") ?? "")),
       allowOther: formData.get("allowOther") === "on",
@@ -1377,6 +1385,8 @@ export async function saveAppointmentFieldAction(formData: FormData) {
       max: int("max"),
       text: String(formData.get("waiverText") ?? "") || undefined,
       showIf: showIfKey ? { key: showIfKey, values: showIfValues } : undefined,
+      placeholder: String(formData.get("placeholder") ?? "").trim() || undefined,
+      help: String(formData.get("help") ?? "").trim() || undefined,
     },
   });
   revalidateAll();
@@ -1395,16 +1405,96 @@ export async function moveAppointmentFieldAction(formData: FormData) {
   revalidateAll();
 }
 
+/**
+ * The Form panel's step order, posted whole. Form data: `steps` — a JSON
+ * array of step ids (`service|provider|location|time|screen:<n>|review`) in
+ * the order to ask them — or, without it, one `step` input per id in order;
+ * plus `title:<id>` inputs (`title:screen:2`, `title:review`) for the heading
+ * a step shows. A title left out keeps the stored one; posted empty, it is
+ * cleared. `sanitizeFlow` settles the rest: one review, last; a screen the
+ * post forgets is asked before review.
+ */
+export async function saveBookingFlowAction(formData: FormData) {
+  const user = await requireUser();
+  const [settings, config] = await Promise.all([getBookingSettings(user.id), getBookingConfig(user.id)]);
+  let ids: string[] = [];
+  const raw = String(formData.get("steps") ?? "").trim();
+  if (raw) {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (Array.isArray(parsed)) ids = parsed.filter((v): v is string => typeof v === "string");
+    } catch {
+      ids = [];
+    }
+  } else {
+    ids = formData.getAll("step").map((v) => String(v));
+  }
+  const titles: Record<string, string> = {};
+  for (const [name, value] of formData.entries()) {
+    if (!name.startsWith("title:") || typeof value !== "string") continue;
+    const id = name.slice("title:".length);
+    if (stepFromId(id)) titles[id] = value;
+  }
+  const previous = sanitizeFlow(settings.flow, config.fields);
+  // Nothing posted but titles: keep the order as it is.
+  const order = ids.length ? ids : previous.map((s) => (s.kind === "questions" ? `screen:${s.screen}` : s.kind));
+  const flow = sanitizeFlow(flowFromIds(order, titles, previous), config.fields);
+  await saveBookingSettings(user.id, { flow });
+  revalidateAll();
+}
+
+/**
+ * Put a question on another screen. Form data: `key` and `mode` — `new`
+ * starts a screen at this question (it and every later question on its
+ * screen move to a fresh screen, asked right after the one they left);
+ * `previous` joins the screen of the question just before it in order; a
+ * number is that screen. Screens are renumbered 1..m by first appearance
+ * afterwards, and the flow's screen references follow the renumbering so no
+ * step ends up asking the wrong screen.
+ */
+export async function setFieldScreenAction(formData: FormData) {
+  const user = await requireUser();
+  const key = String(formData.get("key") ?? "");
+  const mode = String(formData.get("mode") ?? "").trim();
+  const [settings, config] = await Promise.all([getBookingSettings(user.id), getBookingConfig(user.id)]);
+  const fields = config.fields;
+  const i = fields.findIndex((f) => f.key === key);
+  if (i < 0) return;
+  let flow = sanitizeFlow(settings.flow, fields);
+  const from = fields[i].screen;
+
+  if (mode === "new") {
+    const top = Math.max(0, ...fields.map((f) => f.screen));
+    const target = top + 1;
+    const moving = fields.slice(i).filter((f) => f.screen === from);
+    for (const f of moving) await setFieldScreen(user.id, f.key, target);
+    flow = insertScreenAfter(flow, from, target);
+  } else if (mode === "previous") {
+    if (i === 0) return;
+    await setFieldScreen(user.id, key, fields[i - 1].screen);
+  } else {
+    const screen = Number(mode);
+    if (!Number.isInteger(screen) || screen < 1) return;
+    await setFieldScreen(user.id, key, screen);
+  }
+
+  // The stored flow names screens by number; renumbering changes the
+  // numbers, so the flow is rewritten to match before the rows are.
+  const after = await prisma.appointmentField.findMany({
+    where: { userId: user.id },
+    orderBy: { order: "asc" },
+    select: { screen: true, order: true },
+  });
+  const mapping = screenRenumbering(after);
+  await saveBookingSettings(user.id, { flow: remapFlowScreens(flow, mapping) });
+  await renumberScreens(user.id);
+  revalidateAll();
+}
+
 export async function deleteOrderAction(formData: FormData) {
   const user = await requireUser();
   const { deleteOrder } = await import("@/lib/orders");
   await deleteOrder(user.id, String(formData.get("id") ?? ""));
-  revalidateAll();
-}
-
-export async function cancelAppointmentAction(formData: FormData) {
-  const user = await requireUser();
-  await cancelAppointment(user.id, String(formData.get("id") ?? ""));
   revalidateAll();
 }
 
@@ -1637,13 +1727,6 @@ export async function saveBookingSettingsAction(formData: FormData) {
     // The owner's word on confirmation outlives any later site read.
     patch.confirmation = formData.get("confirmation") === "request" ? "request" : "instant";
     patch.confirmationOwner = true;
-  } else if (section === "customer") {
-    patch.customerFields = CUSTOMER_FIELD_KEYS.map((key) => ({
-      key,
-      enabled: formData.get(`ask.${key}`) === "on",
-      required: formData.get(`required.${key}`) === "on",
-      label: String(formData.get(`label.${key}`) ?? ""),
-    }));
   } else if (section === "pricing") {
     const currencySelect = String(formData.get("currency") ?? "").trim().toUpperCase();
     const currencyOther = String(formData.get("currencyOther") ?? "").trim().toUpperCase();
@@ -1673,8 +1756,7 @@ export async function saveBookingSettingsAction(formData: FormData) {
   revalidateAll();
 }
 
-/** Cancel a booking — the richer Calendar's version of cancelAppointmentAction,
- *  for rows created through the new booking flow (lib/booking/store.ts). */
+/** Cancel a booking: the row keeps its status history (lib/booking/store.ts). */
 export async function cancelBookingAction(formData: FormData) {
   const user = await requireUser();
   const id = String(formData.get("id") ?? "");
@@ -1691,6 +1773,10 @@ export async function cancelBookingAction(formData: FormData) {
 export async function refreshServicesFromSiteAction(formData: FormData) {
   const user = await requireUser();
   const site = String(formData.get("site") ?? "").trim();
+  // A typed address the crawler will open: public internet only (netGuard.ts).
+  if (site && !(await isPublicTarget(site))) {
+    redirect(`/admin/dashboard?tab=booking-services&booking=${encodeURIComponent("That address isn't a public website.")}`);
+  }
   const result = await refreshServicesFromSite(user.id, () => {}, site || undefined);
   revalidateAll();
   const notice = result.ok

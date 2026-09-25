@@ -1,9 +1,8 @@
-import type { FieldConfig, FieldType } from "./appointmentTypes";
+import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
-import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
-import { priceFromText } from "./bookingMenu";
+import { SERVICES_SOURCE_TITLE, parseServiceCatalog, priceFromText } from "./serviceCatalog";
 import { getBookingFlow } from "./booking/store";
 import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
 import type { CartBlock, MenuBlock } from "./menu";
@@ -77,7 +76,7 @@ export type ServiceCard = {
   name: string;
   description: string;
   /** Present when the service comes from the live booking flow (a Service
-   *  row, or a legacy-derived one) rather than the plain knowledge catalog. */
+   *  row) rather than the plain knowledge catalog. */
   imageUrl?: string | null;
   priceLabel?: string;
   duration?: string;
@@ -85,13 +84,11 @@ export type ServiceCard = {
 };
 
 /**
- * What a services card needs to book from: the live wizard fields, and which
- * of them the chosen service pre-answers (null when the tenant asks no such
- * question, so the wizard opens with nothing filled in). `flow` carries the
- * full booking flow (services, staff, locations, rules) when one exists, so
- * the new flow-aware card can book straight through it.
+ * What a services card needs to book from: the form's fields, and the full
+ * booking flow (services, staff, locations, rules) the card books through
+ * with the tapped service already chosen.
  */
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow: BookingFlow | null };
+export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow | null };
 
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
@@ -128,15 +125,12 @@ export type UiBlock =
   // also carries "similar" neighbours, so the renderer can show those first
   // and bigger, the rest under a "Similar" label.
   | { type: "services"; title?: string; focusIds?: string[]; items: ServiceCard[]; booking: ServiceBooking | null }
-  // The booking wizard: one question per configured field, then a time, then
-  // a confirm. The fields ride in the block so the card asks exactly what the
-  // tenant configured at the moment it was drawn. `flow` is the full booking
-  // flow (services, staff, locations, rules) for the new flow-aware card;
-  // null on an old stored sample, which falls back to the intake-only wizard.
-  // `narrowed`/`allServicesCount` mark a flow whose services were narrowed to
-  // what the visitor was looking at, so the card can offer "See all services"
-  // rather than trapping them in a wrong guess.
-  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null; narrowed?: boolean; allServicesCount?: number }
+  // The booking conversation: the business's own steps and questions. The
+  // fields ride in the block so the card asks exactly what the tenant
+  // configured at the moment it was drawn. `flow` is the full booking flow
+  // (services, staff, locations, rules); null on an old stored sample, which
+  // the card fetches before drawing itself.
+  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null }
   // The menu — the whole thing grouped by section, or a curated list — and the
   // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
   // live with the visitor, so the cart block carries only how to check out.
@@ -224,62 +218,38 @@ export type BookingField = {
   type: FieldType;
   required: boolean;
   config: FieldConfig;
+  /** Which answer is the customer's name/email/phone (FIELD_ROLES). */
+  role: FieldRole;
+  /** Fields sharing a screen are asked together, in order. */
+  screen: number;
 };
 
-/** A flow whose `services` list is narrowed to exactly `serviceIds`, in the flow's own order. */
-function narrowFlowServices<T extends { services: { id: string }[] }>(flow: T, serviceIds: string[]): T {
-  const wanted = new Set(serviceIds);
-  return { ...flow, services: flow.services.filter((s) => wanted.has(s.id)) };
-}
-
 /**
- * The booking wizard, hydrated from the live config. Null when booking is
- * disabled or has no questions — the guard that keeps a stale canned answer
- * (or a model that saw the tool a moment ago) from drawing a broken booker.
+ * The booking block, hydrated from the live flow in one read. Null when
+ * booking is disabled, or when there is nothing to ask and nothing to sell —
+ * the guard that keeps a stale canned answer (or a model that saw the tool a
+ * moment ago) from drawing a broken booker. The fields are every field the
+ * form asks, role-tagged and screen-grouped, so the card walks the
+ * business's own form; the flow carries the order.
  *
- * `preselect` is a service id (or legacy service id) the visitor already
- * named — show_booking's `service`/`services`/`query` input, resolved by
- * brain.ts — carried into the flow's `preselect.serviceId` so the card can
- * skip straight past the service step.
- *
- * `serviceIds`, when given and non-empty after intersecting with the flow's
- * actual services, narrows `flow.services` to just those — presentation
- * only, the server recomputes from ids on submit. Nothing matched (an empty
- * intersection, or no ids at all) keeps the full list rather than trapping
- * the visitor in a wrong guess; the block reports which case it is via
- * `narrowed`/`allServicesCount` so the card can offer "See all services".
+ * `preselect` is a service id the visitor already named — show_booking's
+ * `service` input, resolved by brain.ts — carried into the flow's
+ * `preselect.serviceId` so the card can skip straight past the service step.
  */
-export async function bookingBlock(
-  userId: string,
-  opts: { preselect?: string | null; serviceIds?: string[] } = {},
-): Promise<UiBlock | null> {
-  const { getBookingConfig } = await import("./appointments");
-  const { enabled, fields } = await getBookingConfig(userId);
-  if (!enabled || fields.length === 0) return null;
-  const flowResult = await getBookingFlow(userId, { preselectServiceId: opts.preselect ?? null });
-  if (!flowResult) return { type: "booking", fields: hydrateFields(fields), flow: null };
-
-  const allServicesCount = flowResult.flow.services.length;
-  const wantedIds = (opts.serviceIds ?? []).filter(Boolean);
-  const narrowedFlow = wantedIds.length ? narrowFlowServices(flowResult.flow, wantedIds) : flowResult.flow;
-  const narrowed = wantedIds.length > 0 && narrowedFlow.services.length > 0;
-  const flow = narrowed ? narrowedFlow : flowResult.flow;
-  return {
-    type: "booking",
-    fields: hydrateFields(fields),
-    flow,
-    ...(wantedIds.length ? { narrowed, allServicesCount } : {}),
-  };
-}
-
-function hydrateFields(fields: { key: string; label: string; type: FieldType; required: boolean; config: FieldConfig }[]): BookingField[] {
-  return fields.map((f) => ({
+export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
+  const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
+  if (!flowResult) return null;
+  const fields: BookingField[] = flowResult.fields.map((f) => ({
     key: f.key,
     label: f.label,
     type: f.type,
     required: f.required,
     config: f.config,
+    role: f.role,
+    screen: f.screen,
   }));
+  if (fields.length === 0 && flowResult.flow.services.length === 0) return null;
+  return { type: "booking", fields, flow: flowResult.flow };
 }
 
 /** The tenant's services as saved knowledge; empty when none are on file. */
@@ -298,15 +268,6 @@ export async function listServices(userId: string): Promise<ServiceCard[]> {
     name: s.name,
     description: s.description,
   }));
-}
-
-/**
- * The question a chosen service pre-answers: the picker onboarding seeds
- * (key "service"), else the generic "reason" default. Anything else would be
- * guessing which of the tenant's questions a service name belongs in.
- */
-function serviceQuestionKey(fields: BookingField[]): string | null {
-  return (["service", "reason"] as const).find((k) => fields.some((f) => f.key === k)) ?? null;
 }
 
 /** A ServiceCard's own price, in serviceIndex's numeric form, for filtering/similarity. */
@@ -336,9 +297,7 @@ function toServiceMeta(c: ServiceCard): ServiceMeta {
  * price list.
  *
  * `input.similar` (0-4) appends the closest other services to the filtered
- * focus (see similarServices), and — when a filter was given — the block's
- * `booking.flow.services` is narrowed to exactly the shown items, so the
- * card's Book button opens on that set rather than the whole catalog.
+ * focus (see similarServices).
  */
 export async function servicesBlock(
   userId: string,
@@ -380,13 +339,12 @@ export async function servicesBlock(
   const focusIds = !isEmpty ? focusMeta.map((m) => m.id) : undefined;
   const title = str(input.title, MAX_TITLE) || undefined;
   const fields = booking?.type === "booking" ? booking.fields : null;
-  const narrowedFlow = flow && focusIds ? narrowFlowServices(flow, items.map((i) => i.id)) : flow;
   return {
     type: "services",
     title,
     focusIds,
     items,
-    booking: fields ? { fields, serviceKey: serviceQuestionKey(fields), flow: narrowedFlow } : null,
+    booking: fields ? { fields, flow } : null,
   };
 }
 

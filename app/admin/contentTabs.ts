@@ -45,7 +45,6 @@ export const BOOKING_TAB_KEYS = [
   "booking-providers",
   "booking-locations",
   "booking-hours",
-  "booking-customer",
   "booking-questions",
   "booking-pricing",
 ] as const;
@@ -105,8 +104,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: "booking-providers", label: "Providers" },
       { key: "booking-locations", label: "Locations" },
       { key: "booking-hours", label: "Hours" },
-      { key: "booking-customer", label: "Customer" },
-      { key: "booking-questions", label: "Questions" },
+      { key: "booking-questions", label: "Form" },
       { key: "booking-pricing", label: "Pricing" },
     ],
   },

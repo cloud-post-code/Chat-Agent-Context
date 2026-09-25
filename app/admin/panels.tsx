@@ -55,8 +55,7 @@ import { ServicesPanel } from "./booking/ServicesPanel";
 import { ProvidersPanel } from "./booking/ProvidersPanel";
 import { LocationsPanel } from "./booking/LocationsPanel";
 import { HoursPanel } from "./booking/HoursPanel";
-import { CustomerPanel } from "./booking/CustomerPanel";
-import { QuestionsPanel } from "./booking/QuestionsPanel";
+import { FormPanel } from "./booking/FormPanel";
 import { PricingPanel } from "./booking/PricingPanel";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { UsersPanel } from "./UsersPanel";
@@ -812,8 +811,17 @@ export async function buildAdminPanels(
   flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;
   flat["booking-locations"] = <LocationsPanel locations={locationList} services={services} />;
   flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
-  flat["booking-customer"] = <CustomerPanel settings={bookingSettings} />;
-  flat["booking-questions"] = <QuestionsPanel config={bookingConfig} />;
+  // Keyed "booking-questions" still, so `?tab=`, show_panel and the copilot's
+  // links keep working; the tab reads "Form".
+  flat["booking-questions"] = (
+    <FormPanel
+      config={bookingConfig}
+      settings={bookingSettings}
+      services={services}
+      staff={staffList}
+      locations={locationList}
+    />
+  );
   flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
   if (operator) {
     flat.users = (

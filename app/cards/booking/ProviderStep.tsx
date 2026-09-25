@@ -6,13 +6,10 @@ import { formatMoney } from "@/lib/booking/types";
 import { formatInZone } from "@/lib/booking/time";
 import { getAvailabilityMonth } from "./api";
 import { Badge, Chip, chipRow, linkBtn, liveBtn, PlaceholderImage, textBtn, Tile } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
-/** service.staffIds ∩ enabled staff, or every enabled provider when staffIds is empty. */
-export function providerCandidates(flow: BookingFlow, service: ServiceRow | null): StaffRow[] {
-  const enabled = flow.staff.filter((s) => s.enabled);
-  if (!service || service.staffIds.length === 0) return enabled;
-  return enabled.filter((s) => service.staffIds.includes(s.id));
-}
+import { providerCandidates } from "@/lib/booking/flowSteps";
+export { providerCandidates };
 
 export function ProviderStep({
   flow,
@@ -22,6 +19,8 @@ export function ProviderStep({
   slug,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
@@ -29,7 +28,12 @@ export function ProviderStep({
   setSelection: (s: BookingSelection) => void;
   slug: string;
   onNext: () => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
 }) {
   const all = useMemo(() => providerCandidates(flow, service), [flow, service]);
   const genders = useMemo(() => [...new Set(all.map((p) => p.genderLabel).filter(Boolean))], [all]);
@@ -72,7 +76,7 @@ export function ProviderStep({
   const canNext = flow.rules.staffSelection !== "required" || !!selection.staffId;
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {flow.rules.genderPreference && genders.length > 0 && (
         <div style={chipRow}>
           <Chip selected={!genderFilter} onClick={() => setGenderFilter("")}>
@@ -115,15 +119,19 @@ export function ProviderStep({
           />
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
-          Next
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
+            {nextLabel ?? "Next"}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

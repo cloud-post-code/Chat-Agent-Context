@@ -1,4 +1,5 @@
 import type { Page } from "./crawl";
+import { isPublicHostname } from "./netGuard";
 
 /**
  * The business's own booking page — where its real menu and its real booking
@@ -9,13 +10,13 @@ import type { Page } from "./crawl";
  */
 
 /** Hosts that are booking products: a link to one is a booking link whatever it says. */
-const BOOKING_HOSTS =
+export const BOOKING_HOSTS =
   /(^|\.)(gocheckin\.net|vagaro\.com|squareup\.com|square\.site|booksy\.com|fresha\.com|acuityscheduling\.com|as\.me|calendly\.com|mindbodyonline\.com|schedulicity\.com|setmore\.com|simplybook\.me|glossgenius\.com|styleseat\.com|opentable\.com|resy\.com|exploretock\.com|housecallpro\.com|jobber\.com|getjobber\.com|zenoti\.com|boulevard\.io|joinblvd\.com|genbook\.com|appointy\.com|cal\.com)$/i;
 // A trade's booking is a request: "Get a Quote", "Request Estimate".
 const BOOKING_WORDS =
   /\b(book(ing|ings)?|appointments?|schedul(e|ing)|reserv(e|ation|ations)|(get|request|free)[\w\s]{0,12}(quote|estimate)|(quote|estimate)[\s-]?(request|form)?)\b/i;
 /** Form products a business embeds its booking or quote form from. */
-const FORM_HOSTS =
+export const FORM_HOSTS =
   /(^|\.)(jotform\.com|typeform\.com|cleangenie\.com|leadconnectorhq\.com|msgsndr\.com|hsforms\.com|cognitoforms\.com|wufoo\.com|paperform\.co|tally\.so)$/i;
 /** A platform selling itself — "Powered by", ambassador and referral links — not a business's page on it. */
 const PLATFORM_ADVERT = /^\/(industries|features|pricing|blog|about|partners?|lp)?(\/|$)|[?&]utm_campaign=/i;
@@ -23,7 +24,11 @@ const PLATFORM_ADVERT = /^\/(industries|features|pricing|blog|about|partners?|lp
 const NOT_BOOKING =
   /(^|\.)(facebook\.com|instagram\.com|tiktok\.com|twitter\.com|x\.com|youtube\.com|linkedin\.com|pinterest\.com|yelp\.com|google\.com|goo\.gl|maps\.app\.goo\.gl)$/i;
 
-/** Public `https` hostnames only: no IP literals, no names that stay inside a network. */
+/**
+ * Public `https` hostnames only: no IP literals, no names that stay inside a
+ * network (netGuard.ts `isPublicHostname`). Syntactic — what the name
+ * resolves to is checked where the browser opens it (`isPublicTarget`).
+ */
 export function isSafeExternalUrl(url: string): boolean {
   let u: URL;
   try {
@@ -33,8 +38,24 @@ export function isSafeExternalUrl(url: string): boolean {
   }
   if (u.protocol !== "https:" || u.username || u.password) return false;
   const host = u.hostname.toLowerCase();
-  if (host.startsWith("[") || /^[\d.]+$/.test(host) || !host.includes(".")) return false;
-  return !/(^|\.)(localhost|local|internal|lan|home|corp|intranet)$/.test(host);
+  if (host.startsWith("[") || /^[\d.]+$/.test(host)) return false;
+  return isPublicHostname(host);
+}
+
+/**
+ * Whether a url the reader is on — the entered site itself, or the one
+ * offsite booking page — may be read: http(s) to a public hostname. The
+ * page's own origin gets no exemption: it is what the tenant typed.
+ */
+export function isReadableUrl(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || u.username || u.password) return false;
+  return isPublicHostname(u.hostname);
 }
 
 /**

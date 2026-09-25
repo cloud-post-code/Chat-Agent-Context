@@ -13,6 +13,8 @@
  * inside WeeklyHours, always in the business's own timezone.
  */
 
+import type { CustomerContact } from "../appointmentTypes";
+
 // ── Pricing ────────────────────────────────────────────────────────────────
 
 export const PRICING_KINDS = [
@@ -177,49 +179,34 @@ export type LocationRow = {
 
 // ── Customer information ───────────────────────────────────────────────────
 
-export const CUSTOMER_FIELD_KEYS = [
-  "firstName",
-  "lastName",
-  "email",
-  "phone",
-  "smsConsent",
-  "address",
-  "company",
-  "birthday",
-  "preferredContact",
-  "customerStatus",
-  "referralSource",
-  "notes",
-] as const;
-export type CustomerFieldKey = (typeof CUSTOMER_FIELD_KEYS)[number];
-/** The universal core: always asked. */
-export const CORE_CUSTOMER_KEYS: readonly CustomerFieldKey[] = ["firstName", "lastName", "email", "phone", "smsConsent"];
+/**
+ * The customer as the calendar, the confirmation and the .ics file read it,
+ * found through the form's role-tagged fields (lib/appointmentTypes.ts
+ * `customerFromAnswers`). A type-only import, so this module stays free of
+ * runtime imports for the client bundle.
+ */
+export type Customer = CustomerContact;
 
-export type CustomerFieldConfig = {
-  key: CustomerFieldKey;
-  enabled: boolean;
-  required: boolean;
-  /** Tenant's wording; empty = the default label. */
-  label: string;
+// ── The business's own flow ────────────────────────────────────────────────
+
+/**
+ * One step of the booking flow, in the business's own order. Engine steps
+ * (service, provider, location, time) are asked only when they have something
+ * to ask; `questions` asks the fields of one screen together; `review` is the
+ * one fixed element — always present, always last — because it is our submit
+ * UI. `options` is not a flow step: the card inserts it after `service` when
+ * the chosen service has variants, add-ons or a quantity.
+ */
+export const FLOW_KINDS = ["service", "provider", "location", "time", "questions", "review"] as const;
+export type FlowKind = (typeof FLOW_KINDS)[number];
+
+export type FlowStep = {
+  kind: FlowKind;
+  /** `questions` only: the screen whose fields this step asks. */
+  screen?: number;
+  /** The heading the business's form shows for this step; "" = none / the card's default. */
+  title?: string;
 };
-
-export const CUSTOMER_FIELD_LABELS: Record<CustomerFieldKey, string> = {
-  firstName: "First name",
-  lastName: "Last name",
-  email: "Email",
-  phone: "Phone",
-  smsConsent: "Text me appointment reminders",
-  address: "Address",
-  company: "Company",
-  birthday: "Birthday",
-  preferredContact: "Preferred contact method",
-  customerStatus: "Have you visited us before?",
-  referralSource: "How did you hear about us?",
-  notes: "Anything else we should know?",
-};
-
-/** What a visitor filled in; smsConsent is "yes" | "no". */
-export type Customer = Partial<Record<CustomerFieldKey, string>>;
 
 // ── Tenant-wide rules ──────────────────────────────────────────────────────
 
@@ -265,7 +252,12 @@ export type BookingSettings = {
   /** hidden: never asked. optional: "Anyone available" first. required: must pick a person. */
   staffSelection: "hidden" | "optional" | "required";
   genderPreference: boolean;
-  customerFields: CustomerFieldConfig[];
+  /**
+   * The business's own step order (FlowStep). Stored shape-only; resolved
+   * against the tenant's fields by `sanitizeFlow` when the flow is read.
+   * Empty = `defaultFlow(fields)`.
+   */
+  flow: FlowStep[];
   /** Percent. */
   taxRate: number;
   taxLabel: string;
@@ -674,27 +666,6 @@ export function sanitizeLocationConfig(raw: unknown): LocationConfig {
   };
 }
 
-export function sanitizeCustomerFields(raw: unknown): CustomerFieldConfig[] {
-  const given = new Map<string, Record<string, unknown>>();
-  for (const f of list(raw)) {
-    const src = obj(f);
-    if (typeof src.key === "string") given.set(src.key, src);
-  }
-  // Every key is always present so the admin form and the card iterate one
-  // list; the core five are always on, and firstName/email always required.
-  return CUSTOMER_FIELD_KEYS.map((key) => {
-    const src = given.get(key) ?? {};
-    const core = CORE_CUSTOMER_KEYS.includes(key);
-    const always = key === "firstName" || key === "email";
-    return {
-      key,
-      enabled: core ? true : bool(src.enabled, false),
-      required: always ? true : key === "smsConsent" ? false : bool(src.required, key === "lastName" || key === "phone"),
-      label: flat(src.label, 80),
-    };
-  });
-}
-
 export function sanitizePromoCodes(raw: unknown): PromoCode[] {
   const out: PromoCode[] = [];
   const seen = new Set<string>();
@@ -786,7 +757,7 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
     recurring: bool(src.recurring, false),
     staffSelection,
     genderPreference: bool(src.genderPreference, false),
-    customerFields: sanitizeCustomerFields(src.customerFields),
+    flow: sanitizeFlowShape(src.flow),
     taxRate: Math.min(100, Math.max(0, num(src.taxRate) ?? 0)),
     taxLabel: flat(src.taxLabel, 30) || "Tax",
     serviceFee:
@@ -813,6 +784,81 @@ export function sanitizeBookingSettings(raw: unknown): BookingSettings {
   };
 }
 
+/** Shape only: kinds whitelisted, titles flat, screens positive integers. No field knowledge. */
+export function sanitizeFlowShape(raw: unknown): FlowStep[] {
+  const out: FlowStep[] = [];
+  for (const item of list(raw).slice(0, 80)) {
+    const src = obj(item);
+    const kind = String(src.kind ?? "");
+    if (!(FLOW_KINDS as readonly string[]).includes(kind)) continue;
+    const step: FlowStep = { kind: kind as FlowKind };
+    const title = flat(src.title, 120);
+    if (title) step.title = title;
+    if (kind === "questions") {
+      const screen = num(src.screen);
+      if (screen === undefined || !Number.isInteger(screen) || screen < 1) continue;
+      step.screen = screen;
+    }
+    out.push(step);
+  }
+  return out;
+}
+
+/** Today's order: service → provider → location → time → each screen → review. */
+export function defaultFlow(fields: ReadonlyArray<{ screen: number }>): FlowStep[] {
+  const screens = [...new Set(fields.map((f) => f.screen))];
+  return [
+    { kind: "service" },
+    { kind: "provider" },
+    { kind: "location" },
+    { kind: "time" },
+    ...screens.map((screen): FlowStep => ({ kind: "questions", screen })),
+    { kind: "review" },
+  ];
+}
+
+/**
+ * A stored flow resolved against the tenant's fields. Never throws. Engine
+ * kinds are kept once each (first mention wins); a `questions` step whose
+ * screen has no field is dropped; a screen no step mentions gets a
+ * `questions` step before review, in field order; exactly one `review`,
+ * last. Nothing else is reordered — the order is the business's. An empty
+ * flow is `defaultFlow(fields)`.
+ */
+export function sanitizeFlow(raw: unknown, fields: ReadonlyArray<{ screen: number }>): FlowStep[] {
+  const given = Array.isArray(raw) ? sanitizeFlowShape(raw) : [];
+  if (!given.length) return defaultFlow(fields);
+  const screens = [...new Set(fields.map((f) => f.screen))];
+  const seenKinds = new Set<string>();
+  const seenScreens = new Set<number>();
+  let reviewTitle: string | undefined;
+  const out: FlowStep[] = [];
+  for (const step of given) {
+    if (step.kind === "review") {
+      if (reviewTitle === undefined) reviewTitle = step.title ?? "";
+      continue;
+    }
+    if (step.kind === "questions") {
+      const screen = step.screen ?? -1;
+      if (!screens.includes(screen) || seenScreens.has(screen)) continue;
+      seenScreens.add(screen);
+      out.push(step);
+      continue;
+    }
+    if (seenKinds.has(step.kind)) continue;
+    seenKinds.add(step.kind);
+    out.push(step);
+  }
+  for (const kind of ["service", "provider", "location", "time"] as const) {
+    if (!seenKinds.has(kind)) out.push({ kind });
+  }
+  for (const screen of screens) {
+    if (!seenScreens.has(screen)) out.push({ kind: "questions", screen });
+  }
+  out.push(reviewTitle ? { kind: "review", title: reviewTitle } : { kind: "review" });
+  return out;
+}
+
 export function publicRules(s: BookingSettings): BookingRules {
   const { promoCodes, ...rest } = s;
   return { ...rest, hasPromoCodes: promoCodes.length > 0 };
@@ -825,9 +871,11 @@ export function sanitizeSelection(raw: unknown): BookingSelection {
     rec.frequency === "weekly" || rec.frequency === "biweekly" || rec.frequency === "monthly"
       ? rec.frequency
       : null;
+  // A passthrough for the cards that still post contact details apart from
+  // the answers; createBooking folds them onto the role-tagged fields.
   const customer: Customer = {};
   const givenCustomer = obj(src.customer);
-  for (const key of CUSTOMER_FIELD_KEYS) {
+  for (const key of ["firstName", "lastName", "email", "phone", "notes"] as const) {
     const v = flat(givenCustomer[key], key === "notes" ? 1000 : 200);
     if (v) customer[key] = v;
   }

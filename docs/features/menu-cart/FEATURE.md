@@ -1,5 +1,14 @@
 # Feature — A menu you can order from: rich items, a cart, quantities, checkout
 
+> **Superseded / what changed (2026-09-26, custom-booking-form):**
+> `createAppointment`, named below as how a timed order lands on the
+> calendar, no longer exists — `lib/orders.ts` `bookFromOrder` now calls
+> `lib/booking/store.ts` `createBooking`, answering the tenant's own form by
+> its fields' roles instead of a fixed customer-details shape. Booking itself
+> is a conversation of cards down the chat now, not the single wizard "Book"
+> opened at the time this was written
+> ([`docs/features/booking-in-chat`](../booking-in-chat/FEATURE.md)).
+
 ## Summary
 
 Requested 2026-09-23. The `services` card lists names and descriptions with a

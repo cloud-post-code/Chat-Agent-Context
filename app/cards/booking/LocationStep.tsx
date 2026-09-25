@@ -5,20 +5,10 @@ import type { BookingFlow, BookingSelection, LocationRow, ServiceRow } from "@/l
 import { formatMoney } from "@/lib/booking/types";
 import { zonedParts } from "@/lib/booking/time";
 import { inputStyle, linkBtn, liveBtn, sectionLabel, Tile } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
-/** Enabled locations the service offers; service.locationIds empty = every enabled location. */
-export function offeringLocations(flow: BookingFlow, service: ServiceRow | null): LocationRow[] {
-  const enabled = flow.locations.filter((l) => l.enabled);
-  if (!service || service.locationIds.length === 0) return enabled;
-  return enabled.filter((l) => service.locationIds.includes(l.id));
-}
-
-/** Whether the location step has anything real to ask. */
-export function locationChoiceReal(flow: BookingFlow, service: ServiceRow | null): boolean {
-  const offering = offeringLocations(flow, service);
-  const modes = service?.modes ?? [];
-  return offering.length > 1 || modes.includes("online") || modes.includes("mobile");
-}
+import { offeringLocations } from "@/lib/booking/flowSteps";
+export { offeringLocations, locationChoiceReal } from "@/lib/booking/flowSteps";
 
 function todaysHours(loc: LocationRow, flow: BookingFlow): string {
   const hours = loc.hours ?? flow.rules.hours;
@@ -35,13 +25,20 @@ export function LocationStep({
   setSelection,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
   selection: BookingSelection;
   setSelection: (s: BookingSelection) => void;
   onNext: () => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
 }) {
   const businesses = offeringLocations(flow, service).filter((l) => l.kind === "business");
   const modes = service?.modes ?? [];
@@ -71,7 +68,7 @@ export function LocationStep({
   const canNext = selection.mode === "online" || selection.mode === "mobile" || !!selection.locationId || businesses.length === 0;
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {businesses.length > 0 && (
         <div role="radiogroup" aria-label="Locations" style={{ marginBottom: 12 }}>
           {businesses.map((loc) => (
@@ -117,14 +114,18 @@ export function LocationStep({
           </button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
-          Next
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
+            {nextLabel ?? "Next"}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }

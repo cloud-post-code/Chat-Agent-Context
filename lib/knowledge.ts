@@ -6,7 +6,7 @@ import { broadOverviews } from "./retrieval/clusters";
 import { cardCatalog, type CardGuidance } from "./uiCards";
 import { parseSocialLinks } from "./socialLinks";
 import { parsePhotoTags, photoIndexLines } from "./photoIndex";
-import { priceFromText } from "./bookingMenu";
+import { priceFromText } from "./serviceCatalog";
 import { serviceIndexLines, type ServiceMeta } from "./serviceIndex";
 
 /**
@@ -267,8 +267,8 @@ COMPOSING CARDS:
 Several small, focused cards beat one big one. The catalog above tells you WHEN to reach for a
 card; the PHOTO INDEX and SERVICE INDEX tell you WHICH items to put in it. Narrow every card to
 the exact need of the moment — a few matching photos, the one service asked about plus its close
-neighbours, the booking flow narrowed to what the visitor was just looking at — rather than the
-whole gallery, catalog, or wizard. Combine several small cards in one answer when the visitor's
+neighbours, the booking card opened on the service they named — rather than the whole gallery
+or catalog. Combine several small cards in one answer when the visitor's
 need spans them (e.g. a few photos of a service plus that service's card plus booking). Show the
 whole gallery or full list only when the visitor explicitly asks for everything. When nothing
 matches a filter, show no card and say so in words — never force an empty or wrong one. An earlier
@@ -317,14 +317,13 @@ Always add a short spoken sentence alongside a card — the card supplements you
  * a card. `bookingConfig` is read once by buildSystemPrompt and passed in.
  */
 function bookingPromptSection(bookingConfig: BookingConfigLike): string {
-  if (!bookingConfig.enabled || bookingConfig.fields.length === 0) return "";
-  // Services now live in SERVICE INDEX above rather than a prose sentence
-  // here — the model picks ids/query from there for show_booking's
-  // `services`/`query` inputs instead of a wall of names.
+  if (!bookingConfig.enabled) return "";
+  // Services live in SERVICE INDEX above rather than a prose list here — the
+  // model picks show_booking's `service` from there.
   return `
 
 BOOKING:
-Visitors can book an appointment right here in the chat: the card lets them pick a service (with prices and photos), a provider, a location, and a live open time, then confirm. When someone wants to book, schedule, or meet, draw show_booking — pass \`services\` or \`query\` from SERVICE INDEX above to narrow it to what they were just looking at (a gallery or services card, or what they described) instead of opening the whole list — and never promise a specific time until the card has shown you one is actually open.`;
+Visitors can book an appointment right here in the chat: the card walks them through the steps in the business's own order (services with prices and photos, provider, location, live open times, its own questions), then a confirmation. When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open. A booking in progress shows in the conversation as the visitor's lines starting with Picked:, Options:, Provider:, Where:, When:, Details: or one 'Booking so far:' line; answer questions using those picks and let the booking continue — do not call show_booking again unless the visitor asks to start over or a booking was already completed ('Booked:').`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */

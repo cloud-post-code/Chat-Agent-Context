@@ -1,5 +1,17 @@
 # Booking on by default, seeded from services extraction, living on Calendar
 
+> **Superseded / what changed (2026-09-26, custom-booking-form):** the
+> extraction this feature seeded a form from is gone — onboarding now copies
+> the business's own booking page verbatim (`lib/onboarding/formReader.ts` +
+> `formTranscribe.ts` + `lib/booking/formSpec.ts`) instead of planning
+> questions per business kind. `createAppointment`, named throughout below as
+> the booking write path, no longer exists: every booking, timed or not, goes
+> through `lib/booking/store.ts` `createBooking`. The visitor-facing "wizard"
+> is now a conversation of cards down the chat
+> ([`docs/features/booking-in-chat`](../booking-in-chat/FEATURE.md)). The
+> problem this feature fixed — booking off by default, with nothing seeded —
+> is unchanged history below.
+
 ## Problem
 
 Three defects, one surface.

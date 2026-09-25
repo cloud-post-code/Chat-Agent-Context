@@ -108,9 +108,9 @@ export async function createOrder(userId: string, input: OrderInput): Promise<Cr
 
 /**
  * A timed order is a booking too: put it on the calendar through the real
- * `createAppointment`, answering the tenant's questions with what the order
- * knows. Best-effort — a form that asks something the order can't answer
- * simply gets no calendar entry; the order itself is already saved.
+ * `createBooking`, answering the tenant's form by the fields' roles with what
+ * the order knows. Best-effort — a form that asks something the order can't
+ * answer simply gets no calendar entry; the order itself is already saved.
  */
 async function bookFromOrder(
   userId: string,
@@ -120,24 +120,36 @@ async function bookFromOrder(
   notes: string,
 ): Promise<string | null> {
   try {
-    const { createAppointment, getBookingConfig } = await import("./appointments");
+    const { getBookingConfig } = await import("./appointments");
+    const { createBooking } = await import("./booking/store");
+    const { sanitizeSelection } = await import("./booking/types");
     const { enabled, fields } = await getBookingConfig(userId);
     if (!enabled || !fields.length) return null;
     const summary = lines
       .map((l) => `${l.quantity} × ${l.name}${l.choices.length ? ` (${l.choices.flatMap((c) => c.picks).join(", ")})` : ""}`)
       .join(", ");
+    const at = contact.name.indexOf(" ");
+    const firstName = at < 0 ? contact.name : contact.name.slice(0, at);
+    const lastName = at < 0 ? "" : contact.name.slice(at + 1).trim();
     const answers: Record<string, unknown> = {};
     for (const f of fields) {
-      if (f.type === "email" && contact.email) answers[f.key] = contact.email;
-      else if (f.type === "phone" && contact.phone) answers[f.key] = contact.phone;
-      else if (f.key === "name" || /\bname\b/i.test(f.label)) answers[f.key] = contact.name;
+      if (f.role === "name") answers[f.key] = contact.name;
+      else if (f.role === "first_name") answers[f.key] = firstName;
+      else if (f.role === "last_name" && lastName) answers[f.key] = lastName;
+      else if (f.role === "email" && contact.email) answers[f.key] = contact.email;
+      else if (f.role === "phone" && contact.phone) answers[f.key] = contact.phone;
+      else if (f.role === "notes") answers[f.key] = [summary, notes].filter(Boolean).join("\n");
       else if (f.type === "multi_select" || f.type === "select") {
+        // A menu question whose options are the order's lines: the picks are the answer.
         const picks = lines.map((l) => l.name).filter((n) => f.config.options?.some((o) => o.label.toLowerCase() === n.toLowerCase()));
         if (picks.length) answers[f.key] = f.type === "select" ? [picks[0]] : picks;
         else if (f.config.allowOther) answers[f.key] = [summary.slice(0, 200)];
-      } else if (f.type === "long_text") answers[f.key] = [summary, notes].filter(Boolean).join("\n");
+      }
     }
-    const result = await createAppointment(userId, { startsAt: startsAt.toISOString(), answers });
+    const result = await createBooking(
+      userId,
+      sanitizeSelection({ serviceId: null, startsAt: startsAt.toISOString(), answers, customer: {} }),
+    );
     return result.ok ? result.id : null;
   } catch {
     return null;
