@@ -2,6 +2,7 @@ import { prisma } from "@/lib/db";
 import { mapPool } from "@/lib/pool";
 import { createBulkAccount } from "@/lib/bulkAccounts";
 import { saveOnboardingReview } from "@/lib/onboarding/save";
+import { isPublicHostname } from "@/lib/onboarding/netGuard";
 import type { Job } from "@/lib/onboarding/jobs";
 
 /**
@@ -119,6 +120,10 @@ function normalizeUrl(raw: string): string | null {
     return null;
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return null;
+  // A pasted address that names something inside the network is not a site to
+  // build (netGuard.ts). Syntactic here — parseLinks is synchronous; what the
+  // name resolves to is checked when the crawler opens it (isPublicTarget).
+  if (!isPublicHostname(u.hostname) || u.username || u.password) return null;
   u.hostname = u.hostname.toLowerCase();
   u.hash = "";
   let str = u.toString();

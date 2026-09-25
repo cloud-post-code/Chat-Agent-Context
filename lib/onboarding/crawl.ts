@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
 import { isSafeExternalUrl } from "./bookingPage";
+import { isPublicHostname, isPublicTarget } from "./netGuard";
 import { createLimiter, onboardingConcurrency, type Limiter } from "./pool";
 
 /**
@@ -157,12 +158,61 @@ const renderDigest = `(() => {
   };
 })()`;
 
+type Browser = import("playwright").Browser;
+type BrowserContext = import("playwright").BrowserContext;
+type BrowserPage = import("playwright").Page;
+
+/** Whether the browser may make this request: http(s) to a public host (netGuard.ts). */
+async function requestAllowed(url: string): Promise<boolean> {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return false;
+  }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+  if (!isPublicHostname(u.hostname)) return false;
+  return isPublicTarget(url);
+}
+
+/**
+ * A browser context held to the network policy, and one page in it. Every
+ * request the page (or any frame, worker or redirect in it) makes goes through
+ * `requestAllowed`: anything else is aborted, which a page sees as a failed
+ * load, never as an exception here. Downloads are refused, service workers
+ * blocked, popups closed as they open, and dialogs dismissed so a page can't
+ * hold the read. The caller closes the context.
+ */
+export async function guardedContext(browser: Browser): Promise<{ context: BrowserContext; page: BrowserPage }> {
+  const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
+  await context.route("**/*", async (route) => {
+    let ok = false;
+    try {
+      ok = await requestAllowed(route.request().url());
+    } catch {
+      ok = false;
+    }
+    try {
+      if (ok) await route.continue();
+      else await route.abort("blockedbyclient");
+    } catch {
+      // The context closed under the request; nothing to answer.
+    }
+  });
+  const page = await context.newPage();
+  context.on("page", (p) => {
+    if (p !== page) p.close().catch(() => {});
+  });
+  page.on("dialog", (d) => d.dismiss().catch(() => {}));
+  return { context, page };
+}
+
 export class Crawler {
   readonly origin: string;
   private cache = new Map<string, Page | null>();
   /** Renders under way, so two agents asking for one url share one tab. */
   private inflight = new Map<string, Promise<Page | null>>();
-  private launching: Promise<import("playwright").Browser> | null = null;
+  private launching: Promise<Browser> | null = null;
   private closed = false;
   /** Caps open tabs across every agent sharing this crawler: the extractors
    *  run side by side, and each one fans its own page loads out too. */
@@ -190,7 +240,7 @@ export class Crawler {
 
   /** Launch the browser once. Concurrent first loads share the one launch —
    *  each launching its own would leak every browser but the last. */
-  private launch(): Promise<import("playwright").Browser> {
+  private launch(): Promise<Browser> {
     this.launching ??= (async () => {
       // Playwright's import self-checks the Node version and can hard-exit
       // the process on <20 — never even import it there (deploy safety).
@@ -211,11 +261,11 @@ export class Crawler {
     return this.launching;
   }
 
-  /** A fresh tab, or null when the crawler was closed while the browser was
-   *  still launching. */
-  private async page(): Promise<import("playwright").Page | null> {
+  /** A fresh guarded context with one tab, or null when the crawler was
+   *  closed while the browser was still launching. */
+  private async tab(): Promise<{ context: BrowserContext; page: BrowserPage } | null> {
     const browser = await this.launch();
-    return this.closed ? null : browser.newPage();
+    return this.closed ? null : guardedContext(browser);
   }
 
   /** Render one on-domain page as parsed HTML. Cached; null when the page
@@ -256,8 +306,9 @@ export class Crawler {
 
     let html: string | null = null;
     let rendered: Rendered | undefined;
-    const p = await this.page();
-    if (!p) return null;
+    const tab = await this.tab();
+    if (!tab) return null;
+    const p = tab.page;
     try {
       const res = await p.goto(abs, { waitUntil: "domcontentloaded", timeout: 15_000 });
       if (res && res.ok()) {
@@ -277,7 +328,7 @@ export class Crawler {
     } catch {
       html = null;
     } finally {
-      await p.close().catch(() => {});
+      await tab.context.close().catch(() => {});
     }
 
     const page = html !== null ? { url: abs, html, $: cheerio.load(html), rendered } : null;
@@ -290,25 +341,31 @@ export class Crawler {
    * context (its own cookies and storage, so a booking widget's session never
    * leaks into the site crawl) and may click through it — this is how the form
    * reader (formReader.ts) walks a widget's screens. Held to the same url
-   * policy as loads: the site's own origin or a public https host. Shares the
+   * policy as loads: the site's own origin or a public https host, and either
+   * way a host that resolves to the public internet (netGuard.ts) — the site's
+   * own origin is not trusted for that, since it is what the tenant typed.
+   * The context is guarded the way renders are (guardedContext). Shares the
    * tab limiter with renders. Never throws: null once closed, on a refused url,
    * or when the browser or `fn` fails, with the reason reported through onEvent.
    */
-  async drive<T>(url: string, fn: (page: import("playwright").Page) => Promise<T>): Promise<T | null> {
+  async drive<T>(url: string, fn: (page: BrowserPage) => Promise<T>): Promise<T | null> {
     if (!this.resolve(url) && !isSafeExternalUrl(url)) {
       this.onEvent?.(`Not driving ${url.slice(0, 120)}: not a public https page`);
+      return null;
+    }
+    if (!(await isPublicTarget(url))) {
+      this.onEvent?.(`Not driving ${url.slice(0, 120)}: not a public website`);
       return null;
     }
     if (this.closed) return null;
     return this.limit(async () => {
       if (this.closed) return null;
-      let context: import("playwright").BrowserContext | null = null;
+      let context: BrowserContext | null = null;
       try {
-        const browser = await this.launch();
-        if (this.closed) return null;
-        context = await browser.newContext();
-        const page = await context.newPage();
-        return await fn(page);
+        const tab = await this.tab();
+        if (!tab) return null;
+        context = tab.context;
+        return await fn(tab.page);
       } catch (err) {
         const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
         this.onEvent?.(`Could not drive ${url.slice(0, 120)}: ${msg}`);
