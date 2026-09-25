@@ -1,10 +1,12 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
-import { Cards, type UiBlock } from "./cards/Cards";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { UiBlock } from "./cards/Cards";
 import { CartProvider, cartSummary, useCart } from "./cards/cart";
+import { BookingSessionsProvider } from "./cards/booking/session";
 import type { MenuItemData } from "@/lib/menuTypes";
-import { Markdown } from "./Markdown";
+import { Bubble } from "./ChatBubble";
+import { ChatThreadContext, mergeMessages, type ChatThread } from "./ChatThread";
 import {
   listChats,
   loadMessages,
@@ -12,14 +14,12 @@ import {
   deleteChat,
   newChatId,
   type ChatMeta,
+  type StoredMsg,
 } from "@/lib/chatStore";
+import { ensureBookingSessionIds, foldBookingLines } from "@/lib/booking/session";
 import { CHIP_COUNT, chipLabel } from "@/lib/chipLabel";
 
-type Msg = {
-  role: "user" | "assistant";
-  content: string;
-  cards?: UiBlock[];
-};
+type Msg = StoredMsg;
 /** `q` is the whole question a tap sends; `label` is the tab's short text. */
 type Starter = { q: string; label?: string };
 type HomePhoto = { src: string; alt: string };
@@ -46,11 +46,17 @@ type ChatProps = {
   photos?: HomePhoto[];
 };
 
-/** The visitor's cart wraps the whole chat: every menu and cart card shares it. */
+/**
+ * The visitor's cart and booking sessions wrap the whole chat: every menu and
+ * cart card shares the one cart, every card of a booking session shares its
+ * one selection.
+ */
 export default function Chat(props: ChatProps) {
   return (
     <CartProvider slug={props.slug}>
-      <ChatInner {...props} />
+      <BookingSessionsProvider slug={props.slug}>
+        <ChatInner {...props} />
+      </BookingSessionsProvider>
     </CartProvider>
   );
 }
@@ -58,6 +64,19 @@ export default function Chat(props: ChatProps) {
 function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatProps) {
   const cart = useCart();
   const [messages, setMessages] = useState<Msg[]>([]);
+  // A synchronous mirror of the message list, so a card that appends two
+  // messages in one handler sees the first when it adds the second. Every
+  // change goes through setMsgs, which updates the mirror before React.
+  const messagesRef = useRef<Msg[]>([]);
+  const setMsgs = useCallback((fn: (m: Msg[]) => Msg[]) => {
+    const next = fn(messagesRef.current);
+    messagesRef.current = next;
+    setMessages(next);
+  }, []);
+  // Bumped when a typed intro finishes and its card mounts: the thread scrolls again.
+  const [settled, setSettled] = useState(0);
+  // The assistant message a stream is filling right now; its bubble shows the dots.
+  const [pendingId, setPendingId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [chats, setChats] = useState<ChatMeta[]>([]);
@@ -99,17 +118,35 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
     const s = store();
     if (!s) return;
     setChatId(id);
-    setMessages(loadMessages(s, slug, id));
+    // Booking blocks saved before session ids existed get one now; the save
+    // effect writes them back.
+    const { msgs } = ensureBookingSessionIds(loadMessages(s, slug, id), newChatId);
+    setMsgs(() => msgs);
     setInput("");
     setSidebarOpen(false);
   }
 
   function startNewChat() {
     setChatId(newChatId());
-    setMessages([]);
+    setMsgs(() => []);
     setInput("");
     setSidebarOpen(false);
   }
+
+  // What a card may do to the conversation it sits in (app/ChatThread.tsx).
+  const thread = useMemo<ChatThread>(
+    () => ({
+      chatId,
+      slug,
+      appendMessages: (incoming) => setMsgs((m) => mergeMessages(m, incoming)),
+      rewriteMessage: (id, patch) => setMsgs((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x))),
+      removeMessages: (pred) => setMsgs((m) => m.filter((x) => !pred(x))),
+      has: (id) => messagesRef.current.some((x) => x.id === id),
+      snapshot: () => messagesRef.current,
+      scrollToEnd: () => setSettled((n) => n + 1),
+    }),
+    [chatId, slug, setMsgs],
+  );
 
   function removeChat(id: string) {
     const s = store();
@@ -131,23 +168,26 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
-  }, [messages, loading]);
+  }, [messages, loading, settled]);
 
   async function send(text: string) {
     const q = text.trim();
     if (!q || loading) return;
     setInput("");
-    const next: Msg[] = [...messages, { role: "user", content: q }];
-    setMessages(next);
+    const next: Msg[] = [...messagesRef.current, { id: newChatId(), role: "user", content: q }];
+    setMsgs(() => next);
     setLoading(true);
-    setMessages((m) => [...m, { role: "assistant", content: "", cards: [] }]);
+    const aid = newChatId();
+    setPendingId(aid);
+    setMsgs((m) => [...m, { id: aid, role: "assistant", content: "", cards: [] }]);
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          messages: next.map(({ role, content }) => ({ role, content })),
+          // A booking in progress reads as one "Booking so far" line; no empty turns.
+          messages: foldBookingLines(next),
           sessionId: chatId,
           slug,
           // Names and counts only, so the agent can talk about the cart.
@@ -171,8 +211,13 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
           try {
             const obj = JSON.parse(l);
             if (obj.t === "text") acc += obj.v;
-            else if (obj.t === "card") cards.push(obj.v);
-            else if (obj.t === "cart" && obj.v?.op === "add" && obj.v.item?.key) {
+            else if (obj.t === "card") {
+              const card = obj.v as UiBlock;
+              // The server's booking block is the start of a session; the
+              // session id is the client's to give, so it is unique here.
+              if (card?.type === "booking" && !card.sessionId) card.sessionId = newChatId();
+              cards.push(card);
+            } else if (obj.t === "cart" && obj.v?.op === "add" && obj.v.item?.key) {
               // The agent added something (add_to_cart): the cart is the
               // visitor's, so it changes here, on their page.
               cart.store.add(obj.v.item as MenuItemData, Number(obj.v.quantity) || 1);
@@ -181,11 +226,9 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
             /* partial line — ignore */
           }
         }
-        setMessages((m) => {
-          const copy = [...m];
-          copy[copy.length - 1] = { role: "assistant", content: acc, cards: [...cards] };
-          return copy;
-        });
+        // By id, not position: a booking card may have appended its next
+        // step below the answer while it was still streaming.
+        setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, content: acc, cards: [...cards] } : x)));
       };
 
       for (;;) {
@@ -194,18 +237,21 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         flush(decoder.decode(value, { stream: true }));
       }
     } catch {
-      setMessages((m) => {
-        const copy = [...m];
-        copy[copy.length - 1] = {
-          role: "assistant",
-          content:
-            "Hmm, I hit a snag reaching my brain (the API). Try again in a moment — or use the contact info on this page.",
-          cards: [],
-        };
-        return copy;
-      });
+      setMsgs((m) =>
+        m.map((x) =>
+          x.id === aid
+            ? {
+                ...x,
+                content:
+                  "Hmm, I hit a snag reaching my brain (the API). Try again in a moment — or use the contact info on this page.",
+                cards: [],
+              }
+            : x,
+        ),
+      );
     } finally {
       setLoading(false);
+      setPendingId(null);
     }
   }
 
@@ -218,6 +264,7 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
   const showSidebarToggle = chats.length > 0 || started;
 
   return (
+    <ChatThreadContext.Provider value={thread}>
     <main style={styles.shell}>
       {showSidebarToggle && (
         <button
@@ -341,12 +388,15 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
           <div ref={scrollRef} style={styles.thread}>
             {messages.map((m, i) => (
               <Bubble
-                key={i}
+                key={m.id ?? i}
+                id={m.id}
                 role={m.role}
                 content={m.content}
                 cards={m.cards}
-                loading={loading && i === messages.length - 1}
+                typed={m.typed}
+                loading={loading && (pendingId ? m.id === pendingId : i === messages.length - 1)}
                 slug={slug}
+                onSettled={() => setSettled((n) => n + 1)}
               />
             ))}
           </div>
@@ -367,6 +417,7 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         </section>
       )}
     </main>
+    </ChatThreadContext.Provider>
   );
 }
 
@@ -474,52 +525,6 @@ function PhotoStrip({
           />
         ))}
       </div>
-    </div>
-  );
-}
-
-function Bubble({
-  role,
-  content,
-  cards,
-  loading,
-  slug,
-}: {
-  role: "user" | "assistant";
-  content: string;
-  cards?: UiBlock[];
-  loading: boolean;
-  slug: string;
-}) {
-  const isUser = role === "user";
-  const hasCards = !!cards && cards.length > 0;
-  return (
-    <div style={{ ...styles.row, flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
-      {/* A2UI cards always lead; the agent's words follow. */}
-      {hasCards && (
-        <div style={{ width: "100%", marginBottom: content ? 8 : 0 }}>
-          {cards!.map((c, i) => (
-            <Cards key={i} block={c} slug={slug} />
-          ))}
-        </div>
-      )}
-      {(content || !hasCards) && (
-        <div data-fill="surface" style={isUser ? styles.userBubble : styles.botBubble}>
-          {content ? (
-            isUser ? (
-              <span style={{ whiteSpace: "pre-wrap" }}>{content}</span>
-            ) : (
-              <Markdown text={content} />
-            )
-          ) : loading ? (
-            <span style={styles.typing}>
-              <i style={{ ...styles.tdot, animationDelay: "0ms" }} />
-              <i style={{ ...styles.tdot, animationDelay: "150ms" }} />
-              <i style={{ ...styles.tdot, animationDelay: "300ms" }} />
-            </span>
-          ) : null}
-        </div>
-      )}
     </div>
   );
 }
@@ -831,41 +836,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: "var(--primary)",
     border: "2px solid var(--border)",
   },
+  // The bubbles themselves (row, user/bot bubble, typing dots) live in app/ChatBubble.tsx.
   thread: { flex: 1, overflowY: "auto", padding: "12px 4px", display: "flex", flexDirection: "column", gap: 14 },
-  row: { display: "flex", width: "100%" },
-  // User and bot bubbles share one look; only alignment and the tucked corner
-  // differ, so both sides of the conversation read identically.
-  userBubble: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    color: "var(--on-surface)",
-    padding: "12px 16px",
-    borderRadius: "var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg)",
-    maxWidth: "80%",
-    fontSize: 15,
-    lineHeight: 1.5,
-  },
-  botBubble: {
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    color: "var(--on-surface)",
-    padding: "12px 16px",
-    borderRadius: "var(--radius-lg) var(--radius-lg) var(--radius-lg) var(--radius-sm)",
-    maxWidth: "80%",
-    fontSize: 15,
-    lineHeight: 1.5,
-  },
-  typing: { display: "inline-flex", gap: 5, alignItems: "center", height: 20 },
-  tdot: {
-    width: 7,
-    height: 7,
-    borderRadius: 999,
-    // The dots sit inside a surface bubble, so they take that fill's
-    // foreground — --primary-soft was the surface fill itself and vanished.
-    background: "var(--on-surface)",
-    display: "inline-block",
-    animation: "blink 1s infinite",
-  },
 
   composerDock: { paddingTop: 10, display: "flex", flexDirection: "column", gap: 8 },
   // The same tab row, docked above the composer once a conversation is going.

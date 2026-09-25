@@ -1,5 +1,6 @@
 import type { BookingFlow, BookingSelection } from "./types";
-import { contactFields, providerCandidates, type CardStep, type FlowField } from "./flowSteps";
+import { isFieldShown, resolveAnswer } from "../appointmentTypes";
+import { contactFields, offeringLocations, providerCandidates, type CardStep, type FlowField } from "./flowSteps";
 
 /**
  * A booking as a conversation: the pure rules behind the sequence of cards
@@ -101,21 +102,69 @@ export function withService(flow: BookingFlow, sel: BookingSelection, serviceId:
  * when their question is hidden — a condition can flip back.
  */
 export function reconcileSelection(flow: BookingFlow, fields: ReadonlyArray<FlowField>, sel: BookingSelection): BookingSelection {
-  void flow;
   void fields;
-  // Contract stub — Team T fills in the rules (service/variant/add-ons/quantity,
-  // provider candidates, mode + location offered, address cleared off mobile).
-  return sel;
+  const next: BookingSelection = { ...sel, addonIds: [...sel.addonIds] };
+  const service = next.serviceId ? (flow.services.find((s) => s.id === next.serviceId && s.enabled) ?? null) : null;
+
+  if (!service) {
+    next.serviceId = null;
+    next.variantId = null;
+    next.addonIds = [];
+    next.quantity = 1;
+  } else {
+    if (next.variantId && !service.variants.some((v) => v.id === next.variantId)) next.variantId = null;
+    next.addonIds = next.addonIds.filter((id) => service.addons.some((a) => a.id === id));
+    const max = Math.max(1, service.maxQuantity ?? 20);
+    const q = Number.isFinite(next.quantity) ? Math.round(next.quantity) : 1;
+    next.quantity = Math.min(max, Math.max(1, q));
+  }
+
+  if (next.staffId && !providerCandidates(flow, service).some((s) => s.id === next.staffId)) next.staffId = null;
+
+  const modes = service?.modes ?? [];
+  if (next.mode !== "in_person" && !modes.includes(next.mode)) {
+    if (next.mode === "mobile") {
+      next.customerAddress = "";
+      next.postalCode = "";
+    }
+    next.mode = "in_person";
+    next.locationId = null;
+  }
+  if (next.mode === "in_person" && next.locationId && !offeringLocations(flow, service).some((l) => l.id === next.locationId)) {
+    next.locationId = null;
+  }
+  return next;
 }
 
 /** Whether a planned step holds an answer the server would accept. */
 export function stepValid(flow: BookingFlow, fields: ReadonlyArray<FlowField>, step: CardStep, sel: BookingSelection): boolean {
-  void flow;
-  void fields;
-  void step;
-  void sel;
-  // Contract stub — Team T.
-  return true;
+  switch (step.kind) {
+    case "service":
+      return !!sel.serviceId;
+    case "options":
+      return true;
+    case "provider":
+      return flow.rules.staffSelection !== "required" || !!sel.staffId;
+    case "location": {
+      // The rule LocationStep's Next button keeps.
+      const service = flow.services.find((s) => s.id === sel.serviceId) ?? null;
+      const businesses = offeringLocations(flow, service).filter((l) => l.kind === "business");
+      return sel.mode === "online" || sel.mode === "mobile" || !!sel.locationId || businesses.length === 0;
+    }
+    case "time":
+      return sel.startsAt !== "";
+    case "screen": {
+      const keys = fields.map((f) => f.key);
+      return step.fields.every((f) => {
+        if (!isFieldShown({ key: f.key, config: f.config ?? {} }, sel.answers, keys)) return true;
+        const verdict = resolveAnswer({ label: f.label, type: f.type, config: f.config ?? {} }, sel.answers[f.key]);
+        if (!verdict.ok) return false;
+        return !f.required || verdict.value !== "";
+      });
+    }
+    case "review":
+      return true;
+  }
 }
 
 /** The first planned step the thread has not asked yet. */
@@ -185,6 +234,53 @@ export function ensureBookingSessionIds<M extends { cards?: Array<{ type: string
  * position of its last reply, so a six-step booking never crowds the window.
  */
 export function foldBookingLines(msgs: ReadonlyArray<ThreadMsg>): { role: "user" | "assistant"; content: string }[] {
-  // Contract stub — Team T folds; for now: drop empties, keep the rest.
-  return msgs.filter((m) => m.content.trim()).map(({ role, content }) => ({ role, content }));
+  const sessionOf = (id: string | undefined): string | null => {
+    if (!id) return null;
+    const m = SESSION_MESSAGE_RE.exec(id);
+    return m ? m[1] : null;
+  };
+
+  // Sessions in order of first appearance, each with its reply lines and the
+  // index its folded line takes: the last reply, else the last owned message.
+  const sessions = new Map<string, { replies: string[]; at: number }>();
+  msgs.forEach((m, i) => {
+    const sid = sessionOf(m.id);
+    if (!sid) return;
+    const entry = sessions.get(sid) ?? { replies: [], at: i };
+    const content = m.content.trim();
+    if (m.role === "user" && m.id!.endsWith(":reply") && content) {
+      entry.replies.push(content);
+      entry.at = i;
+    } else if (entry.replies.length === 0) {
+      entry.at = i;
+    }
+    sessions.set(sid, entry);
+  });
+
+  const kept = new Set([...sessions.keys()].slice(-MAX_FOLDED_SESSIONS));
+  const lineFor = (entry: { replies: string[] }): string => {
+    const done = entry.replies.find((r) => /^(Booked|Requested|Waitlisted):/.test(r));
+    if (done) return done;
+    if (entry.replies.length === 0) return "Booking so far: nothing picked yet";
+    return `Booking so far: ${entry.replies.join("; ")}`;
+  };
+
+  const out: { role: "user" | "assistant"; content: string }[] = [];
+  msgs.forEach((m, i) => {
+    const sid = sessionOf(m.id);
+    if (!sid) {
+      if (m.content.trim()) out.push({ role: m.role, content: m.content });
+      return;
+    }
+    const entry = sessions.get(sid)!;
+    if (entry.at !== i || !kept.has(sid)) return;
+    out.push({ role: "user", content: lineFor(entry) });
+  });
+  return out;
 }
+
+/** A message id a booking session owns: `<sid>:start`, `<sid>:<step>:ask|reply`, `<sid>:confirmed:ask`. */
+const SESSION_MESSAGE_RE = /^(.+?):(?:start|(?:service|options|provider|location|time|screen:\d+|review|confirmed):(?:ask|reply))$/;
+
+/** Sessions older than the last few are left out of what the model sees. */
+const MAX_FOLDED_SESSIONS = 3;

@@ -221,7 +221,7 @@ async function bookingPromptSection(userId: string): Promise<string> {
   return `
 
 BOOKING:
-Visitors can book an appointment right here in the chat: the card walks them through the steps in the business's own order (services with prices and photos, provider, location, live open times, its own questions), then a confirmation.${names} When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open.`;
+Visitors can book an appointment right here in the chat: the card walks them through the steps in the business's own order (services with prices and photos, provider, location, live open times, its own questions), then a confirmation.${names} When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open. A booking in progress shows in the conversation as the visitor's lines starting with Picked:, Options:, Provider:, Where:, When:, Details: or one 'Booking so far:' line; answer questions using those picks and let the booking continue — do not call show_booking again unless the visitor asks to start over or a booking was already completed ('Booked:').`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */
