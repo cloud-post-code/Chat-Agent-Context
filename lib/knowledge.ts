@@ -208,8 +208,8 @@ Always add a short spoken sentence alongside a card — the card supplements you
  */
 async function bookingPromptSection(userId: string): Promise<string> {
   const { getBookingConfig } = await import("./appointments");
-  const { enabled, fields } = await getBookingConfig(userId);
-  if (!enabled || fields.length === 0) return "";
+  const { enabled } = await getBookingConfig(userId);
+  if (!enabled) return "";
   // Naming services in the prompt is cheap only while the list is short —
   // past a dozen it's a wall of text the model doesn't need, since the card
   // itself lists them with prices and photos.
@@ -221,7 +221,7 @@ async function bookingPromptSection(userId: string): Promise<string> {
   return `
 
 BOOKING:
-Visitors can book an appointment right here in the chat: the card lets them pick a service (with prices and photos), a provider, a location, and a live open time, then confirm.${names} When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open.`;
+Visitors can book an appointment right here in the chat: the card walks them through the steps in the business's own order (services with prices and photos, provider, location, live open times, its own questions), then a confirmation.${names} When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open.`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */
