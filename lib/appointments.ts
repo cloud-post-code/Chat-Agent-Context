@@ -109,6 +109,9 @@ export async function saveAppointmentField(
   if (!label) return "The question needs a label.";
   const key = (input.key?.trim() || keyFromLabel(label)).slice(0, 60);
   if (!/^[a-z0-9_]+$/.test(key)) return "Field keys are lowercase letters, digits, and _ only.";
+  // Answers are read by key off a plain object: a key that names something
+  // every object already has would read a function, not an answer.
+  if (key in Object.prototype) return "That key is reserved — pick another.";
   const type = (FIELD_TYPES as readonly string[]).includes(input.type)
     ? input.type
     : "short_text";

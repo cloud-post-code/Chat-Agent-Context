@@ -124,8 +124,11 @@ export async function writeFormSpec(
   }
 
   // The people the provider screen listed, only when the tenant has none.
-  if (spec.staff.length) {
-    const seeded = await seedStaff(userId, spec.staff.map((name) => ({ name, bio: "" })), [], log);
+  // The provider screen's "Any available" choice is a rule (staffSelection),
+  // not a person: only names become providers.
+  const people = spec.staff.filter((name) => !/\b(any|anyone|anybody|no preference|first available)\b/i.test(name));
+  if (people.length) {
+    const seeded = await seedStaff(userId, people.map((name) => ({ name, bio: "" })), [], log);
     out.staff = seeded.seeded;
   }
   return out;

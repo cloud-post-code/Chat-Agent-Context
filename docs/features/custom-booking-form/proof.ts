@@ -16,6 +16,9 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import * as cheerio from "cheerio";
 
+/** The provider screen's people — "Any available staff" is a rule, never a provider row. */
+const namedStaff = (names: string[]) => names.filter((n) => !/\b(any|anyone|anybody|no preference|first available)\b/i.test(n));
+
 // Load .env ourselves (tsx doesn't); never override values already set.
 const root = path.resolve(__dirname, "../../..");
 for (const line of readFileSync(path.join(root, ".env"), "utf8").split("\n")) {
@@ -66,6 +69,7 @@ async function main() {
   const { bookingBlock } = await import("../../../lib/cards");
   const { extractServicesAndBooking, bookingFormUrl, SERVICES_SYSTEM_PROMPT } = await import("../../../lib/onboarding/services");
   const { MOONLIGHT_POLICY, MOONLIGHT_SPEC } = await import("./fixture.moonlight");
+  const NAMED_STAFF = namedStaff(MOONLIGHT_SPEC.staff);
 
   const made: string[] = [];
   let seq = 0;
@@ -134,7 +138,7 @@ async function main() {
     const moon = await newUser("moon");
     const logs: string[] = [];
     const wrote = await F.writeFormSpec(moon.id, MOONLIGHT_SPEC, (m) => logs.push(m));
-    check("C1 the write reports the rows, the steps and the people", same(wrote, { fields: 5, steps: 5, staff: MOONLIGHT_SPEC.staff.length }), JSON.stringify(wrote));
+    check("C1 the write reports the rows, the steps and the people", same(wrote, { fields: 5, steps: 5, staff: NAMED_STAFF.length }), JSON.stringify(wrote));
     const rows = (await Ap.getBookingConfig(moon.id)).fields;
     check("C1 five rows, in the form's own order, with the form's own words", same(rows.map((f) => f.label), MOONLIGHT_SPEC.fields.map((f) => f.label)) && same(rows.map((f) => f.order), [0, 1, 2, 3, 4]), JSON.stringify(rows.map((f) => f.label)));
     check("C1 keys derived from the labels", same(rows.map((f) => f.key), ["full_name", "phone_number", "email", "appointment_notes", "i_agree_to_the_cancellation_policy"]), rows.map((f) => f.key).join());
@@ -151,7 +155,7 @@ async function main() {
     );
     check("C2 'any available staff' on the form makes the provider optional", settings.staffSelection === "optional", settings.staffSelection);
     const staff = await S.listStaff(moon.id);
-    check("C2 the people the provider screen listed are seeded as providers", staff.some((s) => s.name === "Katherine") && staff.some((s) => s.name === "Vivian") && staff.length === MOONLIGHT_SPEC.staff.length, staff.map((s) => s.name).join());
+    check("C2 the people the provider screen listed are seeded as providers", staff.some((s) => s.name === "Katherine") && staff.some((s) => s.name === "Vivian") && staff.length === NAMED_STAFF.length && !staff.some((s) => /any available/i.test(s.name)), staff.map((s) => s.name).join());
 
     const again = await F.writeFormSpec(moon.id, MOONLIGHT_SPEC);
     check("C3 while the form is still onboarding's, a second read rewrites it (same five rows)", again.fields === 5 && (await prisma.appointmentField.count({ where: { userId: moon.id } })) === 5);

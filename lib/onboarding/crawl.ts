@@ -418,6 +418,9 @@ export class Crawler {
       return null;
     }
     if (abs.protocol !== "https:" && abs.protocol !== "http:") return null;
+    // A crawled page can point an <img> anywhere; the server's own fetch
+    // must stay on the public internet just like the browser does.
+    if (!(await isPublicTarget(abs.toString()))) return null;
     try {
       const res = await fetch(abs, { signal: AbortSignal.timeout(15_000) });
       if (!res.ok) return null;
