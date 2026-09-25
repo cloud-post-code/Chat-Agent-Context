@@ -1,5 +1,6 @@
 import { currentUser } from "@/lib/auth";
 import { startJob } from "@/lib/onboarding/jobs";
+import { isPublicTarget } from "@/lib/onboarding/netGuard";
 
 export const runtime = "nodejs";
 
@@ -16,6 +17,11 @@ export async function POST(req: Request) {
     new URL(url);
   } catch {
     return new Response("Enter a valid site URL.", { status: 400 });
+  }
+  // The browser will click through whatever answers at this address for a
+  // minute: only a host on the public internet (netGuard.ts).
+  if (!(await isPublicTarget(url))) {
+    return new Response("That address isn't a public website.", { status: 400 });
   }
 
   const job = startJob(user.id, url);

@@ -156,7 +156,8 @@ export function customerFromAnswers(
   const first = (role: FieldRole): string => {
     for (const f of fields) {
       if (f.role !== role) continue;
-      const v = (answers[f.key] ?? "").trim();
+      // Own answers only: a key like "constructor" must not read the prototype.
+      const v = (Object.hasOwn(answers, f.key) ? String(answers[f.key] ?? "") : "").trim();
       if (v) return v;
     }
     return "";

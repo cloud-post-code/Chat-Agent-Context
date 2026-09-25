@@ -1,6 +1,6 @@
-import type { Frame, Page as BrowserPage } from "playwright";
+import type { ElementHandle, Frame, Page as BrowserPage } from "playwright";
 import type { Element } from "domhandler";
-import { BOOKING_HOSTS, FORM_HOSTS, isSafeExternalUrl } from "./bookingPage";
+import { BOOKING_HOSTS, FORM_HOSTS, isReadableUrl, isSafeExternalUrl } from "./bookingPage";
 import type { Crawler, Page } from "./crawl";
 
 /**
@@ -70,6 +70,16 @@ const TEXT_CAP = 2000;
 const OPTIONS_CAP = 80;
 const BUTTONS_CAP = 40;
 const ELEMENTS_CAP = 120;
+// Every string a page hands over is cut INSIDE the page, before it crosses to
+// Node: a label, option or placeholder is the page's to write and it could
+// write a megabyte of it.
+const LABEL_CAP = 200;
+const PLACEHOLDER_CAP = 120;
+const OPTION_CAP = 200;
+const HEADING_CAP = 160;
+const VALUE_CAP = 80;
+/** The most a screen may hand over, as JSON, elements dropped from the end past it. */
+const SCREEN_BYTES = 64 * 1024;
 
 /**
  * Shared in-page helpers: visibility, label resolution, groups, tile lists,
@@ -80,6 +90,9 @@ const LIB = String.raw`
   const PRICE = /[$£€]\s?\d/;
   const TILE_HEAD = /service|treatment|menu|staff|technician|stylist|therapist|provider|who|location|branch/i;
   const REQ_TAIL = /\s*(\*+|\(required\))\s*$/i;
+  // Words on a control that commit a customer to something: never clicked,
+  // whether on a button or a tile.
+  const NEVER = /\b(book(ing)?( now| appointment)?|reserve|pay\w*|submit|place|complete|finish|send|confirm booking|confirm appointment|checkout|check out|purchase|buy|order|request|get (a )?quote|apply|register|sign ?up|subscribe|donate|rsvp|save|done|agree|accept)\b/i;
   const isVisible = (el) => {
     if (!el || el.nodeType !== 1) return false;
     const cs = getComputedStyle(el);
@@ -166,7 +179,9 @@ const LIB = String.raw`
     return best ? best.t : "";
   };
   const marked = (raw) => /\*\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
-  const strip = (raw) => norm(raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, ""));
+  const strip = (raw) => norm(raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "")).slice(0, ${LABEL_CAP});
+  const placeholderOf = (el) => (attr(el, "placeholder") || attr(el, "data-placeholder")).slice(0, ${PLACEHOLDER_CAP});
+  const optionText = (o) => norm(o.textContent).slice(0, ${OPTION_CAP});
   const resolveLabel = (el, choice) => {
     const tries = [labelFor(el), ariaLabel(el), labelledBy(el), wrapLabel(el), attr(el, "placeholder")];
     if (choice) tries.push(adjacentText(el));
@@ -267,7 +282,19 @@ const LIB = String.raw`
     return out;
   };
   const buttonEls = () => [...document.querySelectorAll("button, input[type=submit], input[type=button], a[role=button], [role=button]")];
-  const buttonText = (b) => norm(b.tagName === "INPUT" ? b.value : (b.innerText || b.textContent)) || ariaLabel(b);
+  const buttonText = (b) => (norm(b.tagName === "INPUT" ? b.value : (b.innerText || b.textContent)) || ariaLabel(b)).slice(0, 80);
+  // A control the browser itself would submit a form for: input[type=submit|image],
+  // a <button> in a form whose type isn't "button" (no type means submit), a reset.
+  const submits = (b) => {
+    const type = (b.getAttribute("type") || "").toLowerCase();
+    if (b.tagName === "INPUT") return type !== "button";
+    if (b.tagName === "BUTTON") return type === "reset" || (type !== "button" && !!b.form);
+    return false;
+  };
+  // Setting a choice inside this control's form would submit it: an onchange
+  // handler attribute anywhere up the chain, or a form with an onsubmit one.
+  const changeSubmits = (el) => !!el.closest("[onchange]") || !!(el.form && el.form.hasAttribute("onsubmit"))
+    || !!el.closest("form[onsubmit]");
   // A month grid: 20+ short numeric cells sharing a parent or grandparent.
   const calendarCells = () => {
     const cells = [];
@@ -298,8 +325,6 @@ const LIB = String.raw`
     if (/(^|[\s_-])(disabled|past|unavailable|outside|other-?month|muted|inactive)([\s_-]|$)/i.test(el.className + " " + target.className)) return false;
     return getComputedStyle(target).pointerEvents !== "none";
   };
-  const fingerprintOf = (snap) => snap.headings.join("|") + "||" +
-    snap.elements.filter((e) => e.tag !== "button").map((e) => e.tag + ":" + e.label + ":" + (e.options ? e.options.length : 0)).join("|");
 `;
 
 /** Evaluates to `{ headings, elements, text }` for the frame's visible screen. */
@@ -336,22 +361,22 @@ const SNAPSHOT_BODY = String.raw`
     const required = hasRequired(el) || m;
     const disabled = isDisabled(el);
     if (tag === "select") {
-      const options = [...el.options].map((o) => norm(o.textContent)).filter(Boolean).slice(0, ${OPTIONS_CAP});
+      const options = [...el.options].slice(0, ${OPTIONS_CAP} * 2).map(optionText).filter(Boolean).slice(0, ${OPTIONS_CAP});
       const sel = el.selectedOptions && el.selectedOptions[0];
       push(el, { tag: "select", label, inputType: el.multiple ? "select-multiple" : "select-one", required, options,
-        value: el.value ? norm(sel && sel.textContent) : "", disabled });
+        value: el.value ? optionText(sel || { textContent: "" }).slice(0, ${VALUE_CAP}) : "", disabled });
     } else if (r === "combobox" && tag !== "input") {
       const box = byId(attr(el, "aria-controls") || attr(el, "aria-owns"));
-      const options = box ? [...box.querySelectorAll("[role=option]")].map((o) => norm(o.textContent)).filter(Boolean).slice(0, ${OPTIONS_CAP}) : [];
-      push(el, { tag: "select", label, inputType: "combobox", required, options, value: norm(el.value || el.textContent).slice(0, 80), disabled });
+      const options = box ? [...box.querySelectorAll("[role=option]")].slice(0, ${OPTIONS_CAP} * 2).map(optionText).filter(Boolean).slice(0, ${OPTIONS_CAP}) : [];
+      push(el, { tag: "select", label, inputType: "combobox", required, options, value: norm(el.value || el.textContent).slice(0, ${VALUE_CAP}), disabled });
     } else if (tag === "textarea") {
-      push(el, { tag: "textarea", label, required, placeholder: attr(el, "placeholder"), value: norm(el.value).slice(0, 80), disabled });
+      push(el, { tag: "textarea", label, required, placeholder: placeholderOf(el), value: norm(el.value).slice(0, ${VALUE_CAP}), disabled });
     } else if (tag !== "input") {
-      push(el, { tag: "textarea", label, inputType: "contenteditable", required, placeholder: attr(el, "placeholder") || attr(el, "data-placeholder"),
-        value: norm(el.textContent).slice(0, 80), disabled });
+      push(el, { tag: "textarea", label, inputType: "contenteditable", required, placeholder: placeholderOf(el),
+        value: norm(el.textContent).slice(0, ${VALUE_CAP}), disabled });
     } else {
-      push(el, { tag: "input", label, inputType: type, required, placeholder: attr(el, "placeholder"),
-        value: type === "password" ? "" : norm(el.value).slice(0, 80), disabled });
+      push(el, { tag: "input", label, inputType: type, required, placeholder: placeholderOf(el),
+        value: type === "password" ? "" : norm(el.value).slice(0, ${VALUE_CAP}), disabled });
     }
   }
   const tileMembers = new Set();
@@ -370,10 +395,10 @@ const SNAPSHOT_BODY = String.raw`
     const text = buttonText(b);
     if (!text || /^\d{1,2}$/.test(text)) continue;
     buttons++;
-    push(b, { tag: "button", label: text.slice(0, 80), required: false, disabled: isDisabled(b) });
+    push(b, { tag: "button", label: text, required: false, disabled: isDisabled(b) });
   }
   out.sort((a, b) => (a.el === b.el ? 0 : precedes(a.el, b.el) ? -1 : 1));
-  const headings = headingEls().map((h) => norm(h.textContent).slice(0, 160)).filter(Boolean).slice(0, 30)
+  const headings = headingEls().slice(0, 60).map((h) => norm(h.textContent).slice(0, ${HEADING_CAP})).filter(Boolean).slice(0, 30)
     .filter((h, i, arr) => i === 0 || arr[i - 1] !== h);
   const elements = out.map((x) => {
     const e = x.e;
@@ -381,15 +406,28 @@ const SNAPSHOT_BODY = String.raw`
     if (e.required === undefined) e.required = false;
     return e;
   });
-  return { headings, elements, text: norm(document.body ? document.body.innerText : "").slice(0, ${TEXT_CAP}) };
+  // The screen's size cap: elements go from the end until the JSON fits.
+  const text = norm(document.body ? document.body.innerText : "").slice(0, ${TEXT_CAP});
+  let budget = ${SCREEN_BYTES} - JSON.stringify({ headings, text }).length;
+  const kept = [];
+  for (const e of elements) {
+    budget -= JSON.stringify(e).length + 1;
+    if (budget < 0) break;
+    kept.push(e);
+  }
+  return { headings, elements: kept, text };
 `;
 
-/** Marks the first tile when a tile list shows and nothing is picked yet. Evaluates to a bool. */
+// Each plan script evaluates to { el, state }: the element to click (or null)
+// and a word about it. The element crosses to Node as a handle — never as a
+// marker attribute the page could move onto a button of its own choosing.
+
+/** The first tile when a tile list shows and nothing is picked yet — never one whose words commit ("Pay $25"). */
 const PLAN_TILE_BODY = String.raw`
   const lists = tileLists();
-  if (!lists.length || lists.some((l) => l.members.some((m) => isSelected(m.el)))) return false;
-  lists[0].members[0].el.setAttribute("data-fr-target", "tile");
-  return true;
+  if (!lists.length || lists.some((l) => l.members.some((m) => isSelected(m.el)))) return { el: null, state: "" };
+  const pick = lists[0].members.find((m) => !NEVER.test(m.t));
+  return { el: pick ? pick.el : null, state: pick ? "tile" : "" };
 `;
 
 /** Picks the first option of every required, still-empty radio group / select. Evaluates to a count. */
@@ -406,10 +444,12 @@ const FILL_CHOICES_BODY = String.raw`
       const required = g.marked || members.some(hasRequired) || members.some((m) => resolveLabel(m, true).marked);
       if (!required || members.some(isChecked)) continue;
       const first = members.find((m) => !isDisabled(m));
-      if (first) { first.click(); acted++; }
+      if (first && !changeSubmits(first)) { first.click(); acted++; }
     } else if (el.tagName === "SELECT") {
       done.add(el);
       if (!(hasRequired(el) || resolveLabel(el, false).marked) || el.value || isDisabled(el)) continue;
+      // A select whose change would submit the form is left as it is.
+      if (changeSubmits(el)) continue;
       const opt = [...el.options].find((o) => o.value && !o.disabled);
       if (!opt) continue;
       const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
@@ -422,11 +462,11 @@ const FILL_CHOICES_BODY = String.raw`
   return acted;
 `;
 
-/** Marks the first enabled day after today in a month grid. Evaluates to a bool. */
+/** The first enabled day after today in a month grid; state "selected" when one already is. */
 const PLAN_DAY_BODY = String.raw`
   const cells = calendarCells();
-  if (!cells.length) return false;
-  if (cells.some((c) => isSelected(c.el) || isSelected(c.el.parentElement))) return "selected";
+  if (!cells.length) return { el: null, state: "" };
+  if (cells.some((c) => isSelected(c.el) || isSelected(c.el.parentElement))) return { el: null, state: "selected" };
   const todayAt = cells.findIndex((c) => /(^|[\s_-])today([\s_-]|$)/i.test(c.el.className + " " + (c.el.parentElement ? c.el.parentElement.className : ""))
     || c.el.getAttribute("aria-current") === "date" || (c.el.parentElement && c.el.parentElement.getAttribute("aria-current") === "date"));
   const dom = new Date().getDate();
@@ -434,43 +474,42 @@ const PLAN_DAY_BODY = String.raw`
   if (todayAt >= 0) pick = cells.slice(todayAt + 1).find(cellEnabled);
   if (!pick) pick = cells.find((c) => c.n > dom && cellEnabled(c));
   if (!pick) pick = cells.find(cellEnabled);
-  if (!pick) return false;
-  (pick.el.closest("button, td, a, [role=gridcell], [role=button]") || pick.el).setAttribute("data-fr-target", "day");
-  return true;
+  if (!pick) return { el: null, state: "" };
+  return { el: pick.el.closest("button, td, a, [role=gridcell], [role=button]") || pick.el, state: "day" };
 `;
 
-/** Marks the first enabled time slot ("9:15 AM"). Evaluates to a bool. */
+/** The first enabled time slot ("9:15 AM"). */
 const PLAN_SLOT_BODY = String.raw`
   const TIME = /\b\d{1,2}:\d{2}\b/;
   for (const el of document.querySelectorAll("button, a, li, div, span, label, [role=option], [role=button], [role=radio]")) {
     if (el.children.length > 2 || !isVisible(el) || !clickable(el) || isDisabled(el)) continue;
     const t = norm(el.textContent);
     if (t.length > 24 || !TIME.test(t) || isSelected(el)) continue;
-    if (el.closest("[data-fr-target]")) continue;
-    el.setAttribute("data-fr-target", "slot");
-    return true;
+    return { el, state: "slot" };
   }
-  return false;
+  return { el: null, state: "" };
 `;
 
-/** Marks the first enabled "next"-like button, never a "book"/"submit"-like one. Evaluates to the text or "". */
+/**
+ * The first enabled "next"-like button; state is its text. Never a
+ * "book"/"pay"/"submit"-like one, and never a control the browser would submit
+ * a form for (`submits`): a widget whose Next is a submit button is left where
+ * it stands rather than risk sending what a customer would have sent. "OK"
+ * counts only inside a dialog, where it dismisses rather than commits.
+ */
 const PLAN_NEXT_BODY = String.raw`
-  const GO = /^(next|continue|proceed|select|choose|go|ok)\b/i;
+  const GO = /^(next|continue|proceed|select|choose)\b/i;
   const GO2 = /^(select|choose|confirm|book) (service|staff|provider|time|date)/i;
-  const NEVER = /\b(book(ing)?( now| appointment)?|reserve|pay|submit|place|complete|finish|send|confirm booking|confirm appointment)\b/i;
-  const filled = (form) => !!form && [...form.querySelectorAll("input[type=email], input[type=tel]")].some((i) => norm(i.value));
+  const DISMISS = /^(ok|okay|close|dismiss|got it)$/i;
   for (const b of buttonEls()) {
-    if (!isVisible(b) || isDisabled(b)) continue;
+    if (!isVisible(b) || isDisabled(b) || submits(b)) continue;
     const t = buttonText(b);
     if (!t || NEVER.test(t)) continue;
-    if (!(GO.test(t) || GO2.test(t))) continue;
-    if (b.tagName === "INPUT" || b.tagName === "BUTTON") {
-      if ((b.type || "").toLowerCase() === "submit" && filled(b.form)) continue;
-    }
-    b.setAttribute("data-fr-target", "next");
-    return t.slice(0, 80);
+    const inDialog = !!b.closest("dialog, [role=dialog], [role=alertdialog], [aria-modal=true]");
+    if (!(GO.test(t) || GO2.test(t) || (inDialog && DISMISS.test(t)))) continue;
+    return { el: b, state: t };
   }
-  return "";
+  return { el: null, state: "" };
 `;
 
 const COUNT_INPUTS = String.raw`(() => {
@@ -482,18 +521,15 @@ const COUNT_INPUTS = String.raw`(() => {
   return n;
 })()`;
 
-/** Installs a mutation counter once; evaluates to its current value. Our own marker attribute doesn't count. */
+/** Installs a mutation counter once; evaluates to its current value. */
 const MUTATION_COUNTER = String.raw`(() => {
   if (window.__frMut === undefined) {
     window.__frMut = 0;
-    new MutationObserver((records) => {
-      for (const r of records) if (!(r.type === "attributes" && r.attributeName === "data-fr-target")) { window.__frMut++; break; }
-    }).observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
+    new MutationObserver(() => { window.__frMut++; })
+      .observe(document.documentElement, { subtree: true, childList: true, attributes: true, characterData: true });
   }
   return window.__frMut;
 })()`;
-
-const UNMARK = String.raw`(() => { for (const e of document.querySelectorAll("[data-fr-target]")) e.removeAttribute("data-fr-target"); })()`;
 
 const script = (body: string) => `(() => {${LIB}\n${body}\n})()`;
 const SNAPSHOT = script(SNAPSHOT_BODY);
@@ -510,11 +546,11 @@ type Shot = Omit<Screen, "index">;
 /** What a screen IS, for telling one from the next: headings, labels, option counts. Buttons excluded — a slot list appearing is the same screen. */
 export function fingerprint(s: Pick<Screen, "headings" | "elements">): string {
   return (
-    s.headings.join("|") +
+    s.headings.map((h) => h.slice(0, HEADING_CAP)).join("|") +
     "||" +
     s.elements
       .filter((e) => e.tag !== "button")
-      .map((e) => `${e.tag}:${e.label}:${e.options?.length ?? 0}`)
+      .map((e) => `${e.tag}:${e.label.slice(0, LABEL_CAP)}:${e.options?.length ?? 0}`)
       .join("|")
   );
 }
@@ -525,19 +561,36 @@ export async function snapshotFrame(frame: Frame): Promise<Shot> {
   return { url: frame.url(), headings: raw.headings, elements: raw.elements, text: raw.text };
 }
 
-async function clickMarked(frame: Frame): Promise<boolean> {
-  const loc = frame.locator("[data-fr-target]").first();
+type Plan = { el: ElementHandle | null; state: string };
+
+/** Run a plan script: the element it chose, as a handle the caller disposes, and its word. */
+async function plan(frame: Frame, script: string): Promise<Plan> {
+  const h = await frame.evaluateHandle(script);
   try {
-    try {
-      await loc.click({ timeout: 2500, noWaitAfter: true });
-    } catch {
-      await loc.dispatchEvent("click", undefined, { timeout: 1000 });
-    }
+    const elH = await h.getProperty("el");
+    const el = elH.asElement();
+    if (!el) await elH.dispose();
+    const state = String((await (await h.getProperty("state")).jsonValue()) ?? "");
+    return { el, state };
+  } finally {
+    await h.dispose().catch(() => {});
+  }
+}
+
+/**
+ * Click the element a plan chose, as a customer would: Playwright's own
+ * actionability checks, and nothing else — an element that can't be clicked
+ * (covered by an overlay, gone, off-screen for good) is skipped, never
+ * clicked through by a synthetic event.
+ */
+async function clickPlanned(el: ElementHandle): Promise<boolean> {
+  try {
+    await el.click({ timeout: 2500, noWaitAfter: true });
     return true;
   } catch {
     return false;
   } finally {
-    await frame.evaluate(UNMARK).catch(() => {});
+    await el.dispose().catch(() => {});
   }
 }
 
@@ -565,19 +618,31 @@ async function settle(frame: Frame, ms: number, before: number | null): Promise<
  * a day and a slot, then the "Next"-like button — never "Book", never
  * "Submit", never a keystroke into a text input. Stops as soon as the screen
  * changes so nothing is skipped. Returns the actions taken; empty means the
- * form offers nothing more to do here.
+ * form offers nothing more to do here. `halted` is asked before every action:
+ * once it says so (the caller's clock ran out) nothing more is clicked.
  */
-export async function advanceFrame(frame: Frame): Promise<string[]> {
+export async function advanceFrame(frame: Frame, halted: () => boolean = () => false): Promise<string[]> {
   const actions: string[] = [];
   const start = fingerprint(await snapshotFrame(frame));
   const changed = async () => fingerprint(await snapshotFrame(frame)) !== start;
+  // The plan's element, clicked unless the clock ran out meanwhile.
+  const act = async (p: Plan): Promise<boolean> => {
+    if (!p.el) return false;
+    if (halted()) {
+      await p.el.dispose().catch(() => {});
+      return false;
+    }
+    return clickPlanned(p.el);
+  };
 
+  if (halted()) return actions;
   let before = await mark(frame);
-  if ((await frame.evaluate(PLAN_TILE)) === true && (await clickMarked(frame))) {
+  if (await act(await plan(frame, PLAN_TILE))) {
     actions.push("tile");
     await settle(frame, 2500, before);
     if (await changed()) return actions;
   }
+  if (halted()) return actions;
   before = await mark(frame);
   const filled = (await frame.evaluate(FILL_CHOICES)) as number;
   if (filled > 0) {
@@ -585,24 +650,27 @@ export async function advanceFrame(frame: Frame): Promise<string[]> {
     await settle(frame, 1500, before);
     if (await changed()) return actions;
   }
+  if (halted()) return actions;
   before = await mark(frame);
-  const day = await frame.evaluate(PLAN_DAY);
-  if (day === true && (await clickMarked(frame))) {
+  const day = await plan(frame, PLAN_DAY);
+  if (day.state === "day" && (await act(day))) {
     actions.push("day");
     await settle(frame, 2500, before);
   }
-  if (day === true || day === "selected") {
+  if (day.state === "day" || day.state === "selected") {
+    if (halted()) return actions;
     before = await mark(frame);
-    if ((await frame.evaluate(PLAN_SLOT)) === true && (await clickMarked(frame))) {
+    if (await act(await plan(frame, PLAN_SLOT))) {
       actions.push("slot");
       await settle(frame, 2500, before);
     }
     if (actions.length && (await changed())) return actions;
   }
+  if (halted()) return actions;
   before = await mark(frame);
-  const next = (await frame.evaluate(PLAN_NEXT)) as string;
-  if (next && (await clickMarked(frame))) {
-    actions.push(`next:${next}`);
+  const next = await plan(frame, PLAN_NEXT);
+  if (next.state && (await act(next))) {
+    actions.push(`next:${next.state}`);
     await settle(frame, 4000, before);
   }
   return actions;
@@ -622,18 +690,31 @@ const sameOrigin = (a: string, b: string): boolean => {
     return false;
   }
 };
-/** A frame the reader may look into: the widget's own, or the page's own. */
+/**
+ * Where the main frame may be for the reader to look: the booking page's own
+ * origin (a public host — the origin is what the tenant typed, so it earns no
+ * trust of its own) or a public https host it redirected to.
+ */
+function pageReadable(pageUrl: string, entryUrl: string): boolean {
+  return sameOrigin(pageUrl, entryUrl) ? isReadableUrl(pageUrl) : isSafeExternalUrl(pageUrl);
+}
+/** A child frame the reader may look into: the page's own, or a booking/form product's. */
 function frameReadable(frameUrl: string, entryUrl: string): boolean {
   if (frameUrl.startsWith("about:")) return true;
-  if (sameOrigin(frameUrl, entryUrl)) return true;
+  if (sameOrigin(frameUrl, entryUrl)) return isReadableUrl(frameUrl);
   if (!isSafeExternalUrl(frameUrl)) return false;
   const host = hostOf(frameUrl);
   return BOOKING_HOSTS.test(host) || FORM_HOSTS.test(host);
 }
 
-/** The frame with the form: the main frame unless a booking/form iframe holds more inputs. */
-async function pickFrame(page: BrowserPage, entryUrl: string): Promise<Frame> {
+/**
+ * The frame with the form: the main frame unless a booking/form iframe holds
+ * more inputs. Null when the main frame itself is somewhere the reader may
+ * not look — a frame is never read on the strength of where the page started.
+ */
+async function pickFrame(page: BrowserPage, entryUrl: string): Promise<Frame | null> {
   const main = page.mainFrame();
+  if (!pageReadable(main.url(), entryUrl)) return null;
   let best = main;
   let bestN = -1;
   for (const f of page.frames()) {
@@ -648,9 +729,13 @@ async function pickFrame(page: BrowserPage, entryUrl: string): Promise<Frame> {
 }
 
 class CapTimeout extends Error {}
-const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> =>
+/** Rejects with CapTimeout after `ms`, telling `onTimeout` first so the work still running stops acting. */
+const withTimeout = <T>(work: Promise<T>, ms: number, onTimeout: () => void): Promise<T> =>
   new Promise<T>((resolve, reject) => {
-    const t = setTimeout(() => reject(new CapTimeout("screen cap")), ms);
+    const t = setTimeout(() => {
+      onTimeout();
+      reject(new CapTimeout("screen cap"));
+    }, ms);
     work.then(
       (v) => {
         clearTimeout(t);
@@ -667,19 +752,30 @@ const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> =>
  * Drive the booking page in the browser and snapshot each screen a customer
  * meets. Null when the page can't be driven at all (the caller falls back to
  * `snapshotStatic`). Never throws.
+ *
+ * Where the page IS is checked before every snapshot, not after: the browser
+ * context refuses to load anything off the public internet (crawl.ts
+ * guardedContext), and on top of that a screen is only ever taken from a frame
+ * whose url the reader may read, and only such screens are returned.
  */
 export async function readBookingForm(
   crawler: Crawler,
   url: string,
   onEvent?: (m: string) => void,
 ): Promise<FormSnapshot | null> {
-  const safeHere = (u: string) => isSafeExternalUrl(u) || sameOrigin(u, url);
+  const safeHere = (u: string) => pageReadable(u, url);
+  const screenOk = (s: Screen) => safeHere(s.url) || frameReadable(s.url, url);
   try {
     return await crawler.drive(url, async (page) => {
       const deadline = Date.now() + TOTAL_TIMEOUT_MS;
       const screens: Screen[] = [];
       const seen = new Set<string>();
       let truncated = false;
+      // Set when a screen's clock runs out: the step still running must then
+      // neither click nor add to `screens`, which the caller has taken.
+      let aborted = false;
+      const halted = () => aborted;
+      const finish = (): FormSnapshot => ({ url, screens: screens.filter(screenOk), how: "playwright", truncated });
 
       const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
       if (res && !res.ok()) {
@@ -694,8 +790,13 @@ export async function readBookingForm(
 
       // One screen: snapshot it (new fingerprint → a Screen), then try to advance.
       const step = async (): Promise<"new" | "same" | "end" | "unsafe"> => {
+        if (!safeHere(page.url())) return "unsafe";
         const frame = await pickFrame(page, url);
+        if (!frame) return "unsafe";
         const shot = await snapshotFrame(frame);
+        // The frame may have moved under the snapshot: a screen from anywhere
+        // the reader may not look is not a screen.
+        if (aborted || !screenOk({ index: 0, ...shot }) || !safeHere(page.url())) return aborted ? "same" : "unsafe";
         const fp = fingerprint(shot);
         const isNew = !seen.has(fp);
         if (isNew) {
@@ -704,7 +805,7 @@ export async function readBookingForm(
           onEvent?.(`Booking form screen ${screens.length}: ${shot.headings[0] ?? "(no heading)"}`);
         }
         if (screens.length >= MAX_SCREENS) return isNew ? "new" : "same";
-        const actions = await advanceFrame(frame);
+        const actions = await advanceFrame(frame, halted);
         if (!actions.length) return "end";
         if (!safeHere(page.url())) return "unsafe";
         return isNew ? "new" : "same";
@@ -719,7 +820,7 @@ export async function readBookingForm(
         }
         let outcome: Awaited<ReturnType<typeof step>>;
         try {
-          outcome = await withTimeout(step(), Math.min(SCREEN_TIMEOUT_MS, left));
+          outcome = await withTimeout(step(), Math.min(SCREEN_TIMEOUT_MS, left), () => (aborted = true));
         } catch (err) {
           if (err instanceof CapTimeout) {
             truncated = true;
@@ -739,7 +840,8 @@ export async function readBookingForm(
         stale = outcome === "same" ? stale + 1 : 0;
         if (stale >= 2) break;
       }
-      return { url, screens, how: "playwright", truncated };
+      aborted = true;
+      return finish();
     });
   } catch (err) {
     onEvent?.(`Booking form could not be read: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`);
@@ -751,7 +853,7 @@ export async function readBookingForm(
 
 const REQ_TAIL = /\s*(\*+|\(required\))\s*$/i;
 const isMarked = (raw: string) => /\*\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
-const stripMark = (raw: string) => raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "").replace(/\s+/g, " ").trim();
+const stripMark = (raw: string) => raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "").replace(/\s+/g, " ").trim().slice(0, LABEL_CAP);
 const PRICE = /[$£€]\s?\d/;
 const TILE_HEAD = /service|treatment|menu|staff|technician|stylist|therapist|provider|who|location|branch/i;
 
@@ -898,20 +1000,20 @@ export function snapshotStatic(page: Page): FormSnapshot {
     const disabled = isDisabled(el);
     if (tag === "select") {
       const opts = $(el).find("option").toArray();
-      const options = opts.map((o) => norm($(o).text())).filter(Boolean).slice(0, OPTIONS_CAP);
+      const options = opts.map((o) => norm($(o).text()).slice(0, OPTION_CAP)).filter(Boolean).slice(0, OPTIONS_CAP);
       const sel = opts.find((o) => $(o).is("[selected]") && ($(o).attr("value") ?? norm($(o).text())) !== "");
       out.push({ el, e: clean({ tag: "select", label, inputType: $(el).is("[multiple]") ? "select-multiple" : "select-one", required, options, value: sel ? norm($(sel).text()) : "", disabled }) });
     } else if (tag !== "input" && ($(el).attr("role") ?? "").toLowerCase() === "combobox") {
       const boxId = $(el).attr("aria-controls") ?? $(el).attr("aria-owns") ?? "";
-      const options = boxId ? $(`[id="${boxId.replace(/"/g, "")}"] [role=option]`).toArray().map((o) => norm($(o).text())).filter(Boolean).slice(0, OPTIONS_CAP) : [];
+      const options = boxId ? $(`[id="${boxId.replace(/"/g, "")}"] [role=option]`).toArray().map((o) => norm($(o).text()).slice(0, OPTION_CAP)).filter(Boolean).slice(0, OPTIONS_CAP) : [];
       out.push({ el, e: clean({ tag: "select", label, inputType: "combobox", required, options, value: norm($(el).text()).slice(0, 80), disabled }) });
     } else if (tag === "textarea") {
-      out.push({ el, e: clean({ tag: "textarea", label, required, placeholder: norm($(el).attr("placeholder") ?? ""), value: norm($(el).text()).slice(0, 80), disabled }) });
+      out.push({ el, e: clean({ tag: "textarea", label, required, placeholder: norm($(el).attr("placeholder") ?? "").slice(0, PLACEHOLDER_CAP), value: norm($(el).text()).slice(0, 80), disabled }) });
     } else if (tag !== "input") {
-      out.push({ el, e: clean({ tag: "textarea", label, inputType: "contenteditable", required, placeholder: norm($(el).attr("placeholder") ?? $(el).attr("data-placeholder") ?? ""), value: norm($(el).text()).slice(0, 80), disabled }) });
+      out.push({ el, e: clean({ tag: "textarea", label, inputType: "contenteditable", required, placeholder: norm($(el).attr("placeholder") ?? $(el).attr("data-placeholder") ?? "").slice(0, PLACEHOLDER_CAP), value: norm($(el).text()).slice(0, 80), disabled }) });
     } else {
       const type = typeOf(el);
-      out.push({ el, e: clean({ tag: "input", label, inputType: type, required, placeholder: norm($(el).attr("placeholder") ?? ""), value: type === "password" ? "" : norm($(el).attr("value") ?? "").slice(0, 80), disabled }) });
+      out.push({ el, e: clean({ tag: "input", label, inputType: type, required, placeholder: norm($(el).attr("placeholder") ?? "").slice(0, PLACEHOLDER_CAP), value: type === "password" ? "" : norm($(el).attr("value") ?? "").slice(0, 80), disabled }) });
     }
   }
 
@@ -988,19 +1090,21 @@ export function snapshotStatic(page: Page): FormSnapshot {
 
 const SCREEN_CHARS = 12_000;
 const TOTAL_CHARS = 40_000;
+/** One element's line: a label, a placeholder and a long option list fit; nothing needs more. */
+const ELEMENT_CHARS = 4_000;
 const CUT = "…[cut]";
 
 const cut = (s: string, max: number) => (s.length <= max ? s : s.slice(0, Math.max(0, max - CUT.length)) + CUT);
 
 function serializeElement(e: SnapElement): string {
   const head = e.inputType && e.inputType !== e.tag ? `${e.tag}, ${e.inputType}` : e.tag;
-  let line = `- [${head}] ${JSON.stringify(e.label)}`;
+  let line = `- [${head}] ${JSON.stringify(e.label.slice(0, LABEL_CAP))}`;
   if (e.required) line += ", required";
   if (e.disabled) line += ", disabled";
-  if (e.placeholder) line += `, placeholder ${JSON.stringify(e.placeholder)}`;
-  if (e.value) line += `, value ${JSON.stringify(e.value)}`;
-  if (e.options?.length) line += `, options: ${e.options.join(" | ")}`;
-  return line;
+  if (e.placeholder) line += `, placeholder ${JSON.stringify(e.placeholder.slice(0, PLACEHOLDER_CAP))}`;
+  if (e.value) line += `, value ${JSON.stringify(e.value.slice(0, VALUE_CAP))}`;
+  if (e.options?.length) line += `, options: ${e.options.slice(0, OPTIONS_CAP).map((o) => o.slice(0, OPTION_CAP)).join(" | ")}`;
+  return cut(line, ELEMENT_CHARS);
 }
 
 /** The snapshot as the transcriber's corpus: `=== SCREEN n <url>` blocks. */

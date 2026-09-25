@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Booking widget traps</title>
+<!--
+  One screen of things the reader must NOT do, for reader-proof.ts, plus the
+  one thing it should: click the plain "Next". Every trap records itself on
+  window.__fired so the proof can name what went off.
+    - a choice-only form whose only button is <button type=submit>Continue</button>
+    - a required <select onchange="this.form.submit()"> (and a plain required
+      select the reader SHOULD fill, so the rule doesn't over-block)
+    - a priced "Pay $25 / Pay $50 / Pay $100" tile list
+    - a "Book now" button pre-marked with the reader's OLD marker attribute
+    - "Continue to payment", "Proceed to checkout", "Next: Request quote",
+      "Go", "OK" (outside any dialog), "Save"
+-->
+<style>
+  body { font-family: sans-serif; margin: 24px; }
+  .tiles { display: flex; gap: 8px; }
+  .tile { cursor: pointer; border: 1px solid #ccc; padding: 8px 12px; }
+  label { display: block; margin-top: 12px; }
+</style>
+</head>
+<body>
+<script>
+  window.__fired = [];
+  window.__next = false;
+  var fire = function (what) { return function (e) { if (e && e.preventDefault) e.preventDefault(); window.__fired.push(what); }; };
+</script>
+
+<h2>Select Service</h2>
+
+<form id="choice-only" onsubmit="window.__fired.push('choice-only submit'); return false;">
+  <fieldset>
+    <legend>Length *</legend>
+    <label><input type="radio" name="len" value="30"> 30 minutes</label>
+    <label><input type="radio" name="len" value="60"> 60 minutes</label>
+  </fieldset>
+  <button type="submit" id="continue-submit">Continue</button>
+</form>
+
+<form id="onchange-form" onsubmit="window.__fired.push('onchange-form submit'); return false;">
+  <label for="svc">Service *</label>
+  <select id="svc" required onchange="window.__fired.push('select onchange'); this.form.submit()">
+    <option value="">Choose one</option>
+    <option value="cut">Cut</option>
+    <option value="color">Color</option>
+  </select>
+</form>
+
+<form id="plain-form">
+  <label for="plain">Provider *</label>
+  <select id="plain" required>
+    <option value="">Anyone</option>
+    <option value="k">Katherine</option>
+    <option value="v">Vivian</option>
+  </select>
+</form>
+
+<h3>Deposit</h3>
+<div class="tiles" id="pay">
+  <div class="tile">Pay $25</div>
+  <div class="tile">Pay $50</div>
+  <div class="tile">Pay $100</div>
+</div>
+
+<p>
+  <button type="button" id="book" data-fr-target="next">Book now</button>
+  <button type="button" id="to-payment">Continue to payment</button>
+  <button type="button" id="to-checkout">Proceed to checkout</button>
+  <button type="button" id="to-quote">Next: Request quote</button>
+  <button type="button" id="go">Go</button>
+  <button type="button" id="ok">OK</button>
+  <button type="button" id="save">Save</button>
+  <button type="button" id="next">Next</button>
+</p>
+
+<script>
+  (function () {
+    document.getElementById("continue-submit").addEventListener("click", fire("Continue (submit) clicked"));
+    document.getElementById("plain-form").addEventListener("submit", fire("plain-form submit"));
+    document.querySelectorAll("#pay .tile").forEach(function (t) { t.addEventListener("click", fire(t.textContent.trim() + " clicked")); });
+    ["book", "to-payment", "to-checkout", "to-quote", "go", "ok", "save"].forEach(function (id) {
+      var b = document.getElementById(id);
+      b.addEventListener("click", fire(b.textContent.trim() + " clicked"));
+    });
+    document.getElementById("next").addEventListener("click", function () { window.__next = true; });
+  })();
+</script>
+</body>
+</html>

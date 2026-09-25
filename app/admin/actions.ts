@@ -64,6 +64,7 @@ import {
 } from "./booking/lines";
 import { hoursFromForm, numOrUndef, intOrUndef, intOr, strOrUndef, listOf } from "./booking/forms";
 import { refreshServicesFromSite } from "@/lib/onboarding/refreshServices";
+import { isPublicTarget } from "@/lib/onboarding/netGuard";
 import type { User } from "@prisma/client";
 import { extractLink, extractDocument, extractText } from "@/lib/scrape";
 import { indexSource, embedMissingChunks } from "@/lib/retrieval/indexer";
@@ -1802,6 +1803,10 @@ export async function cancelBookingAction(formData: FormData) {
 export async function refreshServicesFromSiteAction(formData: FormData) {
   const user = await requireUser();
   const site = String(formData.get("site") ?? "").trim();
+  // A typed address the crawler will open: public internet only (netGuard.ts).
+  if (site && !(await isPublicTarget(site))) {
+    redirect(`/admin/dashboard?tab=booking-services&booking=${encodeURIComponent("That address isn't a public website.")}`);
+  }
   const result = await refreshServicesFromSite(user.id, () => {}, site || undefined);
   revalidateAll();
   const notice = result.ok

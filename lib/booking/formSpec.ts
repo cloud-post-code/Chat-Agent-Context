@@ -22,11 +22,16 @@ import type { BookingSettings, FlowStep } from "./types";
 
 const errMsg = (err: unknown): string => (err instanceof Error ? err.message.slice(0, 160) : String(err));
 
-/** A unique, form-safe key per field: the label's key, `q<n>` when the label yields none, `_2`/`_3`… on a collision. */
+/**
+ * A unique, form-safe key per field: the label's key, `q<n>` when the label
+ * yields none (or names an Object.prototype member — "Constructor" would
+ * otherwise read `answers.constructor`), `_2`/`_3`… on a collision.
+ */
 export function specKeys(labels: string[]): string[] {
   const taken = new Set<string>();
   return labels.map((label, i) => {
-    const base = keyFromLabel(label) || `q${i + 1}`;
+    const own = keyFromLabel(label);
+    const base = own && !(own in Object.prototype) ? own : `q${i + 1}`;
     let key = base;
     for (let n = 2; taken.has(key); n++) key = `${base.slice(0, 60 - String(n).length - 1)}_${n}`;
     taken.add(key);
