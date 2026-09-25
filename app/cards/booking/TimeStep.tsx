@@ -8,7 +8,7 @@ import { Chip, chipRow, inputStyle, linkBtn, liveBtn, sectionLabel } from "./ui"
 import { stepFrame } from "./ServiceStep";
 
 /** Shown when an earlier card changed and the chosen time is no longer offered for it. */
-export const STALE_TIME = "That time isn't available for this choice any more — pick another.";
+const STALE_TIME = "That time isn't available for this choice any more — pick another.";
 
 const COMMON_ZONES = [
   "America/New_York",

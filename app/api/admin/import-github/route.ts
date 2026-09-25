@@ -121,8 +121,7 @@ export async function POST(req: Request) {
         }
 
         revalidatePath("/admin/dashboard");
-        revalidatePath("/projects");
-        revalidatePath("/");
+              revalidatePath("/");
         line({ t: "done" });
       } catch (err) {
         line({ t: "error", v: err instanceof Error ? err.message : "Import failed." });

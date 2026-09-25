@@ -27,7 +27,7 @@ export function imageGenEnabled(): boolean {
   return Boolean(process.env.OPENAI_API_KEY);
 }
 
-export function imageModel(): string {
+function imageModel(): string {
   return process.env.OPENAI_IMAGE_MODEL || "gpt-image-1";
 }
 

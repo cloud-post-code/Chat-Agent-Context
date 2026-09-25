@@ -43,7 +43,7 @@ function meta(part: Part): Record<string, unknown> {
   return part.metadata ? { metadata: part.metadata } : {};
 }
 
-export function messageV03(message: A2AMessage): Record<string, unknown> {
+function messageV03(message: A2AMessage): Record<string, unknown> {
   return {
     kind: "message",
     messageId: message.messageId,
@@ -56,7 +56,7 @@ export function messageV03(message: A2AMessage): Record<string, unknown> {
   };
 }
 
-export function artifactV03(artifact: Artifact): Record<string, unknown> {
+function artifactV03(artifact: Artifact): Record<string, unknown> {
   return {
     artifactId: artifact.artifactId,
     ...(artifact.name ? { name: artifact.name } : {}),
@@ -67,7 +67,7 @@ export function artifactV03(artifact: Artifact): Record<string, unknown> {
 }
 
 /** TASK_STATE_INPUT_REQUIRED → "input-required". */
-export function taskStateV03(state: string): string {
+function taskStateV03(state: string): string {
   return state.replace(/^TASK_STATE_/, "").toLowerCase().replace(/_/g, "-");
 }
 
@@ -87,7 +87,7 @@ export function taskV03(task: A2ATaskWire): Record<string, unknown> {
   };
 }
 
-export function statusUpdateV03(event: {
+function statusUpdateV03(event: {
   taskId: string;
   contextId: string;
   status: { state: string; timestamp?: string };
@@ -104,7 +104,7 @@ export function statusUpdateV03(event: {
   };
 }
 
-export function artifactUpdateV03(event: {
+function artifactUpdateV03(event: {
   taskId: string;
   contextId: string;
   artifact: Artifact;

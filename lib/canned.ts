@@ -15,26 +15,8 @@ import { clampLabel } from "@/lib/chipLabel";
  * Data only. Rendering cards and talking to Claude belong to lib/brain.ts.
  */
 
-/** The tools a canned answer may name to draw a card alongside its text. */
-export const CARD_TOOLS = [
-  "show_projects",
-  "show_project",
-  "show_gallery",
-  "show_services",
-  // The menu and the cart it feeds (lib/menu.ts).
-  "show_menu",
-  "show_cart",
-  "show_contact_form",
-  // The booking wizard; hydration guards it, so a canned answer naming it
-  // after booking is disabled draws nothing.
-  "show_booking",
-  // Custom-designed cards from the admin card builder, drawn by key.
-  "show_card",
-  // The business's own social links, filterable to specific platforms.
-  "show_social",
-] as const;
-
-export type CardTool = (typeof CARD_TOOLS)[number];
+import { CARD_TOOLS, type CardTool } from "./canned.tools";
+export { CARD_TOOLS, type CardTool } from "./canned.tools";
 
 /**
  * The lookup key for a question: case, surrounding and internal whitespace, and

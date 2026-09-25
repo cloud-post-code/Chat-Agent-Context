@@ -10,7 +10,7 @@ import {
   type UploadMethod,
   type StorageKinds,
   type SplitMode,
-} from "@/lib/ingestionSources";
+} from "@/lib/ingestionSources.shared";
 import { saveBuiltSourceAction, updateBuiltSourceAction } from "./actions";
 import { PanelHtml } from "./PanelHtml";
 import { ClassificationSelect } from "./ClassificationSelect";

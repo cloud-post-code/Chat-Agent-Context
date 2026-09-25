@@ -25,7 +25,7 @@ import { buildSystemPrompt } from "@/lib/knowledge";
  * the proof can count calls and read the prompt at the provider boundary,
  * exactly as lib/brain.ts does.
  */
-export type DraftClient = {
+type DraftClient = {
   messages: {
     create(params: Anthropic.MessageCreateParamsNonStreaming): Promise<{ content: unknown[] }>;
   };

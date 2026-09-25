@@ -31,7 +31,7 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * or kept any card keeps exactly what they have.
  */
 
-export const CARDS_SYSTEM_PROMPT = `You plan the visual "cards" an AI chat agent can show visitors on a business's website. A card is a rich UI block drawn inside the chat beside the agent's words. Your job: decide which cards THIS business's agent should have, from the website text, what the business wants out of a conversation, and the starter questions visitors will tap first.
+const CARDS_SYSTEM_PROMPT = `You plan the visual "cards" an AI chat agent can show visitors on a business's website. A card is a rich UI block drawn inside the chat beside the agent's words. Your job: decide which cards THIS business's agent should have, from the website text, what the business wants out of a conversation, and the starter questions visitors will tap first.
 
 The text contains the site's pages, each preceded by "=== <url>", then a BUSINESS section, a SIGNALS section stating what the site actually has, and the numbered STARTER QUESTIONS.
 
@@ -257,7 +257,7 @@ export async function readSignals(userId: string, categories: string[]): Promise
 }
 
 /** The corpus: the pages read, then the business, the signals, and the questions. */
-export function cardsCorpus(
+function cardsCorpus(
   pages: Page[],
   business: Business,
   signals: CardSignals,
@@ -285,7 +285,7 @@ export function contextBlocks(business: Business, signals: CardSignals, question
   );
 }
 
-export type LlmFn = typeof llmExtract;
+type LlmFn = typeof llmExtract;
 /** The card builder, narrowed to the one call this module makes. */
 export type DraftFn = (
   userId: string,

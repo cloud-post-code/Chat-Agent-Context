@@ -13,7 +13,7 @@ import type { FlowStep } from "./types";
  * and what `saveBookingFlowAction` reads back.
  */
 
-export const ENGINE_STEP_IDS = ["service", "provider", "location", "time", "review"] as const;
+const ENGINE_STEP_IDS = ["service", "provider", "location", "time", "review"] as const;
 
 /** The stable id of one step: its kind, or `screen:<n>` for a questions step. */
 export function stepId(step: FlowStep): string {

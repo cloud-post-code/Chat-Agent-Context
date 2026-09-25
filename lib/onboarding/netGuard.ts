@@ -107,7 +107,7 @@ function ipv6IsPublic(g: number[]): boolean {
 }
 
 /** Whether an IP address (v4 dotted, or v6 with or without brackets) is public. Non-addresses are false. */
-export function isPublicIp(address: string): boolean {
+function isPublicIp(address: string): boolean {
   let s = address.trim().toLowerCase();
   if (s.startsWith("[") && s.endsWith("]")) s = s.slice(1, -1);
   const v4 = parseIpv4(s);
@@ -187,6 +187,6 @@ export async function isPublicTarget(url: string): Promise<boolean> {
 }
 
 /** Test hook: forget resolved answers. */
-export function resetPublicTargetCache(): void {
+function resetPublicTargetCache(): void {
   cache.clear();
 }

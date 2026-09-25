@@ -14,7 +14,7 @@ import { serializeSnapshot, snapshotIsEmpty, type FormSnapshot } from "./formRea
  * nothing else.
  */
 
-export type SpecField = {
+type SpecField = {
   /** As written on the form, asterisk removed. */
   label: string;
   type: FieldType;
@@ -35,7 +35,7 @@ export type SpecField = {
   text?: string;
 };
 
-export type SpecStep = {
+type SpecStep = {
   kind: FlowStep["kind"];
   /** The screen's heading as written ("How do we say hello?"); "" when it has none. */
   title: string;
@@ -65,11 +65,11 @@ export const EMPTY_FORM_SPEC: FormSpec = {
 };
 
 /** Safety caps only — never a normalization. */
-export const SPEC_CAPS = { fields: 60, options: 60, label: 200, placeholder: 120, help: 300, waiverText: 4000, steps: 12 } as const;
+const SPEC_CAPS = { fields: 60, options: 60, label: 200, placeholder: 120, help: 300, waiverText: 4000, steps: 12 } as const;
 
 export type LlmFn = (system: string, corpus: string, maxTokens: number, onEvent?: (m: string) => void) => Promise<string>;
 
-export const FORM_SYSTEM_PROMPT = `You are given a business's online booking form exactly as it renders in a browser, one screen at a time. Each screen starts with "=== SCREEN <n> <url>" and lists its HEADINGS, its ELEMENTS (every visible input, choice group and tile list as "- [<tag>, <input type>] "<label>", required, placeholder "…", options: a | b | c"), its BUTTONS, and its visible TEXT. Your job is to transcribe this form VERBATIM into JSON so the business's own form can be rebuilt with the same steps, the same fields and the same words.
+const FORM_SYSTEM_PROMPT = `You are given a business's online booking form exactly as it renders in a browser, one screen at a time. Each screen starts with "=== SCREEN <n> <url>" and lists its HEADINGS, its ELEMENTS (every visible input, choice group and tile list as "- [<tag>, <input type>] "<label>", required, placeholder "…", options: a | b | c"), its BUTTONS, and its visible TEXT. Your job is to transcribe this form VERBATIM into JSON so the business's own form can be rebuilt with the same steps, the same fields and the same words.
 
 Steps — one "steps" entry per screen, in screen order, "screen" = the screen's number:
 - "service": the screen's main content lists the business's services / treatments / menu items, usually with prices (tile lists of priced rows).

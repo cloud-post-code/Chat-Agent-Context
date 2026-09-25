@@ -57,7 +57,7 @@ Rules:
 Respond with ONLY this JSON, no other text:
 {"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|menu|contact|projects|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
-export type SiteCard = PlannedCard & {
+type SiteCard = PlannedCard & {
   /** The visitor need this card serves, in one sentence. */
   need: string;
   /** The imported page the need was read from; "" when the model named none we hold. */

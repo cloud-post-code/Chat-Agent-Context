@@ -181,7 +181,7 @@ function isDocx(filename: string): boolean {
  * of formats. Throws if the parser itself fails, so callers can report the real
  * error instead of a misleading "empty content" message.
  */
-export async function fileToText(
+async function fileToText(
   bytes: Buffer,
   filename: string,
 ): Promise<{ text: string; title: string | null }> {

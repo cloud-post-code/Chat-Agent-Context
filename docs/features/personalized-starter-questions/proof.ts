@@ -13,6 +13,15 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+/** The five generic questions the app used to ship for every account (retired from lib/theme.ts). */
+const DEFAULT_STARTER_QUESTIONS = [
+  { q: "What's your background and past experience?" },
+  { q: "Tell me about yourself and how you see the world." },
+  { q: "How can I connect with you?" },
+  { q: "What are your recent projects?" },
+  { q: "Show me a bit about your life?" },
+];
+
 // Load .env ourselves (tsx doesn't); never override values already set.
 const root = path.resolve(__dirname, "../../..");
 for (const line of readFileSync(path.join(root, ".env"), "utf8").split("\n")) {
@@ -113,7 +122,7 @@ function brokenClient() {
 async function main() {
   const { prisma } = await import("../../../lib/db");
   const { normalizeQuestion, saveCannedAnswer } = await import("../../../lib/canned");
-  const { starterQuestions } = await import("../../../lib/theme");
+  const starterQuestions = DEFAULT_STARTER_QUESTIONS;
   const { personalizeStarterQuestions, starterChipsFor } = await import(
     "../../../lib/starterQuestions"
   );

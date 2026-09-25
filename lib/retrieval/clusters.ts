@@ -28,7 +28,7 @@ import { mapPool } from "../pool";
  * side effect of every save.
  */
 
-export const CLUSTER_KIND = "cluster";
+const CLUSTER_KIND = "cluster";
 
 /// Only a genuinely everything-touching entity is a hub worth removing.
 const HUB_MIN_DEGREE = 4;

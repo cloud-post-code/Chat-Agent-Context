@@ -50,7 +50,7 @@ const errMsg = (err: unknown): string => (err instanceof Error ? err.message.sli
 
 /** The service's own stated price, else one read out of its description,
  *  else "we don't know" ({kind:"variable"}) — never invented. */
-export function pricingFromService(s: MenuService): Pricing {
+function pricingFromService(s: MenuService): Pricing {
   const stated = (s.price ?? "").trim();
   if (stated) return pricingFromText(stated);
   const fromDescription = priceFromText(s.description ?? "");
@@ -60,7 +60,7 @@ export function pricingFromService(s: MenuService): Pricing {
 
 /** The service's own stated duration, else one read out of its description,
  *  else the tenant's default appointment length. */
-export function durationFromService(s: MenuService, fallback: number): number {
+function durationFromService(s: MenuService, fallback: number): number {
   const stated = durationMinutes(s.duration);
   if (stated !== null) return stated;
   const fromDescription = durationMinutes(durationFromText(s.description ?? ""));
@@ -126,7 +126,7 @@ function nearestCardText($: CheerioAPI, el: Element): string {
 /** Every content image on the pages — rendered <img> plus CSS background
  *  images in inline styles — paired with the text around it to match a
  *  service or person's name against (lib/booking/matchImages.ts). */
-export function serviceImageCandidates(pages: Page[]): { src: string; text: string }[] {
+function serviceImageCandidates(pages: Page[]): { src: string; text: string }[] {
   const seen = new Set<string>();
   const out: { src: string; text: string }[] = [];
   const push = (raw: string, pageUrl: string, text: string) => {
@@ -186,7 +186,7 @@ function sniffImageType(bytes: Buffer): string | null {
 
 /** Fetch one matched image and store it through the app's upload store.
  *  10s timeout, jpeg/png/webp/gif only, ≤ 3.5 MB. Null on any failure. */
-export async function downloadImage(url: string): Promise<{ filename: string } | null> {
+async function downloadImage(url: string): Promise<{ filename: string } | null> {
   try {
     const res = await fetch(url, { signal: AbortSignal.timeout(DOWNLOAD_TIMEOUT_MS) });
     if (!res.ok) return null;

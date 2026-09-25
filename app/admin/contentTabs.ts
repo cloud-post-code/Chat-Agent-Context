@@ -16,7 +16,7 @@ export const CONTENT_TAB_KEYS = [
   "about-team",
   "services",
 ] as const;
-export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
+type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
 
 /**
  * Key of the Knowledge sub-tab that hosts the new-ingestion-source builder.
@@ -25,7 +25,7 @@ export type ContentTabKey = (typeof CONTENT_TAB_KEYS)[number];
  */
 export const NEW_SOURCE_TAB_KEY = "new-source";
 
-export type NavKey =
+type NavKey =
   | "home"
   | "inbox"
   | "knowledge"
@@ -40,7 +40,7 @@ export type NavKey =
  * shape the flow. `booking` itself (Settings) holds the on/off switch and
  * general setup.
  */
-export const BOOKING_TAB_KEYS = [
+const BOOKING_TAB_KEYS = [
   "booking-services",
   "booking-providers",
   "booking-locations",
@@ -48,9 +48,9 @@ export const BOOKING_TAB_KEYS = [
   "booking-questions",
   "booking-pricing",
 ] as const;
-export type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
+type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
 
-export type NavSub = { key: string; label: string; operator?: boolean };
+type NavSub = { key: string; label: string; operator?: boolean };
 
 export type NavGroup = {
   key: NavKey;
@@ -147,7 +147,7 @@ export function labelsFromNav(): Record<string, string> {
 }
 
 /** Which nav group holds a fixed panel key, if any. */
-export function navForPanel(key: string): NavKey | undefined {
+function navForPanel(key: string): NavKey | undefined {
   return NAV_GROUPS.find((g) => g.subs.some((s) => s.key === key))?.key;
 }
 

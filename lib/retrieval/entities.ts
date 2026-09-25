@@ -23,7 +23,7 @@ export type EntityExtractor = (
 // The ontology lives in entityTypes.ts so client components can import it
 // without pulling this module's Anthropic SDK dependency into the browser
 // bundle. Re-exported here so server-side callers keep their import path.
-export { ENTITY_TYPES_LIST, entityKey } from "./entityTypes";
+export {  entityKey } from "./entityTypes";
 import { ENTITY_TYPES, entityKey } from "./entityTypes";
 
 /** Most known-entity names fed back into the prompt; bounds prompt growth. */

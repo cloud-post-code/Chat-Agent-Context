@@ -170,7 +170,7 @@ function cardsOutcome(c: CardsReport): string {
   return "Nothing on your site called for a card yet — you can build them under A2UI";
 }
 
-export type UnattendedStage =
+type UnattendedStage =
   | "core" | "locations" | "social" | "images" | "theme" | "knowledge";
 
 export type UnattendedHooks = {

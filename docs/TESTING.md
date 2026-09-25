@@ -53,6 +53,10 @@ leave a green status over a red proof.
 
 ## Smoke
 
+Stop the dev server before running the gate: `next dev` and `next build` share `.next`,
+and a build that overlaps a running dev server fails with a missing vendor chunk.
+
+
 `scripts/smoke.ts` is plain HTTP against a running server (no browser automation): it
 creates a throwaway account, walks the surfaces a visitor and an owner hit, and deletes
 the account. Start the server with `npx next dev -p 3120` (or the `dev-3120` launch

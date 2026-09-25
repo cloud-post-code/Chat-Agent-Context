@@ -13,7 +13,7 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * empty.
  */
 
-export const LOCATIONS_SYSTEM_PROMPT = `You find a business's physical locations and opening hours in text extracted from its website.
+const LOCATIONS_SYSTEM_PROMPT = `You find a business's physical locations and opening hours in text extracted from its website.
 
 Rules:
 - Report ONLY locations and hours that literally appear in the text. Never guess, infer, or fill gaps. A field the text does not state stays "".

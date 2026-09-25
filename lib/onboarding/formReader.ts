@@ -16,7 +16,7 @@ import type { Crawler, Page } from "./crawl";
  * (a plain HTML form embed, or a widget that refuses headless Chromium).
  */
 
-export type SnapElement = {
+type SnapElement = {
   tag: "input" | "select" | "textarea" | "radio_group" | "checkbox_group" | "checkbox" | "button" | "tile_list";
   /** label[for] → aria-label → placeholder → wrapping <label> → nearest text above. */
   label: string;
@@ -48,9 +48,9 @@ export type FormSnapshot = {
 };
 
 /** Screens read per form; past this a customer would have given up too. */
-export const MAX_SCREENS = 6;
-export const SCREEN_TIMEOUT_MS = 12_000;
-export const TOTAL_TIMEOUT_MS = 60_000;
+const MAX_SCREENS = 6;
+const SCREEN_TIMEOUT_MS = 12_000;
+const TOTAL_TIMEOUT_MS = 60_000;
 
 /** True when there is nothing a transcriber could copy: no inputs, no choices, no tiles. */
 export function snapshotIsEmpty(s: FormSnapshot | null): boolean {

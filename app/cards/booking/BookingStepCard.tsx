@@ -29,7 +29,7 @@ import { card } from "./ui";
 type StepBlock = Extract<UiBlock, { type: "booking_step" }>;
 
 /** The step id a block names (a screen carries its number). */
-export function blockStepId(step: StepBlock["step"]): StepId {
+function blockStepId(step: StepBlock["step"]): StepId {
   return step.kind === "screen" ? `screen:${step.screen ?? -1}` : step.kind;
 }
 

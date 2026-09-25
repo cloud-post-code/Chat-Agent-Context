@@ -13,7 +13,7 @@ import { createLimiter, onboardingConcurrency, type Limiter } from "./pool";
 
 /** Ground truth read off the rendered page: computed styles and CSS
  *  background images that never appear in the HTML or inline <style> text. */
-export type Rendered = {
+type Rendered = {
   /** Page background/text as hex, resolved from computed styles. */
   bg: string;
   text: string;

@@ -66,7 +66,7 @@ function signSession(userId: string, expiresAtMs: number): string {
 }
 
 /** The user id inside a valid, unexpired session token — else null. */
-export function verifySessionToken(token: string | undefined): string | null {
+function verifySessionToken(token: string | undefined): string | null {
   if (!token) return null;
   const idx = token.lastIndexOf(".");
   if (idx < 0) return null;
@@ -100,7 +100,7 @@ export async function destroySession(): Promise<void> {
 }
 
 /** The logged-in user's id from the cookie alone — no DB read. */
-export async function sessionUserId(): Promise<string | null> {
+async function sessionUserId(): Promise<string | null> {
   const jar = await cookies();
   return verifySessionToken(jar.get(COOKIE)?.value);
 }

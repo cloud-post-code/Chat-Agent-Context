@@ -19,7 +19,7 @@ import { bytesToVec, cosine, embedModelName, embedTexts } from "./embed";
  * vector index.
  */
 
-export type RetrievedChunk = {
+type RetrievedChunk = {
   chunkId: string;
   /// Which admin surface this came from: source | profile | persona |
   /// project | photo | activity.

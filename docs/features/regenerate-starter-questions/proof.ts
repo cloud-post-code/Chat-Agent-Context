@@ -12,6 +12,15 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import React from "react";
 
+/** The five generic questions the app used to ship for every account (retired from lib/theme.ts). */
+const DEFAULT_STARTER_QUESTIONS = [
+  { q: "What's your background and past experience?" },
+  { q: "Tell me about yourself and how you see the world." },
+  { q: "How can I connect with you?" },
+  { q: "What are your recent projects?" },
+  { q: "Show me a bit about your life?" },
+];
+
 // The admin components are compiled by Next with the automatic JSX runtime;
 // tsx compiles them with the classic one, which expects `React` in scope.
 (globalThis as { React?: typeof React }).React = React;
@@ -91,7 +100,7 @@ function brokenClient() {
 async function main() {
   const { prisma } = await import("../../../lib/db");
   const { normalizeQuestion } = await import("../../../lib/canned");
-  const { starterQuestions } = await import("../../../lib/theme");
+  const starterQuestions = DEFAULT_STARTER_QUESTIONS;
   const { regenerateStarterQuestions } = await import("../../../lib/starterQuestions");
 
   const baseUsers = await prisma.user.count();

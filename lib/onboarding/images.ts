@@ -14,7 +14,7 @@ import { onboardingConcurrency } from "./pool";
  * `/api/uploads/...` URLs and saving is just row creation.
  */
 
-export const MAX_GALLERY_IMAGES = 25;
+const MAX_GALLERY_IMAGES = 25;
 
 /** Candidates downloaded for the model to look at; the rest never upload. */
 const MAX_CANDIDATE_DOWNLOADS = 60;
@@ -29,7 +29,7 @@ const VISION_TYPES = new Set<VisionMediaType>([
   "image/jpeg", "image/png", "image/webp", "image/gif",
 ]);
 
-export const GALLERY_SYSTEM_PROMPT = `You curate photos scraped from a business's website into the photo gallery of that business's customer-facing page, and caption the ones you keep. Each numbered image arrives with the site's own alt text as context.
+const GALLERY_SYSTEM_PROMPT = `You curate photos scraped from a business's website into the photo gallery of that business's customer-facing page, and caption the ones you keep. Each numbered image arrives with the site's own alt text as context.
 
 Rules:
 - "keep" is true for an image a potential customer would find useful or interesting: the storefront or premises, work being done, finished work, products, food, spaces, equipment, the team at work. Genuine photos and realistic renderings of the business's work both count. Most real photographs a business puts on its own site ARE worth keeping — exclusion is for junk, not editorial taste; when unsure whether a customer would care, keep it.
@@ -48,7 +48,7 @@ export type GalleryImage = { src: string; caption: string; tags: string[] };
 const NOISE_RE = /logo|icon|sprite|favicon|pixel|badge|avatar-default|placeholder/i;
 
 /** Pages likely to hold photos: what we already have plus gallery-ish links. */
-export async function discoverImagePages(
+async function discoverImagePages(
   crawler: Crawler,
   home: Page,
   preloaded: Page[],

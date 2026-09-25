@@ -74,14 +74,14 @@ export const isUploadType = (t: string): t is "file" | "photo" | "signature" =>
   t === "file" || t === "photo" || t === "signature";
 
 /** What an upload-typed answer must look like: one of this site's own uploads. */
-export const UPLOAD_PATH_RE = /^\/api\/uploads\/[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i;
+const UPLOAD_PATH_RE = /^\/api\/uploads\/[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i;
 
 /**
  * When a question is asked: only after another question was answered a
  * certain way. `values` empty means "whenever that question has any answer".
  * Matching is case-insensitive against a pick's label, a yes/no, or text.
  */
-export type ShowIf = { key: string; values: string[] };
+type ShowIf = { key: string; values: string[] };
 
 /**
  * One thing a visitor can pick. Price and duration are the business's own
@@ -399,7 +399,7 @@ export function durationMinutes(duration?: string): number | null {
   return Math.round((h ? Number.parseFloat(h[1]) * 60 : 0) + (m ? Number.parseInt(m[1], 10) : 0));
 }
 
-export function formatMinutes(total: number): string {
+function formatMinutes(total: number): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
   return [h ? `${h} hr` : "", m || !h ? `${m} min` : ""].filter(Boolean).join(" ");

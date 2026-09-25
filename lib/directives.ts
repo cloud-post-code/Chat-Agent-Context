@@ -64,7 +64,7 @@ export async function deleteDirective(userId: string, id: string): Promise<void>
 }
 
 /** The enabled, non-blank rows of a kind — what the prompt is built from. */
-export function liveDirectives(rows: DirectiveRow[], kind: DirectiveKind): string[] {
+function liveDirectives(rows: DirectiveRow[], kind: DirectiveKind): string[] {
   return rows
     .filter((r) => r.kind === kind && r.enabled && r.text.trim())
     .map((r) => r.text.trim());

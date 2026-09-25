@@ -1,6 +1,7 @@
 import { ImageResponse } from "next/og";
 import { getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
-import { brand, starterQuestions, themeVarLines, type ThemeColors } from "@/lib/theme";
+import { brand, themeVarLines, type ThemeColors } from "@/lib/theme";
+import { starterChipsFor } from "@/lib/starterQuestions";
 import { safeJson } from "@/lib/util";
 import { foundingUser } from "@/lib/users";
 
@@ -121,7 +122,8 @@ export default async function OgImage() {
   const heroLine2 = "Ask me anything.";
   const placeholder = "Type your question…";
   const sendLabel = "Send ↵";
-  const chips = starterQuestions.map((s) => s.q);
+  // The founder's own starter questions; none when the account has none.
+  const chips = founder ? (await starterChipsFor(founder.id).catch(() => [])).map((s) => s.q) : [];
   const allText = [heroLine1, heroLine2, tagline, placeholder, sendLabel, ...chips].join("");
 
   const headingName = googleFamily(theme?.themeFont ?? "space-grotesk");

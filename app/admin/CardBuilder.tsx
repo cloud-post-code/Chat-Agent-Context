@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Cards } from "@/app/cards/Cards";
-import { parseSampleBlock } from "@/lib/uiCards";
+import { parseSampleBlock } from "@/lib/uiCards.parse";
 import type { BuildEvent, CardDraft } from "@/lib/cardBuilder";
 import type { PromptImage } from "@/lib/imageGen";
 import { saveBuiltCard } from "./actions";

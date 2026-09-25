@@ -226,7 +226,7 @@ export async function indexSource(
 }
 
 /** How many unembedded chunks go into one embedding request. */
-export const EMBED_BACKFILL_BATCH = 32;
+const EMBED_BACKFILL_BATCH = 32;
 
 export type EmbedBackfill = {
   /// Chunks found carrying no embedding.

@@ -69,7 +69,7 @@ export const PERSONA_WHOLE_ID = "persona";
 export const PERSONA_FACT_PREFIX = "fact:";
 
 /** Replaceable splitter, so a proof can index the persona without a model call. */
-export type PersonaSplitter = (prose: string) => Promise<PersonaFact[]>;
+type PersonaSplitter = (prose: string) => Promise<PersonaFact[]>;
 
 export type PersonaIndexOpts = IndexOpts & { split?: PersonaSplitter };
 

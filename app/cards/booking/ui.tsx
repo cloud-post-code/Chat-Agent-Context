@@ -26,7 +26,7 @@ export const headingStyle: React.CSSProperties = {
   display: "block",
 };
 
-export const progressStyle: React.CSSProperties = {
+const progressStyle: React.CSSProperties = {
   color: "var(--on-bg-soft)",
   fontStyle: "italic",
   fontSize: 12,

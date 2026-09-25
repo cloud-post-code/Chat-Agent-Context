@@ -9,8 +9,6 @@ import { Badge, Chip, chipRow, linkBtn, liveBtn, PlaceholderImage, textBtn, Tile
 import { stepFrame } from "./ServiceStep";
 
 import { providerCandidates } from "@/lib/booking/flowSteps";
-export { providerCandidates };
-
 export function ProviderStep({
   flow,
   service,
