@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { answer, type Msg } from "@/lib/brain";
+import { answer, type Msg, type ShownCard } from "@/lib/brain";
 
 export const runtime = "nodejs";
 
@@ -14,6 +14,42 @@ export const runtime = "nodejs";
  * `slug` names whose agent is being asked — every tenant's public page chats
  * through this one route, and the brain answers only from that tenant's data.
  */
+
+const MAX_CARDS_PER_MESSAGE = 4;
+const MAX_IDS_PER_CARD = 12;
+const MAX_TYPE_CHARS = 20;
+const MAX_ID_CHARS = 64;
+const MAX_TITLE_CHARS = 80;
+
+/** A trusted string array: strings only, each cut to `max`, capped at `cap` entries. */
+function sanitizeStrings(v: unknown, max: number, cap: number): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  const out = v.filter((x): x is string => typeof x === "string").map((s) => s.slice(0, max)).slice(0, cap);
+  return out.length ? out : undefined;
+}
+
+/**
+ * `Msg.shown` as the client reports it, cut down to the wire shape brain.ts
+ * trusts: capped card count, capped ids per card, capped string lengths. A
+ * visitor's own client is the only source of this field, but it still folds
+ * into the model's history, so nothing past these caps reaches it.
+ */
+function sanitizeShown(raw: unknown): ShownCard[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const out: ShownCard[] = [];
+  for (const item of raw.slice(0, MAX_CARDS_PER_MESSAGE)) {
+    if (!item || typeof item !== "object") continue;
+    const r = item as { type?: unknown; ids?: unknown; tags?: unknown; title?: unknown };
+    if (typeof r.type !== "string" || !r.type.trim()) continue;
+    out.push({
+      type: r.type.slice(0, MAX_TYPE_CHARS),
+      ids: sanitizeStrings(r.ids, MAX_ID_CHARS, MAX_IDS_PER_CARD),
+      tags: sanitizeStrings(r.tags, MAX_ID_CHARS, MAX_IDS_PER_CARD),
+      title: typeof r.title === "string" ? r.title.slice(0, MAX_TITLE_CHARS) : undefined,
+    });
+  }
+  return out.length ? out : undefined;
+}
 
 export async function POST(req: Request) {
   let body: { messages?: Msg[]; sessionId?: string; slug?: string; cart?: unknown };
@@ -33,7 +69,8 @@ export async function POST(req: Request) {
     .filter(
       (m) => m && (m.role === "user" || m.role === "assistant") && typeof m.content === "string",
     )
-    .slice(-20);
+    .slice(-20)
+    .map((m) => ({ ...m, shown: sanitizeShown(m.shown) }));
 
   const lastUser = [...incoming].reverse().find((m) => m.role === "user");
   if (!lastUser) return new Response("No messages", { status: 400 });

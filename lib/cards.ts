@@ -2,17 +2,54 @@ import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
 import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
-import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
+import { SERVICES_SOURCE_TITLE, parseServiceCatalog, priceFromText } from "./serviceCatalog";
 import { getBookingFlow } from "./booking/store";
 import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
 import type { CartBlock, MenuBlock } from "./menu";
+import {
+  filterPhotos,
+  parsePhotoTags,
+  tagVocabulary,
+  type PhotoFilter,
+  type PhotoMeta,
+} from "./photoIndex";
+import {
+  filterProjects,
+  filterServices,
+  priceAmountFromLabel,
+  similarServices,
+  type ProjectFilter,
+  type ServiceFilter,
+  type ServiceMeta,
+} from "./serviceIndex";
+import type { SocialBlock } from "./social";
 
 export type { CartBlock, MenuBlock } from "./menu";
+export type { SocialBlock } from "./social";
+export { filterPhotos, isEmptyPhotoFilter, photoIndexLines, tagVocabulary } from "./photoIndex";
+export type { PhotoFilter, PhotoMeta } from "./photoIndex";
+export {
+  filterProjects,
+  filterServices,
+  isEmptyServiceFilter,
+  serviceIndexLines,
+  similarServices,
+} from "./serviceIndex";
+export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
  * the tool blocks Claude emits (show_projects / show_project / show_gallery /
- * show_services) into concrete payloads the frontend renders as cards.
+ * show_services / show_booking / show_social) into concrete payloads the
+ * frontend renders as cards.
+ *
+ * The composable elements (gallery/services/projects/booking) all take an
+ * `input` bag straight from the model's tool call: an empty/no-op filter
+ * means "everything" (the old whole-card behavior canned rows still rely
+ * on), a non-empty filter that matches nothing means "no card" (null), and
+ * a matching filter narrows the card AND — for services — the booking flow
+ * riding inside it, so a focused card's Book button never reopens the full
+ * list.
  */
 
 export type ProjectCard = {
@@ -31,6 +68,7 @@ export type PhotoCard = {
   src: string;
   description: string;
   caption: string | null;
+  tags?: string[];
 };
 
 export type ServiceCard = {
@@ -69,9 +107,9 @@ export type CustomElement =
   | { kind: "divider" };
 
 export type UiBlock =
-  | { type: "projects"; items: ProjectCard[] }
+  | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
-  | { type: "gallery"; layout: "carousel" | "filmstrip"; items: PhotoCard[] }
+  | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
   // A card designed in the admin card builder. Unlike the tool-drawn blocks
   // above, the stored content IS the card — nothing is hydrated at chat time.
   | { type: "custom"; title?: string; elements: CustomElement[] }
@@ -83,7 +121,10 @@ export type UiBlock =
   // The tenant's services, read from the knowledge onboarding saved. `booking`
   // rides in the block when appointments are on, so each service opens the
   // wizard with itself already chosen; null draws the list with no Book button.
-  | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
+  // `focusIds` marks which items are the visitor's actual ask when the card
+  // also carries "similar" neighbours, so the renderer can show those first
+  // and bigger, the rest under a "Similar" label.
+  | { type: "services"; title?: string; focusIds?: string[]; items: ServiceCard[]; booking: ServiceBooking | null }
   // The booking conversation: the business's own steps and questions. The
   // fields ride in the block so the card asks exactly what the tenant
   // configured at the moment it was drawn. `flow` is the full booking flow
@@ -94,7 +135,10 @@ export type UiBlock =
   // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
   // live with the visitor, so the cart block carries only how to check out.
   | MenuBlock
-  | CartBlock;
+  | CartBlock
+  // The business's own social links, filterable to specific platforms.
+  // Owned by lib/social.ts; re-exported here rather than redefined.
+  | SocialBlock;
 
 function toProjectCard(p: {
   id: string;
@@ -118,12 +162,39 @@ function toProjectCard(p: {
   };
 }
 
-export async function allProjectsBlock(userId: string): Promise<UiBlock> {
+const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
+const MAX_TITLE = 80;
+
+function sanitizeIds(v: unknown): string[] | undefined {
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : undefined;
+}
+
+/**
+ * All of the tenant's projects, or the ones a filter names (ids, tags, free
+ * text). Null when a non-empty filter matches nothing — no card, the model
+ * answers in words. `input.title` overrides the plain "everything" case; it
+ * has no default when a filter is given, same as gallery/services.
+ */
+export async function allProjectsBlock(
+  userId: string,
+  input: Record<string, unknown> = {},
+): Promise<UiBlock | null> {
   const projects = await prisma.project.findMany({
     where: { userId },
     orderBy: { order: "asc" },
   });
-  return { type: "projects", items: projects.map(toProjectCard) };
+  const cards = projects.map(toProjectCard);
+  const filter: ProjectFilter = {
+    ids: sanitizeIds(input.ids),
+    tags: sanitizeIds(input.tags),
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const items = filterProjects(cards, filter);
+  if (!isEmpty && items.length === 0) return null;
+  const title = str(input.title, MAX_TITLE) || undefined;
+  return { type: "projects", title, items };
 }
 
 export async function singleProjectBlock(userId: string, id: string): Promise<UiBlock> {
@@ -199,17 +270,42 @@ export async function listServices(userId: string): Promise<ServiceCard[]> {
   }));
 }
 
+/** A ServiceCard's own price, in serviceIndex's numeric form, for filtering/similarity. */
+function servicePriceAmount(c: ServiceCard): number | null {
+  return c.priceLabel ? priceAmountFromLabel(c.priceLabel) : null;
+}
+
+function toServiceMeta(c: ServiceCard): ServiceMeta {
+  return {
+    id: c.id,
+    name: c.name,
+    description: c.description,
+    category: c.category,
+    priceLabel: c.priceLabel,
+    priceAmount: servicePriceAmount(c),
+  };
+}
+
 /**
  * The services card, hydrated from the live booking flow when it has any
- * services (Service rows: image, price label, duration, category), else the
- * plain knowledge catalog as before. Null when neither has anything on file:
- * nothing is drawn and the model answers in words, rather than a visitor
- * being shown an empty price list.
+ * services (real Service rows, or the legacy bridge's derived ones — either
+ * way richer: image, price label, duration, category), else the plain
+ * knowledge catalog as before (its price derived with priceFromText, same as
+ * serviceIndexLines, so a price still shows). Null when neither has
+ * anything on file, or a non-empty filter matches nothing: nothing is drawn
+ * and the model answers in words, rather than a visitor being shown an empty
+ * price list.
+ *
+ * `input.similar` (0-4) appends the closest other services to the filtered
+ * focus (see similarServices).
  */
-export async function servicesBlock(userId: string): Promise<UiBlock | null> {
+export async function servicesBlock(
+  userId: string,
+  input: Record<string, unknown> = {},
+): Promise<UiBlock | null> {
   const [catalogItems, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
   const flow = booking?.type === "booking" ? booking.flow : null;
-  const items: ServiceCard[] = flow?.services.length
+  const allItems: ServiceCard[] = flow?.services.length
     ? flow.services.map((s) => ({
         id: s.id,
         name: s.name,
@@ -219,11 +315,34 @@ export async function servicesBlock(userId: string): Promise<UiBlock | null> {
         duration: formatDuration(s.durationMinutes),
         category: s.category,
       }))
-    : catalogItems;
-  if (!items.length) return null;
+    : catalogItems.map((c) => ({ ...c, priceLabel: priceFromText(c.description) || undefined }));
+  if (!allItems.length) return null;
+
+  const filter: ServiceFilter = {
+    ids: sanitizeIds(input.ids),
+    category: typeof input.category === "string" ? input.category : undefined,
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.category && !(filter.query ?? "").trim();
+  const meta = allItems.map(toServiceMeta);
+  const focusMeta = filterServices(meta, filter);
+  if (!isEmpty && focusMeta.length === 0) return null;
+
+  const similarN = typeof input.similar === "number" ? Math.max(0, Math.min(4, Math.floor(input.similar))) : 0;
+  const similarMeta = similarN > 0 && focusMeta.length ? similarServices(meta, focusMeta, similarN).items : [];
+
+  const byId = new Map(allItems.map((c) => [c.id, c]));
+  const combined = [...focusMeta, ...similarMeta];
+  const items = combined.map((m) => byId.get(m.id)).filter((c): c is ServiceCard => !!c);
+
+  const focusIds = !isEmpty ? focusMeta.map((m) => m.id) : undefined;
+  const title = str(input.title, MAX_TITLE) || undefined;
   const fields = booking?.type === "booking" ? booking.fields : null;
   return {
     type: "services",
+    title,
+    focusIds,
     items,
     booking: fields ? { fields, flow } : null,
   };
@@ -250,24 +369,74 @@ export async function homePhotos(
   }));
 }
 
+/** "Red gel" from tags/query, for when the model didn't pass a title. */
+function deriveGalleryTitle(filter: PhotoFilter): string | undefined {
+  const words = [...(filter.tags ?? []), ...(filter.query ? [filter.query] : [])]
+    .map((w) => w.trim())
+    .filter(Boolean)
+    .slice(0, 3);
+  if (!words.length) return undefined;
+  const joined = words.join(" ");
+  return joined[0].toUpperCase() + joined.slice(1);
+}
+
+/**
+ * The gallery card: every curated photo when the filter is empty (canned
+ * rows and the old whole-gallery callers depend on this), or the ones a
+ * filter (ids/tags/query/limit) names. Null when a non-empty filter matches
+ * nothing — the caller turns that into a "no such tag" tool result instead
+ * of an empty gallery. `layout` stays required; `title` is the model's own
+ * when given, else derived from the filter, else unset.
+ */
 export async function galleryBlock(
   userId: string,
-  layout: "carousel" | "filmstrip",
-): Promise<UiBlock> {
+  input: { layout: "carousel" | "filmstrip" } & Record<string, unknown>,
+): Promise<UiBlock | null> {
+  const { layout } = input;
   // Custom ingestion sources mark their photos `ingest:*`; the public
   // gallery shows only the owner's curated photo kinds.
   const photos = await prisma.photo.findMany({
     where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
     orderBy: { order: "asc" },
   });
+  const metas: PhotoMeta[] = photos.map((ph) => ({
+    id: ph.id,
+    src: `/api/uploads/${ph.filename}`,
+    caption: ph.caption ?? "",
+    description: ph.description ?? "",
+    tags: parsePhotoTags(ph.tags),
+  }));
+
+  const filter: PhotoFilter = {
+    ids: sanitizeIds(input.ids),
+    tags: sanitizeIds(input.tags),
+    query: typeof input.query === "string" ? input.query : undefined,
+    limit: typeof input.limit === "number" ? input.limit : undefined,
+  };
+  const isEmpty = !filter.ids?.length && !filter.tags?.length && !(filter.query ?? "").trim();
+  const matched = filterPhotos(metas, filter);
+  if (!isEmpty && matched.length === 0) return null;
+
+  const title = str(input.title, MAX_TITLE) || (!isEmpty ? deriveGalleryTitle(filter) : undefined);
   return {
     type: "gallery",
     layout,
-    items: photos.map((ph) => ({
-      id: ph.id,
-      src: `/api/uploads/${ph.filename}`,
-      description: ph.description || ph.caption || "",
-      caption: ph.caption,
+    title,
+    items: matched.map((m) => ({
+      id: m.id,
+      src: m.src,
+      description: m.description || m.caption || "",
+      caption: m.caption || null,
+      tags: m.tags,
     })),
   };
+}
+
+/** Tag vocabulary for a "no match" tool result, over this tenant's curated photos. */
+export async function galleryTagVocabulary(userId: string): Promise<string[]> {
+  const photos = await prisma.photo.findMany({
+    where: { userId, NOT: { kind: { startsWith: "ingest:" } } },
+    select: { tags: true },
+  });
+  return tagVocabulary(photos.map((ph) => ({ id: "", src: "", caption: "", description: "", tags: parsePhotoTags(ph.tags) })));
 }

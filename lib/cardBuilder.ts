@@ -46,6 +46,7 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_contact_form: ["contact"],
   show_booking: ["booking"],
   show_card: ["custom", "html"],
+  show_social: ["social"],
 };
 
 /**
@@ -102,6 +103,7 @@ There are three ways to build a card. FIRST decide which fits, in this order:
 - show_menu → {"type":"menu","title":"Menu","full":true,"items":[{"key":"…","name":"…","category":"…","price":"$…"}, …],"checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the business's menu with prices, options and add-ons, each item addable to a cart with a quantity; the whole menu grouped by section, or a curated list. Prefer this over show_services when the business sells things a visitor picks several of (dishes, products, treatments with add-ons)
 - show_cart → {"type":"cart","checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the visitor's cart with quantities and checkout
 - show_contact_form → {"type":"contact"} — the in-chat contact form
+- show_social → {"type":"social","title":"…","items":[{"platform":"instagram","url":"https://…"}, …]} — the business's own social links, filterable to specific platforms
 
 2. A CUSTOM card (tool "show_card"), ONLY for content that is genuinely a plain vertical stack — an FAQ, a testimonial, a short list of points. Stock elements render as a single unstyled column at one text size; they cannot express layout. The content you write IS what visitors will see (nothing is hydrated later — write it fully and well). Shape:
 {"type":"custom","title":"…","elements":[Element, …]}

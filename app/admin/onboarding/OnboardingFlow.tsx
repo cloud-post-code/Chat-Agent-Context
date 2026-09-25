@@ -31,7 +31,7 @@ type Status = {
   step1?: Record<string, unknown>; step2?: Record<string, unknown>;
   stepLoc?: { locations?: Record<string, unknown>[] };
   stepSocial?: { links?: { platform?: string; url?: string }[] };
-  stepImages?: { images?: { src?: string; caption?: string }[] };
+  stepImages?: { images?: { src?: string; caption?: string; tags?: string[] }[] };
   stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
   stepBooking?: {
     report?: {
@@ -431,6 +431,7 @@ export function OnboardingFlow() {
       if (step === "images-running" && s.phase === "images-done") {
         const imgs = (s.stepImages?.images ?? []).map((i) => ({
           src: String(i.src ?? ""), caption: String(i.caption ?? ""),
+          tags: Array.isArray(i.tags) ? i.tags.map(String) : [],
         })).filter((i) => i.src);
         if (imgs.length === 0) {
           // Nothing to review — move straight on to the theme.

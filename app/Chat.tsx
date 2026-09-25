@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UiBlock } from "./cards/Cards";
+import { shownFromCards } from "./cards/shown";
 import { CartProvider, cartSummary, useCart } from "./cards/cart";
 import { BookingSessionsProvider } from "./cards/booking/session";
 import type { MenuItemData } from "@/lib/menuTypes";
@@ -186,8 +187,15 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // A booking in progress reads as one "Booking so far" line; no empty turns.
-          messages: foldBookingLines(next),
+          // A booking in progress reads as one "Booking so far" line; no empty
+          // turns. Each assistant turn also carries what its cards showed, so
+          // "book that" after a gallery can resolve against the previous card.
+          messages: foldBookingLines(
+            next.map((m) => ({
+              ...m,
+              shown: m.role === "assistant" ? shownFromCards(m.cards) : undefined,
+            })),
+          ),
           sessionId: chatId,
           slug,
           // Names and counts only, so the agent can talk about the cart.

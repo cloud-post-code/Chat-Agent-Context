@@ -212,7 +212,9 @@ export function intro(step: CardStep, flow: BookingFlow): string {
 }
 
 /** The shape of a chat message this module reasons about (lib/chatStore.ts StoredMsg). */
-export type ThreadMsg = { id?: string; role: "user" | "assistant"; content: string };
+/** `shown` is what an assistant turn's cards displayed (app/cards/shown.ts),
+ *  carried through the fold untouched so the model keeps its card memory. */
+export type ThreadMsg = { id?: string; role: "user" | "assistant"; content: string; shown?: unknown[] };
 
 /**
  * Give every stored `booking` block a session id (older chats predate them).
@@ -236,7 +238,9 @@ export function ensureBookingSessionIds<M extends { cards?: Array<{ type: string
  * ask/reply lines folded into ONE user line ("Booking so far: …") at the
  * position of its last reply, so a six-step booking never crowds the window.
  */
-export function foldBookingLines(msgs: ReadonlyArray<ThreadMsg>): { role: "user" | "assistant"; content: string }[] {
+export function foldBookingLines(
+  msgs: ReadonlyArray<ThreadMsg>,
+): { role: "user" | "assistant"; content: string; shown?: unknown[] }[] {
   const sessionOf = (id: string | undefined): string | null => {
     if (!id) return null;
     const m = SESSION_MESSAGE_RE.exec(id);
@@ -268,11 +272,13 @@ export function foldBookingLines(msgs: ReadonlyArray<ThreadMsg>): { role: "user"
     return `Booking so far: ${entry.replies.join("; ")}`;
   };
 
-  const out: { role: "user" | "assistant"; content: string }[] = [];
+  const out: { role: "user" | "assistant"; content: string; shown?: unknown[] }[] = [];
   msgs.forEach((m, i) => {
     const sid = sessionOf(m.id);
     if (!sid) {
-      if (m.content.trim()) out.push({ role: m.role, content: m.content });
+      if (m.content.trim() || m.shown?.length) {
+        out.push(m.shown?.length ? { role: m.role, content: m.content, shown: m.shown } : { role: m.role, content: m.content });
+      }
       return;
     }
     const entry = sessions.get(sid)!;

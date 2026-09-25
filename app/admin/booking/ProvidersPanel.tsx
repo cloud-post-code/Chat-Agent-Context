@@ -26,7 +26,33 @@ export function ProvidersPanel({ staff, services }: { staff: StaffRow[]; service
       ) : null}
 
       {staff.map((s, i) => (
-        <div key={s.id} data-fill="surface" style={panel}>
+        <StaffRowPanel key={s.id} s={s} index={i} count={staff.length} services={services} />
+      ))}
+
+      <div data-fill="surface" style={panel}>
+        <SectionTitle>Add a provider</SectionTitle>
+        <StaffForm key={staff.length} services={services} />
+      </div>
+    </section>
+  );
+}
+
+/** One provider's collapsed summary + editor; also the element the copilot reveals alone. */
+export function StaffRowPanel({
+  s,
+  index,
+  count,
+  services,
+}: {
+  s: StaffRow;
+  /** Position in the panel's order, for the move buttons. */
+  index: number;
+  count: number;
+  services: ServiceRow[];
+}) {
+  const i = index;
+  return (
+        <div data-fill="surface" data-element={s.id} style={panel}>
           <details>
             <summary style={summaryStyle}>
               {s.photoUrl ? (
@@ -46,7 +72,7 @@ export function ProvidersPanel({ staff, services }: { staff: StaffRow[]; service
               <StaffForm staff={s} services={services} />
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 {i > 0 ? <MoveButton id={s.id} dir="up" /> : null}
-                {i < staff.length - 1 ? <MoveButton id={s.id} dir="down" /> : null}
+                {i < count - 1 ? <MoveButton id={s.id} dir="down" /> : null}
                 <form action={deleteStaffAction} style={{ marginLeft: "auto" }}>
                   <input type="hidden" name="id" value={s.id} />
                   <PendingButton pendingLabel="Removing…" style={btnDanger as React.CSSProperties}>
@@ -57,13 +83,6 @@ export function ProvidersPanel({ staff, services }: { staff: StaffRow[]; service
             </div>
           </details>
         </div>
-      ))}
-
-      <div data-fill="surface" style={panel}>
-        <SectionTitle>Add a provider</SectionTitle>
-        <StaffForm key={staff.length} services={services} />
-      </div>
-    </section>
   );
 }
 

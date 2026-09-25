@@ -27,6 +27,7 @@ export default async function AdminChatPage() {
         slug={user.slug}
         labels={set.labels}
         panels={set.flat}
+        elements={set.elements}
       />
     </main>
   );

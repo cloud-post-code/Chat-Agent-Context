@@ -36,12 +36,13 @@ Rules:
 - Always exclude: logos, icons, avatar or profile-picture tiles (letter/initial placeholders, generated avatars), webcam-style headshots, screenshots of software, charts, badges, text-only banners, and empty or decorative filler.
 - "caption" (kept images only) is one short sentence you write describing what the IMAGE SHOWS. Never use a person's name and never copy the alt text — alt text is often just a name ("Peter Richmond"), which tells a customer nothing. Describe the scene: "A barber trimming a client's hair at the chair."
 - "subject" is a 1-3 word category for the image ("storefront", "haircut", "products").
+- "tags" (kept images only) is 3-8 short lowercase words a visitor might search for: the subject, dominant colors, visual style, and any service or product words the image shows (e.g. ["haircut","fade","barbershop","black and white"]).
 - Variety is a tie-breaker, not a quota: only when images are near-duplicate shots of the SAME scene keep just the best one or two. Different photos of the same kind of work (e.g. many different haircuts) are each worth keeping. ALREADY_KEPT lists subjects from earlier batches — use it to spot near-duplicates, not to veto a category.
 
 Respond with ONLY this JSON, no other text:
-{"images":[{"index":0,"keep":false,"caption":"","subject":""}]}`;
+{"images":[{"index":0,"keep":false,"caption":"","subject":"","tags":[]}]}`;
 
-export type GalleryImage = { src: string; caption: string };
+export type GalleryImage = { src: string; caption: string; tags: string[] };
 
 /** Skip chrome, not content: logos, icons, sprites, tracking pixels. */
 const NOISE_RE = /logo|icon|sprite|favicon|pixel|badge|avatar-default|placeholder/i;
@@ -183,6 +184,22 @@ async function downloadCandidates(
 const capStr = (v: unknown, max: number): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
 
+/** 3-8 lowercase, trimmed, deduped tag words — never throws on odd model output. */
+const capTags = (v: unknown): string[] => {
+  if (!Array.isArray(v)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const t of v) {
+    if (typeof t !== "string") continue;
+    const tag = t.trim().toLowerCase();
+    if (!tag || seen.has(tag)) continue;
+    seen.add(tag);
+    out.push(tag);
+    if (out.length >= 8) break;
+  }
+  return out;
+};
+
 /**
  * The model pass over one batch of downloaded images: keep/exclude, a
  * model-written caption for each kept image, and its subject for diversity.
@@ -191,7 +208,7 @@ async function curateBatch(
   batch: Downloaded[],
   keptSubjects: string[],
   log: (msg: string) => void,
-): Promise<{ item: Downloaded; caption: string; subject: string }[]> {
+): Promise<{ item: Downloaded; caption: string; subject: string; tags: string[] }[]> {
   const visionImages: VisionImage[] = batch.map((d, i) => ({
     bytes: d.bytes,
     mediaType: d.mediaType,
@@ -205,13 +222,15 @@ async function curateBatch(
     log,
   );
   if (process.env.DEBUG_GALLERY) console.error("curate raw:", JSON.stringify(raw));
-  const out: { item: Downloaded; caption: string; subject: string }[] = [];
+  const out: { item: Downloaded; caption: string; subject: string; tags: string[] }[] = [];
   if (!Array.isArray(raw.images)) return out;
   for (const entry of raw.images) {
     const e = (entry ?? {}) as Record<string, unknown>;
     const item = typeof e.index === "number" ? batch[e.index] : undefined;
     if (!item || e.keep !== true) continue;
-    out.push({ item, caption: capStr(e.caption, 300), subject: capStr(e.subject, 60) });
+    out.push({
+      item, caption: capStr(e.caption, 300), subject: capStr(e.subject, 60), tags: capTags(e.tags),
+    });
   }
   return out;
 }
@@ -245,7 +264,7 @@ export async function extractImages(
       if (images.length >= MAX_GALLERY_IMAGES) break;
       try {
         const filename = await saveBytes(k.item.bytes, k.item.mediaType);
-        images.push({ src: `/api/uploads/${filename}`, caption: k.caption });
+        images.push({ src: `/api/uploads/${filename}`, caption: k.caption, tags: k.tags });
         if (k.subject) keptSubjects.push(k.subject);
         log(k.caption ? `Kept photo: ${k.caption}` : `Kept photo ${images.length}`);
       } catch {

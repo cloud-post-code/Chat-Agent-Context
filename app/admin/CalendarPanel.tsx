@@ -264,7 +264,38 @@ function AppointmentCards({
   return (
     <>
       {rows.map((a) => (
-        <div key={a.id} data-fill="surface" style={{ ...panel, display: openId === null || openId === a.id ? "block" : "none" }}>
+        <AppointmentCard
+          key={a.id}
+          a={a}
+          hidden={openId !== null && openId !== a.id}
+          fieldLabels={fieldLabels}
+          cancelAction={cancelAction}
+          confirmAction={confirmAction}
+        />
+      ))}
+    </>
+  );
+}
+
+/**
+ * One booking as a card: facts, intake answers, Cancel and (waitlisted)
+ * Confirm. Also the `appointments` element the copilot reveals on its own.
+ */
+export function AppointmentCard({
+  a,
+  hidden = false,
+  fieldLabels,
+  cancelAction,
+  confirmAction,
+}: {
+  a: CalendarAppointment;
+  hidden?: boolean;
+  fieldLabels: Record<string, string>;
+  cancelAction: (formData: FormData) => Promise<void>;
+  confirmAction?: (formData: FormData) => Promise<void>;
+}) {
+  return (
+        <div data-fill="surface" data-element={a.id} style={{ ...panel, display: hidden ? "none" : "block" }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
             <div>
               <strong style={{ fontSize: 14 }}>
@@ -319,7 +350,5 @@ function AppointmentCards({
             </dl>
           ) : null}
         </div>
-      ))}
-    </>
   );
 }

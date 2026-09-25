@@ -49,7 +49,33 @@ export function LocationsPanel({ locations, services }: { locations: LocationRow
       ) : null}
 
       {locations.map((l, i) => (
-        <div key={l.id} data-fill="surface" style={panel}>
+        <LocationRowPanel key={l.id} l={l} index={i} count={locations.length} services={services} />
+      ))}
+
+      <div data-fill="surface" style={panel}>
+        <SectionTitle>Add a location</SectionTitle>
+        <LocationForm key={locations.length} services={services} />
+      </div>
+    </section>
+  );
+}
+
+/** One location's collapsed summary + editor; also the element the copilot reveals alone. */
+export function LocationRowPanel({
+  l,
+  index,
+  count,
+  services,
+}: {
+  l: LocationRow;
+  /** Position in the panel's order, for the move buttons. */
+  index: number;
+  count: number;
+  services: ServiceRow[];
+}) {
+  const i = index;
+  return (
+        <div data-fill="surface" data-element={l.id} style={panel}>
           <details>
             <summary style={summaryStyle}>
               <strong style={{ fontSize: 14, flex: "1 1 160px" }}>{l.name}</strong>
@@ -63,7 +89,7 @@ export function LocationsPanel({ locations, services }: { locations: LocationRow
               <LocationForm location={l} services={services} />
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 {i > 0 ? <MoveButton id={l.id} dir="up" /> : null}
-                {i < locations.length - 1 ? <MoveButton id={l.id} dir="down" /> : null}
+                {i < count - 1 ? <MoveButton id={l.id} dir="down" /> : null}
                 <form action={deleteLocationAction} style={{ marginLeft: "auto" }}>
                   <input type="hidden" name="id" value={l.id} />
                   <PendingButton pendingLabel="Removing…" style={btnDanger as React.CSSProperties}>
@@ -74,13 +100,6 @@ export function LocationsPanel({ locations, services }: { locations: LocationRow
             </div>
           </details>
         </div>
-      ))}
-
-      <div data-fill="surface" style={panel}>
-        <SectionTitle>Add a location</SectionTitle>
-        <LocationForm key={locations.length} services={services} />
-      </div>
-    </section>
   );
 }
 

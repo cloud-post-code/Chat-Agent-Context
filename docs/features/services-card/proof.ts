@@ -10,6 +10,10 @@
  * booking thread Book opens with the service already chosen, and that the
  * booking really lands the tapped service. Throwaway users are deleted at
  * the end.
+ *
+ * hydrate() answers show_services with what it actually drew ("Rendered N
+ * services: id (name, price), …") or why it drew nothing ("No services
+ * match."), so a filter that matched nothing can be retried.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -277,15 +281,15 @@ async function main() {
         cards[0]?.items[1]?.name === "St. Harrowgate signature pedicure" && !!cards[0]?.booking?.flow,
         JSON.stringify(cards[0]));
       const toolResult = JSON.stringify(seenParams[1]?.messages ?? []);
-      check("the model is told the card rendered", toolResult.includes("Card rendered to the user."));
+      check("the model is told what the card rendered", toolResult.includes("Rendered 3 services:"));
     }
     {
       const { cards, seenParams } = await run(userEmpty.id, [
         { tools: [{ name: "show_services", input: {} }] }, { text: "We don't list services yet." },
       ]);
       check("no services → no card event", cards.length === 0);
-      check("…and the model is told there is no data",
-        JSON.stringify(seenParams[1]?.messages ?? []).includes("No data available."));
+      check("…and the model is told no services match",
+        JSON.stringify(seenParams[1]?.messages ?? []).includes("No services match."));
     }
     {
       // A starter question carrying the card: zero model calls.

@@ -1,4 +1,4 @@
-import { mkdir, writeFile, readFile } from "node:fs/promises";
+import { mkdir, writeFile, readFile, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
@@ -40,12 +40,31 @@ export async function saveBytes(bytes: Buffer, contentType: string): Promise<str
   return filename;
 }
 
+/** A bare stored filename (uuid + allowed extension) — the only shape we ever wrote. */
+export const UPLOAD_FILENAME = /^[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i;
+
+/**
+ * Remove a stored upload from the volume. Returns true when a file was
+ * removed; a missing file (or a name that isn't ours) is a no-op, so callers
+ * can pass every filename they know of without checking first.
+ */
+export async function deleteUpload(filename: string): Promise<boolean> {
+  if (!UPLOAD_FILENAME.test(filename)) return false;
+  try {
+    await unlink(path.join(uploadDir(), filename));
+    return true;
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return false;
+    throw e;
+  }
+}
+
 /** Read a stored upload for serving. Guards against path traversal. */
 export async function readUpload(
   filename: string,
 ): Promise<{ bytes: Buffer; contentType: string } | null> {
   // Only allow a bare filename — no slashes or dot segments.
-  if (!/^[a-f0-9-]+\.(jpg|png|webp|gif|pdf)$/i.test(filename)) return null;
+  if (!UPLOAD_FILENAME.test(filename)) return null;
   const full = path.join(uploadDir(), filename);
   if (!existsSync(full)) return null;
   const bytes = await readFile(full);

@@ -235,6 +235,10 @@ model Photo {
   kind        String   @default("gallery")
   order       Int      @default(0)
   createdAt   DateTime @default(now())
+  /// JSON array of tags (subject, colors, style, service words), stored as a
+  /// string, same idiom as Project.tags. Empty for photos ingested before
+  /// tagging existed; scripts/tagPhotos.ts backfills them.
+  tags        String   @default("[]")
 
   @@index([userId])
 }
@@ -382,7 +386,8 @@ model UiCard {
   /// Human name shown as the card's heading ("Gallery — carousel").
   label       String
   /// The A2UI tool that draws it: show_projects | show_project | show_gallery
-  /// | show_timeline | show_contact_form | show_booking | show_booking_link.
+  /// | show_services | show_menu | show_cart | show_contact_form |
+  /// show_booking | show_social | show_card (see lib/canned.ts CARD_TOOLS).
   tool        String
   /// One line on what the card renders, shown next to the tool name.
   description String   @default("") @db.Text

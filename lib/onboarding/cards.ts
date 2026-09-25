@@ -4,6 +4,8 @@ import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/l
 import { menuBlock } from "@/lib/menu";
 import { draftUiCard, type BuilderDeps, type CardDraft } from "@/lib/cardBuilder";
 import { writeUiCard } from "@/lib/uiCards";
+import { socialBlock } from "@/lib/social";
+import { parseSocialLinks } from "@/lib/socialLinks";
 import type { Page } from "./crawl";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 
@@ -40,6 +42,7 @@ Card kinds:
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
+- "social": the business's own social media links as clickable buttons. Only when SIGNALS lists social links on file.
 - "designed": a card designed for this business from its own content. Examples span hours and locations, directions and parking, accessibility, service area, meet-the-team and staff expertise, founder story, credentials and licenses, awards and affiliations, testimonials and reviews, portfolio or before/after, pricing and packages, deposits and fees, policies (cancellation, rescheduling, no-show, refund, guarantee), an FAQ, a what-to-expect-on-your-first-visit walkthrough, insurance and financing accepted, and any other content the site itself spends real space on — plan whichever of these (or something else entirely) the site's actual pages support, and nothing the site is silent on. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
 
 Rules:
@@ -51,10 +54,20 @@ Rules:
 - At most 5 cards, at most 3 of them "designed". Fewer, sharper cards beat padding. Nothing groundable? Return an empty list.
 
 Respond with ONLY this JSON, no other text:
-{"cards":[{"kind":"gallery|services|menu|contact|projects|booking|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"cards":[{"kind":"gallery|services|menu|contact|projects|booking|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
-export type CardKind = "gallery" | "services" | "menu" | "contact" | "projects" | "booking" | "designed";
-const KINDS: readonly CardKind[] = ["gallery", "services", "menu", "contact", "projects", "booking", "designed"];
+export type CardKind =
+  | "gallery"
+  | "services"
+  | "menu"
+  | "contact"
+  | "projects"
+  | "booking"
+  | "social"
+  | "designed";
+const KINDS: readonly CardKind[] = [
+  "gallery", "services", "menu", "contact", "projects", "booking", "social", "designed",
+];
 
 export type PlannedCard = {
   kind: CardKind;
@@ -79,6 +92,8 @@ export type CardSignals = {
   services: number;
   takesAppointments: boolean;
   contactChannels: string[];
+  /** Social links on file — what the social card would show. */
+  socialLinks: number;
   /** Knowledge categories that produced content this run. */
   categories: string[];
 };
@@ -112,6 +127,7 @@ function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "projects") return signals.projects > 0;
   if (kind === "services" || kind === "menu") return signals.services > 0;
   if (kind === "booking") return signals.takesAppointments;
+  if (kind === "social") return signals.socialLinks > 0;
   return true;
 }
 
@@ -235,6 +251,7 @@ export async function readSignals(userId: string, categories: string[]): Promise
     services: services.length,
     takesAppointments: booking.enabled && booking.fields.length > 0,
     contactChannels,
+    socialLinks: parseSocialLinks(profile?.social_links ?? "[]").length,
     categories: categories.filter(Boolean),
   };
 }
@@ -261,6 +278,7 @@ export function contextBlocks(business: Business, signals: CardSignals, question
     `Services on file: ${signals.services}\n` +
     `Takes appointments (customers can book): ${signals.takesAppointments ? "yes" : "no"}\n` +
     `Contact channels listed: ${signals.contactChannels.length ? signals.contactChannels.join(", ") : "none"}\n` +
+    `Social links on file: ${signals.socialLinks}\n` +
     `Knowledge this site provided: ${signals.categories.length ? signals.categories.join(", ") : "none"}\n\n` +
     `=== STARTER QUESTIONS\n` +
     (questions.length ? questions.map((q, i) => `${i + 1}. ${q}`).join("\n") : "(none yet)")
@@ -296,6 +314,7 @@ function designedInstructions(business: Business, card: PlannedCard, questions: 
 function attachInput(tool: string, key: string, layout: PlannedCard["layout"]): string | null {
   if (tool === "show_card") return JSON.stringify({ key });
   if (tool === "show_gallery") return JSON.stringify({ layout });
+  if (tool === "show_social") return JSON.stringify({});
   return null;
 }
 
@@ -306,10 +325,10 @@ export type Placed =
 /** A live-data card's preview: the tenant's own data, so the admin sees what visitors will. */
 async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: string; sample: string }> {
   if (card.kind === "gallery") {
-    return { tool: "show_gallery", sample: JSON.stringify(await galleryBlock(userId, card.layout)) };
+    return { tool: "show_gallery", sample: JSON.stringify(await galleryBlock(userId, { layout: card.layout })) };
   }
   if (card.kind === "projects") {
-    return { tool: "show_projects", sample: JSON.stringify(await allProjectsBlock(userId)) };
+    return { tool: "show_projects", sample: JSON.stringify(await allProjectsBlock(userId, {})) };
   }
   if (card.kind === "services") {
     // The signal gate means services exist; the fallback only covers a record
@@ -323,6 +342,10 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
       checkout: { fulfillment: [], contact: { phone: "off", email: "required" }, currency: "" },
     };
     return { tool: "show_menu", sample: JSON.stringify(block) };
+  }
+  if (card.kind === "social") {
+    const block = (await socialBlock(userId, {})) ?? { type: "social", items: [] };
+    return { tool: "show_social", sample: JSON.stringify(block) };
   }
   return { tool: "show_contact_form", sample: JSON.stringify({ type: "contact" }) };
 }

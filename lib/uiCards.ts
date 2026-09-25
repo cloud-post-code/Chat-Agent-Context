@@ -42,6 +42,7 @@ const BLOCK_TYPES = [
   "contact",
   "custom",
   "html",
+  "social",
 ] as const;
 
 const MAX_HTML_LENGTH = 40_000;

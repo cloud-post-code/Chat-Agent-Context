@@ -42,6 +42,7 @@ Card kinds:
 - "menu": the business's orderable menu from live data — items with prices, options and add-ons, a cart with quantities, and checkout. Only when SIGNALS lists services on file, and instead of "services" when visitors pick several things.
 - "contact": the in-chat contact form.
 - "projects": the project portfolio. Only when SIGNALS lists projects.
+- "social": the business's own social media links as clickable buttons. Only when SIGNALS lists social links on file.
 - "designed": a card designed for this business from its own content. Examples span hours and locations, directions and parking, accessibility, service area, meet-the-team and staff expertise, founder story, credentials and licenses, awards and affiliations, testimonials and reviews, portfolio or before/after, pricing and packages, deposits and fees, policies (cancellation, rescheduling, no-show, refund, guarantee), an FAQ, a what-to-expect-on-your-first-visit walkthrough, insurance and financing accepted, and any other content the site itself spends real space on — plan whichever of these (or something else entirely) the site's actual pages support, and nothing the site is silent on. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
 
 Rules:
@@ -54,7 +55,7 @@ Rules:
 - At most 4 needs, at most 3 of them "designed". Nothing missing? Return an empty list — that is a good answer.
 
 Respond with ONLY this JSON, no other text:
-{"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|menu|contact|projects|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|menu|contact|projects|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
 export type SiteCard = PlannedCard & {
   /** The visitor need this card serves, in one sentence. */
@@ -100,6 +101,7 @@ const LIVE_TOOL: Partial<Record<CardKind, string>> = {
   menu: "show_menu",
   contact: "show_contact_form",
   projects: "show_projects",
+  social: "show_social",
 };
 
 type ExistingCard = { label: string; tool: string };

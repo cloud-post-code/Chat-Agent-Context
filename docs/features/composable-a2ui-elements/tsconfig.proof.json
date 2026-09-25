@@ -1,0 +1,10 @@
+{
+  // The app's tsconfig sets "jsx": "preserve" because Next compiles the JSX.
+  // Proofs that mount app/cards/*.tsx for real need the JSX actually
+  // transformed, with the automatic runtime — the components don't import
+  // React themselves.
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  }
+}

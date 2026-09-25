@@ -36,7 +36,22 @@ export function OrdersPanel({
         </p>
       )}
       {orders.map((o) => (
-        <div key={o.id} style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
+        <OrderRow key={o.id} o={o} deleteAction={deleteAction} />
+      ))}
+    </div>
+  );
+}
+
+/** One order as the panel lists it; also the `orders` element the copilot reveals alone. */
+export function OrderRow({
+  o,
+  deleteAction,
+}: {
+  o: CalendarOrder;
+  deleteAction?: (formData: FormData) => Promise<void>;
+}) {
+  return (
+        <div data-element={o.id} style={{ borderTop: "1px solid var(--border)", padding: "10px 0" }}>
           <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center" }}>
             <strong style={{ fontSize: 14 }}>
               {o.contact.name || "Order"}
@@ -69,7 +84,5 @@ export function OrdersPanel({
           </ul>
           {o.notes && <p style={{ fontSize: 13, margin: "6px 0 0", whiteSpace: "pre-wrap" }}>{o.notes}</p>}
         </div>
-      ))}
-    </div>
   );
 }

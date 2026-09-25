@@ -35,6 +35,8 @@ import {
   deleteOrderAction,
 } from "./actions";
 import { AppointmentsPanel } from "./CalendarPanel";
+import { buildElementNodes, type ElementNodes } from "./elements";
+import { fallbackTimeZone, toCalendarAppointment, toCalendarOrder } from "@/lib/adminElements";
 import { OrdersPanel } from "./OrdersPanel";
 import { BookingSettings } from "./BookingPanel";
 import { HomePanel } from "./HomePanel";
@@ -49,7 +51,6 @@ import {
   getBookingSettings,
   listBookings,
 } from "@/lib/booking/store";
-import { formatMoney } from "@/lib/booking/types";
 import { ServicesPanel } from "./booking/ServicesPanel";
 import { ProvidersPanel } from "./booking/ProvidersPanel";
 import { LocationsPanel } from "./booking/LocationsPanel";
@@ -103,6 +104,8 @@ export type AdminPanelSet = {
   flat: Record<string, React.ReactNode>;
   /** Display label per key, matching the dashboard strips. */
   labels: Record<string, string>;
+  /** One pre-rendered node per element, `elements[panel][id]` (lib/adminElements.ts). */
+  elements: ElementNodes;
   /** Ordered enabled Knowledge source keys (sources first, then new-source). */
   contentKeys: string[];
   /** Disabled sources, for the dashboard's "hidden sources" strip. */
@@ -742,27 +745,16 @@ export async function buildAdminPanels(
   };
   for (const t of contentTabs) flat[t.key] = t.content;
 
-  // Rows for Appointments/Home come from the booking store (listBookings:
-  // service/staff/location/customer/pricing/status).
-  const appointmentRows = bookings.map((a) => ({
-    id: a.id,
-    startsAt: a.startsAt,
-    status: a.status,
-    serviceName: a.serviceName,
-    staffName: a.staffName,
-    locationName: a.locationName,
-    customerName: [a.customer.firstName, a.customer.lastName].filter(Boolean).join(" "),
-    customerEmail: a.customer.email ?? "",
-    customerPhone: a.customer.phone ?? "",
-    durationMinutes: a.durationMinutes,
-    priceDisplay: a.pricing?.total !== undefined ? formatMoney(a.pricing.total, a.pricing.currency) : "",
-    answers: a.answers,
-  }));
+  // Rows for Appointments/Home come from the richer booking store
+  // (service/staff/location/customer/pricing/status) rather than the old
+  // intake-only listAppointments.
+  const appointmentRows = bookings.map(toCalendarAppointment);
 
+  const fieldLabels = Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]));
   flat.appointments = (
     <AppointmentsPanel
       rows={appointmentRows}
-      fieldLabels={Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]))}
+      fieldLabels={fieldLabels}
       cancelAction={cancelBookingAction}
       confirmAction={confirmBookingAction}
       bookingEnabled={bookingConfig.enabled}
@@ -770,16 +762,7 @@ export async function buildAdminPanels(
   );
   flat.orders = (
     <OrdersPanel
-      orders={orders.map((o) => ({
-        id: o.id,
-        createdAt: o.createdAt.toISOString(),
-        startsAt: o.startsAt ? o.startsAt.toISOString() : null,
-        lines: o.lines.map((l) => ({ name: l.name, quantity: l.quantity, choices: l.choices.flatMap((c) => c.picks).join(", "), note: l.note, lineTotal: l.lineTotal })),
-        contact: o.contact,
-        fulfillment: o.fulfillment,
-        notes: o.notes,
-        subtotal: o.subtotal,
-      }))}
+      orders={orders.map(toCalendarOrder)}
       deleteAction={deleteOrderAction}
     />
   );
@@ -856,9 +839,29 @@ export async function buildAdminPanels(
     flat.bulk = <BulkBuilderPanel builds={listBulkBuilds(user.id).map(bulkBuildPayload)} />;
   }
 
+  // The element registry: the same rows, one node per row, for the copilot's
+  // show_elements (lib/adminElements.ts decides ids and facets).
+  const { nodes: elements } = buildElementNodes(
+    {
+      timeZone: bookingSettings.timezone || fallbackTimeZone(),
+      currency: bookingSettings.currency,
+      appointments: bookings,
+      orders,
+      goals: goalRows,
+      rules: ruleRows,
+      canned,
+      services,
+      staff: staffList,
+      locations: locationList,
+      fieldLabels,
+    },
+    { cancelAction: cancelBookingAction, confirmAction: confirmBookingAction, deleteOrderAction },
+  );
+
   return {
     flat,
     labels,
+    elements,
     contentKeys: [...contentTabs.map((t) => t.key), NEW_SOURCE_TAB_KEY],
     hiddenSources: ingestionSources
       .filter((s) => !s.enabled)
