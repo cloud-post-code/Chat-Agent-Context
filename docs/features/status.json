@@ -675,6 +675,16 @@
       "priority": 1,
       "status": "pending",
       "notes": "Requested 2026-09-23 after /a/blake (MoonLight Nails & Spa) showed 'Varies \u00b7 30 min' and photos on every service while the salon's gocheckin page shows a price per row and no photos. Diagnosis: the tenant's catalog is names only (onboarded before prices were extracted; deploy also behind main), Service rows were materialized from it, and the card template fills price/duration/image slots with defaults and word-overlap matches. Spec + proof written; proof red until implemented. Ground truth in truth.ts: MoonLight (booking page screenshot + planner truth prices) and Anthony's Barber Styling (Wix one-pager, no form, text-per-barber)."
+    },
+    {
+      "id": "copilot-element-reveal",
+      "title": "Copilot element reveal: panels split into addressable elements, revealed by filter ('what is on Friday?' shows only the Friday card)",
+      "feature_dir": "docs/features/copilot-element-reveal",
+      "proof": "docs/features/copilot-element-reveal/PROOF.md",
+      "priority": 1,
+      "status": "passing",
+      "notes": "Requested 2026-09-25 with a screen recording: asked about Friday, the copilot opened the whole Appointments panel and said to filter by hand. Now: lib/adminElements.ts (pure) splits appointments, orders, goals, rules, answers, booking-services/providers/locations into ElementMeta rows with flat facets (date/weekday/time in the business timezone, customer, price as a number, enabled yes/no, ...) and selectElements evaluates is/contains/before/after/gte/lte filters in code; lib/adminElementsLoad.ts loads the same stores the dashboard reads; app/admin/elements.tsx renders one node per element through the panels' own row components (AppointmentCard, OrderRow, DirectiveForm, AnswerForm, ServiceRowPanel, StaffRowPanel, LocationRowPanel - extracted, not rewritten); buildAdminPanels returns `elements`; lib/adminBrain.ts adds show_elements {panel, ids?, where?, limit?}, the `elements` event, TODAY + an ELEMENTS index in the prompt; AdminChat renders the event's ids from elements[panel][id] (ElementList). Proof: npx tsx docs/features/copilot-element-reveal/proof.ts (red 34 failures, green 61 PASS / 0 failures). Live cross-check (live.ts, real model): 'what's on Friday?' -> elements event with exactly the Friday booking, no panel; 'show me Blake's appointment' -> the Saturday id by ids; 'services under $50' -> price lte 50, one service; 'show my appointments' -> show_panel. Gate PASS, tsc + lint clean, copilot-focused-edits and admin-nav-groups proofs green. Evaluator PASS after one repair (dead formatMoney import; ElementList render check added).",
+      "next": "Not deployed. Not walked in a logged-in browser (the preview needs the owner's login, which the agent does not perform): open /admin/chat, ask 'what's on Friday?', confirm only the Friday card appears and its Cancel works. Element support not yet added for Chats, Cards, Contacts, Users, Knowledge source items or the settings panels (each needs a builder in lib/adminElements.ts plus a row component). The /admin/chat payload now carries one extra node per list row."
     }
   ]
 }

@@ -114,6 +114,27 @@ A color it cannot derive gets one question or the full panel — never a guess.
 The `edit` event names its `panel` so other panels can add slices later. Proof:
 `docs/features/copilot-focused-edits/proof.ts`.
 
+## Admin copilot: element reveal
+
+Every list panel of the dashboard is also split into addressable elements —
+one booking, order, goal, rule, preset, service, provider or location — that
+carry flat facets (`lib/adminElements.ts`: `ELEMENT_PANELS`, the per-row
+builders, `selectElements`). The copilot's `show_elements {panel, ids?, where?,
+limit?}` reveals only the matching rows: ids picked from the ELEMENTS index in
+its prompt, or where-filters (`is`, `contains`, `before`, `after`, `gte`, `lte`,
+ANDed) evaluated in code — never by the model choosing markup. The prompt
+carries TODAY (date + weekday in the business timezone from BookingSettings)
+so "what's on Friday?" becomes `weekday is friday`. The `elements` event
+`{panel, ids, title}` is rendered by `AdminChat` from `elements[panel][id]`,
+one pre-rendered node per row built by `app/admin/elements.tsx` through the
+panels' own row components (`AppointmentCard`, `OrderRow`, `DirectiveForm`,
+`AnswerForm`, `ServiceRowPanel`, `StaffRowPanel`, `LocationRowPanel`), so a
+revealed row keeps its real server actions. Brain and panel build their index
+from the same rows via the same builders (`loadElementData` /
+`buildElementIndex`), which is what keeps the ids in agreement. Panels without
+elements (chats, cards, contacts, users, source items, settings) still reveal
+whole via `show_panel`. Proof: `docs/features/copilot-element-reveal/proof.ts`.
+
 ## Admin copilot: panels follow the dashboard nav
 
 The dashboard's seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking,

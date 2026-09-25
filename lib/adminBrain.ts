@@ -23,6 +23,19 @@ import { indexSource } from "@/lib/retrieval/indexer";
 import { getBookingConfig } from "@/lib/appointments";
 import { COLOR_ROLES, type ThemeColors } from "@/lib/theme";
 import { fixedPanelEntries, TAB_ALIASES } from "@/app/admin/contentTabs";
+import {
+  ELEMENT_PANELS,
+  FILTER_OPS,
+  elementIndexLines,
+  selectElements,
+  selectionTitle,
+  todayLine,
+  type ElementFilter,
+  type ElementMeta,
+  type ElementSelection,
+  type FilterOp,
+} from "@/lib/adminElements";
+import { loadElementIndex } from "@/lib/adminElementsLoad";
 
 /**
  * The admin copilot: the chat-first surface's brain, sibling to lib/brain.ts
@@ -58,10 +71,18 @@ export type FocusedEdit = {
   current: string;
 };
 
+/**
+ * A slice of a panel: the elements (bookings, services, rules, …) that matched
+ * the copilot's filter, by id. The chat renders the panel's own pre-rendered
+ * node for each id, so "what's on Friday?" shows only Friday's card.
+ */
+export type ElementReveal = { panel: string; ids: string[]; title: string };
+
 /** What the admin brain emits. The transport writes these out as NDJSON. */
 export type AdminEvent =
   | { t: "text"; v: string }
   | { t: "panel"; v: string }
+  | { t: "elements"; v: ElementReveal }
   | { t: "goal"; v: { id: string; text: string } }
   | { t: "approve"; v: IngestProposal }
   | { t: "edit"; v: FocusedEdit };
@@ -360,6 +381,45 @@ function adminTools(
       },
     },
     {
+      name: "show_elements",
+      description:
+        "Reveal only the matching elements of a panel — one or a few bookings, orders, " +
+        "goals, rules, presets, services, providers or locations — instead of the whole " +
+        "panel. Use it whenever the admin asks about a specific item, day, person, or " +
+        "subset (\"what's on Friday\", \"Christopher's appointment\", \"services under " +
+        "$50\"). Pick ids straight from the ELEMENTS index, or give where-filters over " +
+        "its facets (ANDed); filters are evaluated exactly, in code.",
+      input_schema: {
+        type: "object",
+        properties: {
+          panel: { type: "string", enum: Object.keys(ELEMENT_PANELS), description: "The panel" },
+          ids: {
+            type: "array",
+            items: { type: "string" },
+            description: "Element ids copied from the ELEMENTS index",
+          },
+          where: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                facet: { type: "string", description: "A facet name listed for the panel" },
+                op: { type: "string", enum: [...FILTER_OPS] },
+                value: {
+                  type: "string",
+                  description:
+                    "Lowercase text, a number, YYYY-MM-DD for date facets, HH:MM for time",
+                },
+              },
+              required: ["facet", "op", "value"],
+            },
+          },
+          limit: { type: "integer", minimum: 1 },
+        },
+        required: ["panel"],
+      },
+    },
+    {
       name: "save_goal",
       description:
         "Create an agent goal directly, without a form. Use ONLY when the admin has stated " +
@@ -424,6 +484,7 @@ function systemPrompt(
   panels: Array<{ key: string; label: string; hint?: string }>,
   sources: IngestionSourceRow[],
   colors: Record<string, string>,
+  elements: { index: ElementMeta[]; timeZone: string },
 ): string {
   const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
     "\n",
@@ -446,10 +507,18 @@ function systemPrompt(
   return [
     "You are the admin copilot for this account's agent page. The admin talks to you",
     "instead of clicking through the dashboard. Your job is to cut clicks: act, or put",
-    "the exact right panel in front of them, in as few steps as possible.",
+    "the exact right panel — or just the right piece of it — in front of them, in as",
+    "few steps as possible.",
+    "",
+    todayLine(new Date(), elements.timeZone),
     "",
     "PANELS you can reveal with show_panel (fully interactive, inline):",
     panelLines,
+    "",
+    "ELEMENTS you can reveal one by one with show_elements — each line is",
+    "`id | label | facet=value …`; facet values are lowercase, dates YYYY-MM-DD, times",
+    "HH:MM, all in the timezone above:",
+    elementIndexLines(elements.index),
     "",
     "INGESTION SOURCES for propose_ingestion (pick the best match for the content):",
     sourceLines,
@@ -460,8 +529,15 @@ function systemPrompt(
     '"Ask me anything." line renders in the accent.',
     "",
     "Rules:",
-    "- Asked to see or work with a section: call show_panel with its key. Keep any",
-    "  accompanying text to one short sentence.",
+    "- Asked about a specific item, day, person or subset of a panel (\"what's on",
+    "  Friday?\", \"Christopher's appointment\", \"the disabled providers\", \"my rule",
+    "  about phone numbers\"): call show_elements — ids from the index for a named or",
+    "  positional pick, where-filters for a criterion (weekday is friday; customer",
+    "  contains …; price lte 50). Resolve relative days from TODAY. Never show the",
+    "  whole panel when a slice answers the question. If nothing matches, say so in",
+    "  one sentence and offer the panel.",
+    "- Asked to see or work with a whole section: call show_panel with its key. Keep",
+    "  any accompanying text to one short sentence.",
     "- Asked to add a goal WITH its text given: call save_goal, then confirm.",
     "- Asked to add a goal without the text: show the goals panel.",
     "- Asked to ingest something: pick the best source, pre-fill everything you can",
@@ -476,6 +552,28 @@ function systemPrompt(
   ].join("\n");
 }
 
+/** The model's show_elements input, made safe: unknown ops and shapes are dropped. */
+function parseSelection(input: Record<string, unknown>): ElementSelection | null {
+  const panel = String(input.panel ?? "").trim();
+  if (!panel) return null;
+  const ids = Array.isArray(input.ids) ? input.ids.map(String).filter(Boolean) : undefined;
+  const where: ElementFilter[] = Array.isArray(input.where)
+    ? input.where.flatMap((w) => {
+        const f = w as { facet?: unknown; op?: unknown; value?: unknown };
+        const op = String(f.op ?? "") as FilterOp;
+        if (!FILTER_OPS.includes(op) || !f.facet) return [];
+        return [{ facet: String(f.facet), op, value: String(f.value ?? "") }];
+      })
+    : [];
+  const limit = Number(input.limit);
+  return {
+    panel,
+    ids: ids?.length ? ids : undefined,
+    where: where.length ? where : undefined,
+    limit: Number.isFinite(limit) && limit > 0 ? limit : undefined,
+  };
+}
+
 /** Run one tool call for real; returns the events to emit and the tool_result text. */
 async function execute(
   userId: string,
@@ -483,8 +581,25 @@ async function execute(
   input: Record<string, unknown>,
   panelKeys: Set<string>,
   sources: IngestionSourceRow[],
+  elements: { index: ElementMeta[]; labels: Record<string, string> },
 ): Promise<{ events: AdminEvent[]; result: string }> {
   switch (name) {
+    case "show_elements": {
+      const sel = parseSelection(input);
+      if (!sel) return { events: [], result: "show_elements needs a panel from the list." };
+      if (!ELEMENT_PANELS[sel.panel] || !panelKeys.has(sel.panel)) {
+        return { events: [], result: `The "${sel.panel}" panel has no elements to reveal.` };
+      }
+      const picked = selectElements(elements.index, sel);
+      if (picked.length === 0) {
+        return { events: [], result: "No elements match that selection; nothing was shown." };
+      }
+      const title = selectionTitle(elements.labels[sel.panel] ?? sel.panel, sel, picked.length);
+      return {
+        events: [{ t: "elements", v: { panel: sel.panel, ids: picked.map((e) => e.id), title } }],
+        result: `Revealed ${picked.length} element(s): ${picked.map((e) => e.label).join("; ")}.`,
+      };
+    }
     case "show_panel": {
       // Saved chats and canned answers may still name a retired key.
       const raw = String(input.key ?? "");
@@ -559,21 +674,26 @@ export async function* adminAnswer(
   const client: ModelClient = deps.client ?? claude();
 
   try {
-    const [panels, sources, colors] = await Promise.all([
+    const [panels, sources, colors, elements] = await Promise.all([
       adminPanelKeys(userId, operator),
       listIngestionSources(userId),
       currentThemeColors(userId),
+      loadElementIndex(userId),
     ]);
     const enabled = sources.filter((s) => s.enabled);
     const ingestable = enabled.filter((s) =>
       (["url", "text", "file", "image"] as const).some((m) => ingestPlanFor(s, m).ok),
     );
-    const system = systemPrompt(panels, ingestable, colors);
+    const system = systemPrompt(panels, ingestable, colors, elements);
     const tools = adminTools(
       panels.map((p) => p.key),
       ingestable,
     );
     const keySet = new Set(panels.map((p) => p.key));
+    const elementCtx = {
+      index: elements.index,
+      labels: Object.fromEntries(panels.map((p) => [p.key, p.label])),
+    };
 
     const convo: Anthropic.MessageParam[] = history.map((m) => ({
       role: m.role,
@@ -610,6 +730,7 @@ export async function* adminAnswer(
           (tu.input ?? {}) as Record<string, unknown>,
           keySet,
           enabled,
+          elementCtx,
         );
         for (const e of events) yield e;
         results.push({ type: "tool_result", tool_use_id: tu.id, content: result });

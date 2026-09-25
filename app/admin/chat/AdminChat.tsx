@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Markdown } from "@/app/Markdown";
-import type { FocusedEdit, IngestProposal } from "@/lib/adminBrain";
+import type { ElementReveal, FocusedEdit, IngestProposal } from "@/lib/adminBrain";
 import { contrastOn } from "@/lib/theme";
 import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources";
 import { applyThemeColorAction, approveIngestionAction, logout } from "../actions";
@@ -17,10 +17,13 @@ import { btnGhost, field } from "../ui";
  * re-renders every revealed panel with fresh data. Approval cards hold the
  * copilot's pre-filled ingestion draft; nothing is written until Approve.
  * Focused edits show one slice of a panel, pre-filled; Save writes it.
+ * Element reveals show only the matching rows of a panel — `elements[panel][id]`
+ * is the panel's own pre-rendered row, so "what's on Friday?" is one card.
  */
 
 type ChatItem =
   | { kind: "panel"; key: string }
+  | { kind: "elements"; reveal: ElementReveal }
   | { kind: "approve"; proposal: IngestProposal }
   | { kind: "edit"; edit: FocusedEdit };
 
@@ -38,11 +41,13 @@ export function AdminChat({
   slug,
   labels,
   panels,
+  elements,
 }: {
   name: string;
   slug: string;
   labels: Record<string, string>;
   panels: Record<string, React.ReactNode>;
+  elements: Record<string, Record<string, React.ReactNode>>;
 }) {
   const router = useRouter();
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -104,6 +109,7 @@ export function AdminChat({
             const obj = JSON.parse(l);
             if (obj.t === "text") acc += obj.v;
             else if (obj.t === "panel") items.push({ kind: "panel", key: String(obj.v) });
+            else if (obj.t === "elements") items.push({ kind: "elements", reveal: obj.v });
             else if (obj.t === "approve") items.push({ kind: "approve", proposal: obj.v });
             else if (obj.t === "edit") items.push({ kind: "edit", edit: obj.v });
             else if (obj.t === "goal") wrote = true;
@@ -225,6 +231,10 @@ export function AdminChat({
                         </p>
                       )}
                     </PanelBubble>
+                  ) : item.kind === "elements" ? (
+                    <PanelBubble key={j} label={item.reveal.title}>
+                      <ElementList reveal={item.reveal} elements={elements} />
+                    </PanelBubble>
                   ) : item.kind === "edit" ? (
                     <ThemeEditCard key={j} edit={item.edit} onDone={() => router.refresh()} />
                   ) : (
@@ -341,6 +351,31 @@ function PanelBubble({ label, children }: { label: string; children: React.React
         <strong>{label}</strong>
       </div>
       <div style={{ padding: 4 }}>{children}</div>
+    </div>
+  );
+}
+
+/** The matched elements of a panel, each the panel's own row node; ids with no node are skipped. */
+export function ElementList({
+  reveal,
+  elements,
+}: {
+  reveal: ElementReveal;
+  elements: Record<string, Record<string, React.ReactNode>>;
+}) {
+  const nodes = reveal.ids.map((id) => elements[reveal.panel]?.[id]).filter(Boolean);
+  if (nodes.length === 0) {
+    return (
+      <p style={{ fontStyle: "italic", fontSize: 13 }}>
+        Those items aren&apos;t available any more.
+      </p>
+    );
+  }
+  return (
+    <div data-elements={reveal.panel}>
+      {nodes.map((n, i) => (
+        <div key={reveal.ids[i]}>{n}</div>
+      ))}
     </div>
   );
 }

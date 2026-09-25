@@ -16,7 +16,7 @@ import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./u
  * putting his name to it, and Redraft asks for a new one.
  */
 
-type Row = {
+export type AnswerRow = {
   id: string;
   question: string;
   label: string;
@@ -29,12 +29,19 @@ type Row = {
   aiDraft: boolean;
 };
 
-export function AnswersPanel({ rows }: { rows: Row[] }) {
-  const stats = cannedStats(rows);
-  // The page's tabs are the first CHIP_COUNT live rows, in this list's order
-  // (the same rule as starterChipsFor) — numbered here so the owner can see
-  // which questions a visitor can tap.
+/**
+ * The page's tabs are the first CHIP_COUNT live rows, in list order (the same
+ * rule as starterChipsFor) — numbered so the owner can see which questions a
+ * visitor can tap. Returns each row's 1-based tab position, or 0.
+ */
+export function answerTabPositions(rows: AnswerRow[]): Record<string, number> {
   const tabIds = rows.filter((r) => r.enabled).slice(0, CHIP_COUNT).map((r) => r.id);
+  return Object.fromEntries(rows.map((r) => [r.id, tabIds.indexOf(r.id) + 1]));
+}
+
+export function AnswersPanel({ rows }: { rows: AnswerRow[] }) {
+  const stats = cannedStats(rows);
+  const tabs = answerTabPositions(rows);
 
   return (
     <div>
@@ -81,7 +88,7 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
       </div>
 
       {rows.map((r) => (
-        <AnswerForm key={r.id} row={r} tab={tabIds.indexOf(r.id) + 1} />
+        <AnswerForm key={r.id} row={r} tab={tabs[r.id]} />
       ))}
 
       <AnswerForm />
@@ -89,13 +96,17 @@ export function AnswersPanel({ rows }: { rows: Row[] }) {
   );
 }
 
-/** `tab` is the row's 1-based tab position on the page, or 0 when it has none. */
-function AnswerForm({ row, tab = 0 }: { row?: Row; tab?: number }) {
+/**
+ * One preset's editor (or the blank add form); also the `answers` element the
+ * copilot reveals alone. `tab` is the row's 1-based tab position on the page,
+ * or 0 when it has none.
+ */
+export function AnswerForm({ row, tab = 0 }: { row?: AnswerRow; tab?: number }) {
   const isNew = !row;
   const draft = !!row?.aiDraft && !!row.answer.trim();
 
   return (
-    <form action={saveCanned} style={panel}>
+    <form action={saveCanned} data-element={row?.id} style={panel}>
       {row ? <input type="hidden" name="id" value={row.id} /> : null}
       <input type="hidden" name="order" value={row?.order ?? 99} />
 

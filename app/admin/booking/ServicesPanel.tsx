@@ -74,7 +74,48 @@ export function ServicesPanel({
       ) : null}
 
       {services.map((s, i) => (
-        <div key={s.id} data-fill="surface" style={panel}>
+        <ServiceRowPanel
+          key={s.id}
+          s={s}
+          index={i}
+          count={services.length}
+          staff={staff}
+          locations={locations}
+          categories={categories}
+          currency={currency}
+        />
+      ))}
+
+      <div data-fill="surface" style={panel}>
+        <SectionTitle>Add a service</SectionTitle>
+        <ServiceForm key={services.length} staff={staff} locations={locations} categories={categories} />
+      </div>
+    </section>
+  );
+}
+
+/** One service's collapsed summary + editor; also the element the copilot reveals alone. */
+export function ServiceRowPanel({
+  s,
+  index,
+  count,
+  staff,
+  locations,
+  categories,
+  currency,
+}: {
+  s: ServiceRow;
+  /** Position in the panel's order, for the move buttons. */
+  index: number;
+  count: number;
+  staff: StaffRow[];
+  locations: LocationRow[];
+  categories: string[];
+  currency: string;
+}) {
+  const i = index;
+  return (
+        <div data-fill="surface" data-element={s.id} style={panel}>
           <details>
             <summary style={summaryStyle}>
               {s.imageUrl ? (
@@ -96,7 +137,7 @@ export function ServicesPanel({
               <ServiceForm service={s} staff={staff} locations={locations} categories={categories} />
               <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
                 {i > 0 ? <MoveButton id={s.id} dir="up" /> : null}
-                {i < services.length - 1 ? <MoveButton id={s.id} dir="down" /> : null}
+                {i < count - 1 ? <MoveButton id={s.id} dir="down" /> : null}
                 <form action={deleteServiceAction} style={{ marginLeft: "auto" }}>
                   <input type="hidden" name="id" value={s.id} />
                   <PendingButton pendingLabel="Removing…" style={btnDanger as React.CSSProperties}>
@@ -107,13 +148,6 @@ export function ServicesPanel({
             </div>
           </details>
         </div>
-      ))}
-
-      <div data-fill="surface" style={panel}>
-        <SectionTitle>Add a service</SectionTitle>
-        <ServiceForm key={services.length} staff={staff} locations={locations} categories={categories} />
-      </div>
-    </section>
   );
 }
 

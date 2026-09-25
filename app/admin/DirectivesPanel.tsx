@@ -59,12 +59,13 @@ export function DirectivesPanel({ kind, rows }: { kind: DirectiveKind; rows: Dir
   );
 }
 
-function DirectiveForm({ kind, row }: { kind: DirectiveKind; row?: DirectiveRow }) {
+/** One goal/rule editor (or the blank add form); also the element the copilot reveals alone. */
+export function DirectiveForm({ kind, row }: { kind: DirectiveKind; row?: DirectiveRow }) {
   const copy = COPY[kind];
   const isNew = !row;
 
   return (
-    <form action={saveDirectiveAction} data-fill="surface" style={panel}>
+    <form action={saveDirectiveAction} data-fill="surface" data-element={row?.id} style={panel}>
       {row ? <input type="hidden" name="id" value={row.id} /> : null}
       <input type="hidden" name="kind" value={kind} />
       <input type="hidden" name="order" value={row?.order ?? 0} />
