@@ -6,7 +6,7 @@ import { sanitizeMenuItem, type MenuItemData } from "@/lib/menuTypes";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
 import { SERVICES_SOURCE_TITLE, formatServiceCatalog } from "@/lib/serviceCatalog";
 import type { Crawler, Page } from "./crawl";
-import { bookingCorpus, findBookingFrames, findBookingLink } from "./bookingPage";
+import { bookingCorpus, findBookingFrames, findBookingLink, findSiblingSubdomain } from "./bookingPage";
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
 import { applyBookingChannels, seedServices, type ExtractedService } from "./bookingSeed";
@@ -160,11 +160,24 @@ export async function discoverServicePages(
   for (const page of await Promise.all(urls.map((u) => crawler.load(u)))) {
     if (page) pages.push(page);
   }
-  // The booking page itself — the homepage's booking link, offsite included —
-  // and the widgets embedded in it or in the homepage, where the questions are.
-  const link = findBookingLink(home);
+  // The booking page itself — a booking link on any page read so far, offsite
+  // included — and the widgets embedded in it or in those pages, where the
+  // questions are.
+  let link = findBookingLink(pages);
+  if (!link) {
+    // No booking link anywhere yet: some storefronts split off into their own
+    // subdomain ("shop.", "book.") a hop the homepage's own nav doesn't name
+    // in booking words — worth one more load, on the business's own domain,
+    // before concluding there is nothing to book through.
+    const sibling = findSiblingSubdomain(home);
+    const siblingPage = sibling ? await crawler.loadExternal(sibling) : null;
+    if (siblingPage) {
+      pages.push(siblingPage);
+      link = findBookingLink([siblingPage]);
+    }
+  }
   const booking = link ? await (crawler.resolve(link) ? crawler.load(link) : crawler.loadExternal(link)) : null;
-  const frames = [...new Set([home, booking].flatMap((p) => (p ? findBookingFrames(p) : [])))].slice(0, MAX_FRAMES);
+  const frames = [...new Set([...pages, booking].flatMap((p) => (p ? findBookingFrames(p) : [])))].slice(0, MAX_FRAMES);
   for (const page of [booking, ...(await Promise.all(frames.map((f) => crawler.loadExternal(f))))]) {
     if (page && !pages.some((p) => p.url === page.url)) pages.push(page);
   }
@@ -359,9 +372,8 @@ export async function extractServicesAndBooking(
  * any loaded page. Null when the site shows none.
  */
 export function bookingFormUrl(pages: Page[]): string | null {
-  const home = pages[0];
-  if (!home) return null;
-  const link = findBookingLink(home);
+  if (!pages.length) return null;
+  const link = findBookingLink(pages);
   if (link) return link;
   for (const p of pages) {
     const frames = findBookingFrames(p);

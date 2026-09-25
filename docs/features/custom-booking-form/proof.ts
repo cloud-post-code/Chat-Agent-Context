@@ -218,6 +218,19 @@ async function main() {
     const home = pageOf("https://moonlight.invalid/", '<html><body><h1>MoonLight Nails</h1><p>Gel Manicure $35.</p><a href="/book">Book online</a></body></html>');
     const bookPage = pageOf("https://moonlight.invalid/book", readerHtml);
     check("F0 the homepage's booking link is the form's url", bookingFormUrl([home, bookPage]) === "https://moonlight.invalid/book");
+    // A "Book" link that only sits on a page other than the homepage (a
+    // services page, say) is still the form's url — discovery reads every
+    // page, not just the first.
+    const bareHome = pageOf("https://moonlight.invalid/", '<html><body><h1>MoonLight Nails</h1><a href="/services">Services</a></body></html>');
+    const servicesPage = pageOf("https://moonlight.invalid/services", '<html><body><p>Gel Manicure $35.</p><a href="https://booking.gocheckin.net/v2/1">Book online</a></body></html>');
+    check("F0 a booking link on a non-homepage page is found too", bookingFormUrl([bareHome, servicesPage]) === "https://booking.gocheckin.net/v2/1", String(bookingFormUrl([bareHome, servicesPage])));
+    check("F0 …and with no link on any page, none is invented", bookingFormUrl([bareHome]) === null, String(bookingFormUrl([bareHome])));
+    // A storefront on the business's own other subdomain is a lead worth one
+    // more hop; an unrelated host or the site itself is not.
+    const { findSiblingSubdomain } = await import("../../../lib/onboarding/bookingPage");
+    const shopHome = pageOf("https://bethany.invalid/", '<html><body><a href="https://www.instagram.com/x">IG</a><a href="/about">About</a><a href="https://shop.bethany.invalid/s/appointments">Shop</a></body></html>');
+    check("F0 a same-domain subdomain link is a sibling lead (its origin, not the deep link)", findSiblingSubdomain(shopHome) === "https://shop.bethany.invalid/", String(findSiblingSubdomain(shopHome)));
+    check("F0 …the site itself and unrelated hosts are not", findSiblingSubdomain(bareHome) === null && findSiblingSubdomain(pageOf("https://bethany.invalid/", '<html><body><a href="https://www.instagram.com/x">IG</a></body></html>')) === null);
     let servicesCalls = 0;
     let formCalls = 0;
     let formCorpus = "";

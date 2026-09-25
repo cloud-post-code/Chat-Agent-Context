@@ -59,19 +59,70 @@ export function isReadableUrl(url: string): boolean {
 }
 
 /**
- * The booking link on a page, or null. A known booking host beats a link that
- * only says "book"; offsite beats on-site (the on-site ones are already
- * candidates in `discoverServicePages`); first in document order breaks ties.
+ * The booking link across every page read so far, or null. A known booking
+ * host beats a link that only says "book"; offsite beats on-site (the
+ * on-site ones are already candidates in `discoverServicePages`); the
+ * highest score across every page wins, first in document order breaking a
+ * tie — a business's nav usually repeats the same link on every page, but a
+ * site whose "Book" link sits on a page other than the homepage (a services
+ * or contact page, say) is still found.
  */
-export function findBookingLink(page: Page): string | null {
-  let origin: string;
+export function findBookingLink(pages: Page[]): string | null {
+  let best: { url: string; score: number } | null = null;
+  for (const page of pages) {
+    let origin: string;
+    try {
+      origin = new URL(page.url).origin;
+    } catch {
+      continue;
+    }
+    page.$("a[href]").each((_, el) => {
+      const href = page.$(el).attr("href") ?? "";
+      let u: URL;
+      try {
+        u = new URL(href, page.url);
+      } catch {
+        return;
+      }
+      if (!/^https?:$/.test(u.protocol) || NOT_BOOKING.test(u.hostname)) return;
+      const offsite = u.origin !== origin;
+      if (offsite && !isSafeExternalUrl(u.href)) return;
+      const platform = BOOKING_HOSTS.test(u.hostname) && !PLATFORM_ADVERT.test(u.pathname + u.search);
+      if (BOOKING_HOSTS.test(u.hostname) && !platform) return;
+      const text = `${page.$(el).text()} ${page.$(el).attr("aria-label") ?? ""} ${page.$(el).attr("title") ?? ""}`;
+      const says = BOOKING_WORDS.test(text) || BOOKING_WORDS.test(u.pathname.replace(/[-_/]/g, " "));
+      if (!platform && !says) return;
+      const score = (platform ? 4 : 0) + (offsite ? 2 : 0) + (says ? 1 : 0);
+      if (!best || score > best.score) best = { url: u.href, score };
+    });
+  }
+  return (best as { url: string } | null)?.url ?? null;
+}
+
+/** The registrable-domain-ish suffix ("bethanytaryn.com" out of "shop.bethanytaryn.com"): the last two dot-separated labels — a rough stand-in for a public-suffix lookup, good enough to tell a business's own other subdomain from an unrelated host. */
+function baseDomain(hostname: string): string {
+  const parts = hostname.toLowerCase().split(".");
+  return parts.slice(-2).join(".");
+}
+
+/**
+ * A same-business subdomain the page links to that isn't the site itself —
+ * "shop.", "store.", "book.", "schedule." storefronts are common enough that
+ * the real booking page sometimes lives one hop further, on a page discovery
+ * hasn't loaded yet. Null when the page links to no other subdomain of its
+ * own domain. First such link in document order wins.
+ */
+export function findSiblingSubdomain(page: Page): string | null {
+  let entryHost: string;
   try {
-    origin = new URL(page.url).origin;
+    entryHost = new URL(page.url).hostname;
   } catch {
     return null;
   }
-  let best: { url: string; score: number } | null = null;
+  const base = baseDomain(entryHost);
+  let found: string | null = null;
   page.$("a[href]").each((_, el) => {
+    if (found) return;
     const href = page.$(el).attr("href") ?? "";
     let u: URL;
     try {
@@ -79,18 +130,11 @@ export function findBookingLink(page: Page): string | null {
     } catch {
       return;
     }
-    if (!/^https?:$/.test(u.protocol) || NOT_BOOKING.test(u.hostname)) return;
-    const offsite = u.origin !== origin;
-    if (offsite && !isSafeExternalUrl(u.href)) return;
-    const platform = BOOKING_HOSTS.test(u.hostname) && !PLATFORM_ADVERT.test(u.pathname + u.search);
-    if (BOOKING_HOSTS.test(u.hostname) && !platform) return;
-    const text = `${page.$(el).text()} ${page.$(el).attr("aria-label") ?? ""} ${page.$(el).attr("title") ?? ""}`;
-    const says = BOOKING_WORDS.test(text) || BOOKING_WORDS.test(u.pathname.replace(/[-_/]/g, " "));
-    if (!platform && !says) return;
-    const score = (platform ? 4 : 0) + (offsite ? 2 : 0) + (says ? 1 : 0);
-    if (!best || score > best.score) best = { url: u.href, score };
+    if (u.hostname === entryHost || baseDomain(u.hostname) !== base) return;
+    if (!isSafeExternalUrl(u.href)) return;
+    found = u.origin + "/";
   });
-  return (best as { url: string } | null)?.url ?? null;
+  return found;
 }
 
 /**
