@@ -172,7 +172,7 @@ const ADD_TO_CART_TOOL: Anthropic.Tool = {
 const BOOKING_TOOL: Anthropic.Tool = {
   name: "show_booking",
   description:
-    "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to book, schedule, or set up an appointment, call, or meeting.",
+    "Render the appointment booking flow so the visitor can book a time. Use it whenever someone wants to book, schedule, or set up an appointment, call, or meeting. Not while a booking is already in progress in the conversation.",
   input_schema: {
     type: "object",
     properties: {
