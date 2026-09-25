@@ -48,14 +48,16 @@ function check(name: string, ok: boolean, detail?: string) {
 type Turn = { text?: string; tools?: { name: string; input: Record<string, unknown> }[] };
 
 /** A ModelClient whose stream() pops the next scripted turn and records what it was sent. */
-function scriptedClient(turns: Turn[], seen: { system: string[]; messages: unknown[][]; calls: number }) {
+type ToolDef = { name: string; input_schema: { properties?: Record<string, { enum?: string[] }> } };
+function scriptedClient(turns: Turn[], seen: { system: string[]; messages: unknown[][]; tools: ToolDef[]; calls: number }) {
   let i = 0;
   return {
     messages: {
-      stream(params: { system?: unknown; messages?: unknown[] }) {
+      stream(params: { system?: unknown; messages?: unknown[]; tools?: ToolDef[] }) {
         seen.calls++;
         seen.system.push(String(params.system ?? ""));
         seen.messages.push([...(params.messages ?? [])]);
+        seen.tools = params.tools ?? [];
         const turn = turns[Math.min(i++, turns.length - 1)] ?? {};
         return {
           async *[Symbol.asyncIterator]() {
@@ -103,20 +105,37 @@ async function main() {
       rules: { ...rules, staffSelection: "optional", confirmation: "instant" },
       preselect: { serviceId: null },
     };
-    const fields: import("../../../lib/appointmentTypes").AppointmentFieldRow[] = [
-      { key: "guests", label: "How many guests?", type: "number", required: true, order: 0, config: { min: 1, max: 8 } },
-      { key: "allergies", label: "Any allergies?", type: "long_text", required: false, order: 1, config: { showIf: { key: "guests", values: [] } } },
+    type Row = import("../../../lib/appointmentTypes").AppointmentFieldRow;
+    const row = (r: Omit<Row, "order" | "config" | "role" | "screen"> & Partial<Pick<Row, "order" | "config" | "role" | "screen">>): Row =>
+      ({ order: 0, config: {}, role: "none", screen: 1, ...r });
+    // The migrated form of an existing tenant: the contact details on screen 1, then one question per screen.
+    const contact: Row[] = [
+      row({ key: "first_name", label: "First name", type: "short_text", required: true, role: "first_name", screen: 1 }),
+      row({ key: "last_name", label: "Last name", type: "short_text", required: true, role: "last_name", screen: 1 }),
+      row({ key: "email", label: "Email", type: "email", required: true, role: "email", screen: 1 }),
+      row({ key: "phone", label: "Phone", type: "phone", required: false, role: "phone", screen: 1 }),
+    ];
+    const fields: Row[] = [
+      ...contact,
+      row({ key: "guests", label: "How many guests?", type: "number", required: true, config: { min: 1, max: 8 }, screen: 2 }),
+      row({ key: "allergies", label: "Any allergies?", type: "long_text", required: false, config: { showIf: { key: "guests", values: [] } }, screen: 3 }),
     ];
     const steps = S.describeBookingSteps(flow, fields);
-    check("A1 steps follow the card's order: service → options → provider → time → details → questions → review",
-      steps.map((s) => s.kind).join(",") === "service,options,provider,time,details,question,question,review", steps.map((s) => s.kind).join(","));
+    check("A1 the default order: service → options → provider → time → the contact screen → each question → review",
+      steps.map((s) => s.kind).join(",") === "service,options,provider,time,screen,question,question,review", steps.map((s) => s.kind).join(","));
     check("A2 the service step counts the services", /2 services/.test(steps[0].detail), steps[0].detail);
     check("A3 an options step is listed as 'sometimes', naming how many services have it", /only for 1 service/.test(steps[1].detail), steps[1].detail);
     check("A4 the provider step names the choice and 'anyone available'", /1 provider, or anyone available/.test(steps[2].detail), steps[2].detail);
-    const details = steps.find((s) => s.kind === "details")!;
-    check("A5 the details step lists the asked customer fields, required ones starred", /First name\*/.test(details.detail) && /Email\*/.test(details.detail), details.detail);
+    const screen1 = steps.find((s) => s.kind === "screen")!;
+    check("A5 a screen holding several fields is one step, id screen:<n>, titled by its labels with required ones starred",
+      screen1.id === "screen:1" && screen1.title === "First name*, Last name*, Email*, Phone" && screen1.screen === 1, `${screen1.id} ${screen1.title}`);
+    check("A5b …its detail lists each field with its type, and it carries the fields with their roles",
+      screen1.detail === "First name* · short answer, Last name* · short answer, Email* · email, Phone · phone number" &&
+        screen1.fields!.map((f) => f.role).join() === "first_name,last_name,email,phone" && screen1.fields![3].detail === "phone number · optional",
+      `${screen1.detail} | ${JSON.stringify(screen1.fields)}`);
     const q1 = steps.find((s) => s.id === "q:guests")!;
-    check("A6 a number question says its range and that it is required", q1.detail === "a number from 1 to 8 · required", q1.detail);
+    check("A6 a screen with one field keeps the question shape: q:<key>, label, range and requiredness, its screen and role",
+      q1.kind === "question" && q1.title === "How many guests?" && q1.detail === "a number from 1 to 8 · required" && q1.screen === 2 && q1.question?.role === "none", JSON.stringify(q1));
     const q2 = steps.find((s) => s.id === "q:allergies")!;
     check("A7 a conditional question says when it is asked", /only when "guests" is answered/.test(q2.detail), q2.detail);
     check("A8 the review step says the booking is instant", /booked on the spot/.test(steps[steps.length - 1].detail));
@@ -124,11 +143,31 @@ async function main() {
     check("A9 hidden staff selection drops the provider step; request confirmation is said", !hidden.some((s) => s.kind === "provider") && /request you confirm/.test(hidden[hidden.length - 1].detail));
     check("A10 booking off means no steps at all", S.describeBookingSteps(null, fields).length === 0);
 
-    const after = S.describeBookingSteps(flow, [fields[0], { key: "pet", label: "Your pet's name", type: "short_text", required: false, order: 2, config: {} }]);
+    const after = S.describeBookingSteps(flow, [...contact, fields[4], row({ key: "pet", label: "Your pet's name", type: "short_text", required: false, screen: 4 })]);
     const d = S.diffSteps(steps, after);
     check("A11 diffSteps marks the new question added and the dropped one removed", d.added.join() === "q:pet" && d.removed.join() === "q:allergies" && d.changed.length === 0, JSON.stringify(d));
-    const reworded = S.describeBookingSteps(flow, [{ ...fields[0], required: false }, fields[1]]);
+    const reworded = S.describeBookingSteps(flow, fields.map((f) => (f.key === "guests" ? { ...f, required: false } : f)));
     check("A12 diffSteps marks a reworded/re-required question changed", S.diffSteps(steps, reworded).changed.join() === "q:guests");
+    const phoneRequired = S.describeBookingSteps(flow, fields.map((f) => (f.key === "phone" ? { ...f, required: true } : f)));
+    check("A13 a field changing on a shared screen marks that screen changed", S.diffSteps(steps, phoneRequired).changed.join() === "screen:1", JSON.stringify(S.diffSteps(steps, phoneRequired)));
+
+    // The business's own order: questions before the time, a titled contact screen, a conditional field on a shared screen.
+    const own: import("../../../lib/booking/types").FlowStep[] = [
+      { kind: "service" },
+      { kind: "questions", screen: 2 },
+      { kind: "questions", screen: 1, title: "About you" },
+      { kind: "time" },
+      { kind: "provider" },
+      { kind: "review" },
+    ];
+    const ownFields = fields.map((f) => (f.key === "allergies" ? { ...f, screen: 2 } : f));
+    const ownSteps = S.describeBookingSteps({ ...flow, rules: { ...flow.rules, flow: own } }, ownFields);
+    check("A14 the flow's own order is kept: service → options → guests screen → contact screen → time → provider → review",
+      ownSteps.map((s) => s.id).join(",") === "service,options,screen:2,screen:1,time,provider,review", ownSteps.map((s) => s.id).join(","));
+    check("A15 a flow step's title names the screen; a conditional field on a shared screen keeps its note",
+      ownSteps[3].title === "About you" && /Any allergies\? · a few lines · only when "guests" is answered/.test(ownSteps[2].detail), `${ownSteps[3].title} | ${ownSteps[2].detail}`);
+    const noStaff = S.describeBookingSteps({ ...flow, staff: [] }, fields);
+    check("A16 no providers on file drops the provider step even when selection is optional", !noStaff.some((s) => s.kind === "provider"));
   }
 
   // ══ B. The staged job's booking stage ════════════════════════════════════
@@ -166,7 +205,7 @@ async function main() {
     (await prisma.appointmentField.findMany({ where: { userId } })).filter((r) => r.config.includes('"generated":true')).length;
 
   const run = async (message: string, turns: Turn[], history: { role: "user" | "assistant"; content: string }[] = []) => {
-    const seen = { system: [] as string[], messages: [] as unknown[][], calls: 0 };
+    const seen = { system: [] as string[], messages: [] as unknown[][], tools: [] as ToolDef[], calls: 0 };
     const result = await C.editBookingForm({ userId, message, history }, { client: scriptedClient(turns, seen) as never });
     return { ...result, seen };
   };
@@ -174,46 +213,70 @@ async function main() {
   try {
     // ── C. Reading the form as the step sees it ──
     await A.setBookingEnabled(userId, true);
-    // What the booking stage would have built for a salon: a generated form.
-    const written = await A.rebuildUntouchedForm(userId, [
-      { key: "name", label: "Your name", type: "short_text", required: true },
-      { key: "phone", label: "Your phone number", type: "phone", required: true },
-      { key: "notes", label: "Anything we should know before your visit?", type: "long_text", required: false },
-    ]);
+    // What the booking stage would have built for a salon: a generated form in
+    // the business's own words — the contact details on one screen, tagged by
+    // role, then one question on its own screen. (Turning booking on seeds
+    // nothing the stage would keep; start from a clean catalog either way.)
+    await prisma.appointmentField.deleteMany({ where: { userId } });
+    const plan = [
+      { key: "name", label: "Your name", type: "short_text", required: true, role: "name", screen: 1 },
+      { key: "phone", label: "Your phone number", type: "phone", required: true, role: "phone", screen: 1 },
+      { key: "notes", label: "Anything we should know before your visit?", type: "long_text", required: false, role: "notes", screen: 2 },
+    ] as const;
+    let written = 0;
+    for (const f of plan) if ((await A.saveAppointmentField(userId, { ...f, config: {}, generated: true })) === null) written++;
     check("C1 the stage's generated form is on file", written === 3 && (await generatedCount()) === 3);
     await B.saveStaff(userId, { name: "Maya", role: "Stylist", bio: "" });
 
     const form = await C.bookingFormSummary(userId);
-    check("C2 the summary carries the tenant's slug and that booking is on", form.slug === user.slug && form.enabled && form.flow !== null);
-    check("C3 name and phone are the details step, not questions; notes is the one question",
-      form.fields.map((f) => f.key).join() === "notes", form.fields.map((f) => f.key).join());
-    check("C4 the steps: provider → time → details → notes → review (no services yet)",
-      titles(form.steps) === "Choose who you'd like to see → Date and time → Your details → Anything we should know before your visit? → Review and confirm", titles(form.steps));
-    check("C5 a required legacy phone question makes the details step require the phone", /Phone\*/.test(form.steps.find((s) => s.kind === "details")!.detail));
+    check("C2 the summary carries the tenant's slug and that booking is on", form.slug === user.slug && form.enabled && form.flow !== null && !form.empty);
+    check("C3 name and phone are fields on screen 1 with their roles; notes is on screen 2",
+      form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join() === "name:name:1,phone:phone:1,notes:notes:2", form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join());
+    check("C4 the steps: provider → time → the contact screen (titled by its labels) → notes → review (no services yet)",
+      titles(form.steps) === "Choose who you'd like to see → Date and time → Your name*, Your phone number* → Anything we should know before your visit? → Review and confirm", titles(form.steps));
+    const contactStep = form.steps.find((s) => s.kind === "screen")!;
+    check("C5 the contact screen step lists the phone as required, with its type", contactStep.id === "screen:1" && /Your phone number\* · phone number/.test(contactStep.detail), contactStep.detail);
     const told = C.describeFormForModel(form);
-    check("C6 the model is told the question keys, the provider, and the customer fields' state",
-      /key notes:/.test(told) && /Maya/.test(told) && /phone \("Phone"\): asked, required/.test(told), told);
+    check("C6 the model is told every field under its step: key, type, requiredness, role and screen",
+      /key notes: "Anything we should know before your visit\?" \(long_text, optional, role notes, screen 2\)/.test(told) &&
+        /key phone: "Your phone number" \(phone, required, role phone, screen 1\)/.test(told) && /Maya/.test(told), told);
+    check("C6b …and nothing about a details step or always-required fields", !/CUSTOMER DETAILS/.test(told) && !/always asked/.test(told) && !/Your details/.test(told), told);
 
     // ── D. A round of the chat changes the form for real and reads it back ──
-    const d1 = await run("Ask how many guests are coming (up to 8), and don't require the phone number.", [
+    const d1 = await run("Ask how many guests are coming (up to 8), don't require the phone number, and ask for their email with the phone.", [
       {
         tools: [
           { name: "add_question", input: { label: "How many guests?", type: "number", required: true, min: 1, max: 8, after: "first" } },
-          { name: "set_customer_field", input: { key: "phone", required: false } },
+          { name: "edit_question", input: { key: "phone", required: false, role: "phone" } },
+          { name: "add_question", input: { label: "Your email", type: "email", required: true, role: "email", screen: "previous", after: "phone" } },
         ],
       },
-      { text: "Added a guest count and made the phone number optional." },
+      { text: "Added a guest count, made the phone number optional and added an email box beside it." },
     ]);
-    check("D1 the reply is the model's own closing text", d1.reply === "Added a guest count and made the phone number optional.", d1.reply);
-    check("D2 two changes are reported, in order", d1.changes.length === 2 && /Added the question “How many guests\?”/.test(d1.changes[0]) && /Phone is asked, optional/.test(d1.changes[1]), JSON.stringify(d1.changes));
+    check("D1 the reply is the model's own closing text", d1.reply === "Added a guest count, made the phone number optional and added an email box beside it.", d1.reply);
+    check("D2 three changes are reported, in order",
+      d1.changes.length === 3 && /Added the question “How many guests\?”/.test(d1.changes[0]) && /Changed “Your phone number”: now optional/.test(d1.changes[1]) && /Added the question “Your email” \(email\)/.test(d1.changes[2]), JSON.stringify(d1.changes));
     check("D3 the guest question is stored as a required number 1–8", (await A.getBookingConfig(userId)).fields.some((f) => f.key === "how_many_guests" && f.type === "number" && f.required && f.config.min === 1 && f.config.max === 8));
-    check("D4 'after: first' asks it before the other questions", d1.form.fields.map((f) => f.key).join() === "how_many_guests,notes", d1.form.fields.map((f) => f.key).join());
-    check("D5 the re-read form's steps show it, with its range", d1.form.steps.some((s) => s.id === "q:how_many_guests" && s.detail === "a number from 1 to 8 · required"));
-    const phone = (await B.getBookingSettings(userId)).customerFields.find((f) => f.key === "phone")!;
-    check("D6 the phone customer field is asked but no longer required", phone.enabled && !phone.required);
+    check("D4 'after: first' asks it before the other questions; 'after: phone' puts the email right after the phone",
+      d1.form.fields.map((f) => f.key).join() === "how_many_guests,name,phone,your_email,notes", d1.form.fields.map((f) => f.key).join());
+    check("D5 the re-read form's steps show the guest count first, on a screen of its own, with its range",
+      d1.form.steps.findIndex((s) => s.id === "q:how_many_guests") === 2 && d1.form.steps.some((s) => s.id === "q:how_many_guests" && s.detail === "a number from 1 to 8 · required"), titles(d1.form.steps));
+    const phone = d1.form.fields.find((f) => f.key === "phone")!;
+    const email = d1.form.fields.find((f) => f.key === "your_email")!;
+    check("D6 the phone field is still asked, no longer required, its role kept", phone.required === false && phone.role === "phone" && phone.screen === 1, JSON.stringify(phone));
+    check("D6b the email field carries role email and 'previous' put it on the phone's screen", email.role === "email" && email.screen === 1 && email.required, JSON.stringify(email));
+    check("D6c the contact screen step now lists all three", /Your name\*, Your phone number, Your email\*/.test(d1.form.steps.find((s) => s.id === "screen:1")!.title), titles(d1.form.steps));
     check("D7 a chat edit is an admin edit: the form is the owner's now (no question stays generated)", (await generatedCount()) === 0);
     check("D8 the loop ended after the closing turn (2 model calls)", d1.seen.calls === 2, String(d1.seen.calls));
     check("D9 the system prompt carried the form as it stood before the change", /key notes:/.test(d1.seen.system[0]) && !/how_many_guests/.test(d1.seen.system[0]));
+    const toolNames = d1.seen.tools.map((t) => t.name);
+    const addQ = d1.seen.tools.find((t) => t.name === "add_question")!;
+    const editQ = d1.seen.tools.find((t) => t.name === "edit_question")!;
+    check("D10 the model has no set_customer_field tool; the question tools take role (the FIELD_ROLES) and screen",
+      !toolNames.includes("set_customer_field") && ["add_question", "edit_question", "remove_question", "reorder_questions", "set_staff_selection", "set_confirmation", "add_service", "edit_service", "remove_service"].every((n) => toolNames.includes(n)) &&
+        addQ.input_schema.properties?.role?.enum?.join() === "none,name,first_name,last_name,email,phone,notes,policy" && "screen" in (addQ.input_schema.properties ?? {}) &&
+        editQ.input_schema.properties?.role?.enum?.length === 8 && "screen" in (editQ.input_schema.properties ?? {}),
+      toolNames.join());
 
     // ── E. Services, wording, order, removal, provider choice, confirmation ──
     const e1 = await run("Add a $20 beard trim, 30 minutes.", [
@@ -243,18 +306,34 @@ async function main() {
     check("E7 the review step says bookings are requests", /request you confirm/.test(e2.form.steps[e2.form.steps.length - 1].detail));
     check("E8 confirmation set by chat counts as the owner's choice", (await B.getBookingSettings(userId)).confirmationOwner === true);
 
-    const e3 = await run("Ask for a photo of the problem, and ask about allergies only when they bring guests.", [
+    const guestScreen = e2.form.fields.find((f) => f.key === "how_many_guests")!.screen;
+    const e3 = await run("Ask for a photo of the problem, and ask about allergies only when they bring guests — on the same screen as the guest count.", [
       {
         tools: [
           { name: "add_question", input: { label: "A photo of the problem", type: "photo" } },
-          { name: "add_question", input: { label: "Any allergies in the party?", type: "long_text", showIfKey: "how_many_guests" } },
+          { name: "add_question", input: { label: "Any allergies in the party?", type: "long_text", showIfKey: "how_many_guests", screen: guestScreen } },
           { name: "reorder_questions", input: { keys: ["a_photo_of_the_problem", "how_many_guests"] } },
         ],
       },
       { text: "Added both." },
     ]);
     check("E9 a photo question and a conditional question are added", e3.form.fields.some((f) => f.key === "a_photo_of_the_problem" && f.type === "photo") && e3.form.fields.some((f) => f.key === "any_allergies_in_the_party" && f.config.showIf?.key === "how_many_guests"));
-    check("E10 reorder puts the named keys first and keeps the rest after", e3.form.fields.map((f) => f.key).join() === "a_photo_of_the_problem,how_many_guests,any_allergies_in_the_party", e3.form.fields.map((f) => f.key).join());
+    check("E10 reorder puts the named keys first and keeps the rest after", e3.form.fields.map((f) => f.key).join() === "a_photo_of_the_problem,how_many_guests,name,phone,your_email,any_allergies_in_the_party", e3.form.fields.map((f) => f.key).join());
+    const allergies = e3.form.fields.find((f) => f.key === "any_allergies_in_the_party")!;
+    const guestStep = e3.form.steps.find((s) => s.id === `screen:${guestScreen}`);
+    check("E11 a numeric screen puts the question on that screen: the guest screen is now one step with both fields, the condition noted",
+      allergies.screen === guestScreen && !!guestStep && guestStep.fields?.map((f) => f.key).join() === "how_many_guests,any_allergies_in_the_party" && /only when "how_many_guests" is answered/.test(guestStep.detail), titles(e3.form.steps));
+    check("E12 a new question with no screen gets a screen of its own", e3.form.steps.some((s) => s.id === "q:a_photo_of_the_problem"), titles(e3.form.steps));
+
+    const e4 = await run("Ask for the email on its own screen.", [
+      { tools: [{ name: "edit_question", input: { key: "your_email", screen: "new" } }] },
+      { text: "The email has its own screen now." },
+    ]);
+    const emailNow = e4.form.fields.find((f) => f.key === "your_email")!;
+    check("E13 screen 'new' moves a question to a screen of its own, the change says so, and the contact screen shrinks",
+      emailNow.screen > guestScreen && emailNow.role === "email" && /moved to screen/.test(e4.changes[0]) &&
+        e4.form.steps.some((s) => s.id === "q:your_email") && e4.form.steps.find((s) => s.id === "screen:1")!.title === "Your name*, Your phone number",
+      `${JSON.stringify(emailNow)} | ${titles(e4.form.steps)}`);
 
     // ── F. Guard rails ──
     const f1 = await run("Add a select question.", [
@@ -282,7 +361,24 @@ async function main() {
     check("F6 booking off: the summary says so with no steps", !off.enabled && off.flow === null && off.steps.length === 0);
     check("F7 …and the model would be told there is no form", /Booking is OFF/.test(C.describeFormForModel(off)));
     const on = await C.enableBookingForm(userId);
-    check("F8 turning booking on from the step brings the form back", on.enabled && on.steps.length > 0);
+    check("F8 turning booking on from the step brings the form back", on.enabled && on.steps.length > 0 && !on.empty);
+
+    await prisma.appointmentField.deleteMany({ where: { userId } });
+    const bare = await C.bookingFormSummary(userId);
+    check("F9 a form with no fields is `empty`: only the engine steps remain, and the model is told there are no questions yet",
+      bare.empty && bare.fields.length === 0 && bare.steps.map((s) => s.kind).join() === "service,time,review" && /no questions yet/.test(C.describeFormForModel(bare)), `${titles(bare.steps)} | ${C.describeFormForModel(bare)}`);
+    const f5 = await run("Ask for their name and email.", [
+      {
+        tools: [
+          { name: "add_question", input: { label: "Full name", type: "short_text", required: true, role: "name", screen: "new" } },
+          { name: "add_question", input: { label: "Email address", type: "email", required: true, role: "email", screen: "previous" } },
+        ],
+      },
+      { text: "Added name and email." },
+    ]);
+    check("F10 on an empty form 'new' then 'previous' build one contact screen from nothing",
+      f5.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join() === "full_name:name:1,email_address:email:1" && !f5.form.empty && f5.form.steps.some((s) => s.id === "screen:1" && s.title === "Full name*, Email address*"),
+      f5.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join());
   } finally {
     await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();

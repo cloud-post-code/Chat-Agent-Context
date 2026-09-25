@@ -9,7 +9,16 @@ import {
   saveAppointmentField,
   setBookingEnabled,
 } from "@/lib/appointments";
-import { FIELD_TYPES, isChoiceType, keyFromLabel, type FieldConfig } from "@/lib/appointmentTypes";
+import {
+  FIELD_ROLES,
+  FIELD_TYPES,
+  isChoiceType,
+  isFieldRole,
+  keyFromLabel,
+  type AppointmentFieldRow,
+  type FieldConfig,
+  type FieldRole,
+} from "@/lib/appointmentTypes";
 import {
   deleteService,
   getBookingFlow,
@@ -18,20 +27,15 @@ import {
   saveBookingSettings,
   saveService,
 } from "@/lib/booking/store";
-import {
-  CUSTOMER_FIELD_KEYS,
-  CUSTOMER_FIELD_LABELS,
-  pricingFromText,
-  pricingLabel,
-  type CustomerFieldKey,
-} from "@/lib/booking/types";
+import { pricingFromText, pricingLabel } from "@/lib/booking/types";
 import { describeBookingSteps, type BookingFormSummary } from "@/lib/booking/steps";
 
 /**
  * The onboarding chat's booking-form editor: the owner tries the form the
  * services stage built, says in plain words what is missing or wrong, and the
  * model changes the form for real through the same store the Booking panels
- * write to — questions, the customer-detail fields, who-do-you-want-to-see,
+ * write to — questions (contact details among them, told apart by their
+ * `role`), which questions share a screen, who-do-you-want-to-see,
  * services — then the form is read back and shown again. Sibling of
  * lib/adminBrain.ts (same injectable ModelClient, same bounded tool loop);
  * nothing here knows about HTTP.
@@ -52,28 +56,38 @@ export type FormChatResult = {
   form: BookingFormSummary;
 };
 
-/** The form as the onboarding step reads it: the live flow, the intake, the step list. */
+/** The form as the onboarding step reads it: the live flow, every field, the step list. */
 export async function bookingFormSummary(userId: string): Promise<BookingFormSummary> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { slug: true } });
   const result = await getBookingFlow(userId);
   const flow = result?.flow ?? null;
-  const fields = result?.intake ?? [];
+  const fields = result?.fields ?? [];
   return {
     slug: user?.slug ?? "",
     enabled: result !== null,
     flow,
     fields,
+    empty: fields.length === 0,
     steps: describeBookingSteps(flow, fields),
   };
 }
 
-/** Turn booking on (seeding the default questions if the catalog is empty) and read the form back. */
+/** Turn booking on and read the form back (which may be empty: turning on seeds nothing). */
 export async function enableBookingForm(userId: string): Promise<BookingFormSummary> {
   await setBookingEnabled(userId, true);
   return bookingFormSummary(userId);
 }
 
 // ── What the model is told ───────────────────────────────────────────────────
+
+/** One field as the model is told it: its key, wording, type, role, screen and extras. */
+function describeField(f: AppointmentFieldRow): string {
+  const opts = f.config.options?.length ? `, options: ${f.config.options.map((o) => o.label).slice(0, 12).join(" | ")}${f.config.options.length > 12 ? " | …" : ""}` : "";
+  const range = f.type === "number" && (f.config.min !== undefined || f.config.max !== undefined) ? `, ${f.config.min ?? 0}–${f.config.max ?? "∞"}` : "";
+  const when = f.config.showIf ? `, only when ${f.config.showIf.key}${f.config.showIf.values.length ? ` is ${f.config.showIf.values.join("/")}` : " is answered"}` : "";
+  const placeholder = f.config.placeholder ? `, placeholder: ${JSON.stringify(f.config.placeholder)}` : "";
+  return `- key ${f.key}: "${f.label}" (${f.type}, ${f.required ? "required" : "optional"}, role ${f.role}, screen ${f.screen}${opts}${range}${when}${placeholder})`;
+}
 
 /** The current form, in text the model can act on: every id and key it may name. */
 export function describeFormForModel(form: BookingFormSummary): string {
@@ -85,28 +99,21 @@ export function describeFormForModel(form: BookingFormSummary): string {
         .join("\n")
     : "(none — the form has no service step)";
   const staff = flow.staff.length ? flow.staff.map((s) => s.name).join(", ") : "(none)";
-  const customer = flow.rules.customerFields
-    .map((f) => `- ${f.key} ("${f.label || CUSTOMER_FIELD_LABELS[f.key]}"): ${f.enabled ? "asked" : "not asked"}${f.enabled ? `, ${f.required ? "required" : "optional"}` : ""}`)
+  const byKey = new Map(fields.map((f) => [f.key, f]));
+  const order = form.steps
+    .map((s, i) => {
+      const keys = s.kind === "question" && s.question ? [s.question.key] : s.kind === "screen" ? (s.fields ?? []).map((f) => f.key) : [];
+      const lines = keys.map((k) => byKey.get(k)).filter((f): f is AppointmentFieldRow => !!f).map((f) => `  ${describeField(f)}`);
+      const head = `${i + 1}. ${s.title}${s.kind === "screen" ? ` (screen ${s.screen}, ${keys.length} questions together)` : s.kind === "question" ? ` (screen ${s.screen})` : ""}`;
+      return [head, ...lines].join("\n");
+    })
     .join("\n");
-  const questions = fields.length
-    ? fields
-        .map((f) => {
-          const opts = f.config.options?.length ? `; options: ${f.config.options.map((o) => o.label).slice(0, 12).join(" | ")}${f.config.options.length > 12 ? " | …" : ""}` : "";
-          const range = f.type === "number" && (f.config.min !== undefined || f.config.max !== undefined) ? `; ${f.config.min ?? 0}–${f.config.max ?? "∞"}` : "";
-          const when = f.config.showIf ? `; only when ${f.config.showIf.key}${f.config.showIf.values.length ? ` is ${f.config.showIf.values.join("/")}` : " is answered"}` : "";
-          return `- key ${f.key}: "${f.label}" (${f.type}, ${f.required ? "required" : "optional"}${opts}${range}${when})`;
-        })
-        .join("\n")
-    : "(none)";
-  const order = form.steps.map((s, i) => `${i + 1}. ${s.title}`).join("\n");
   return [
     `BUSINESS: ${flow.business.name || "(unnamed)"}`,
-    `SERVICES (the form's first step when there are any):\n${services}`,
+    `SERVICES:\n${services}`,
     `PROVIDERS a visitor can pick: ${staff}; provider choice is ${flow.rules.staffSelection}`,
-    `CUSTOMER DETAILS asked on the "Your details" step (name and email are always asked and required):\n${customer}`,
-    `QUESTIONS asked after the details step, in order:\n${questions}`,
     `Confirmation: ${flow.rules.confirmation === "request" ? "a request the business confirms" : "instant"}`,
-    `THE VISITOR'S STEPS RIGHT NOW:\n${order}`,
+    `THE FORM, step by step, in the order the visitor meets it (every question with its key under its step):\n${fields.length ? order : `${order}\n(no questions yet — the form asks nothing beyond the steps above)`}`,
   ].join("\n\n");
 }
 
@@ -118,9 +125,10 @@ const SYSTEM_RULES = [
   "sentences saying exactly what changed. They will see the updated form straight away.",
   "",
   "Rules:",
-  "- Name, email and phone are CUSTOMER DETAILS, not questions: to ask for a phone number, make it",
-  "  required, or stop asking for it, use set_customer_field. Never add a question that asks for",
-  "  something the details step already asks.",
+  "- Name, email and phone are ordinary questions with a `role` (name, first_name, last_name,",
+  "  email, phone, notes, policy) so the calendar knows which answer is which; add or change them",
+  "  with the question tools and set the role. Keep the owner's wording. Several questions can",
+  "  share a screen (`screen`). Never add a question that asks for something the form already asks.",
   "- Anything else the owner wants to ask (party size, allergies, the pet's name, a preferred",
   "  stylist when there are no providers on file, an address, a waiver) is a question:",
   "  add_question / edit_question / remove_question / reorder_questions.",
@@ -166,6 +174,15 @@ const QUESTION_PROPS = {
   waiverText: { type: "string", description: "waiver: the text the customer agrees to" },
   showIfKey: { type: "string", description: "Ask only after this other question (its key) is answered…" },
   showIfValues: { type: "array", items: { type: "string" }, description: "…with one of these answers (empty = any answer)" },
+  role: {
+    type: "string",
+    enum: [...FIELD_ROLES],
+    description: "What the answer is to the business: name / first_name / last_name / email / phone for contact details, notes for special requests, policy for a policy agreement, none for anything else",
+  },
+  screen: {
+    type: ["string", "integer"],
+    description: 'Which screen the question is asked on: "new" = a screen of its own, "previous" = the same screen as the question before it in order (or the last screen), or a screen number the form already uses',
+  },
 } as const;
 
 function formTools(): Anthropic.Tool[] {
@@ -203,20 +220,6 @@ function formTools(): Anthropic.Tool[] {
         type: "object",
         properties: { keys: { type: "array", items: { type: "string" }, description: "Every question key, in the new order" } },
         required: ["keys"],
-      },
-    },
-    {
-      name: "set_customer_field",
-      description: "Change one customer-detail field on the \"Your details\" step: whether it is asked, required, or how it is worded.",
-      input_schema: {
-        type: "object",
-        properties: {
-          key: { type: "string", enum: [...CUSTOMER_FIELD_KEYS] },
-          ask: { type: "boolean", description: "Whether the step asks it (the first five are always asked)" },
-          required: { type: "boolean" },
-          label: { type: "string", description: "The owner's wording; omit to keep it" },
-        },
-        required: ["key"],
       },
     },
     {
@@ -312,6 +315,28 @@ function configFrom(input: Record<string, unknown>, base: FieldConfig | undefine
 
 type Outcome = { result: string; change?: string };
 
+/** The role a question tool call names, or undefined to keep what is stored. */
+const roleFrom = (v: unknown): FieldRole | undefined => (isFieldRole(v) ? v : undefined);
+
+/**
+ * The screen a question tool call asks for, as a number: "new" is a screen
+ * of its own (one past the highest in use), "previous" is the screen of the
+ * question before `at` in order (or the last screen when nothing is before
+ * it), a number is that screen. Undefined keeps what is stored (or, on
+ * create, a screen of its own).
+ */
+function screenFrom(v: unknown, fields: ReadonlyArray<Pick<AppointmentFieldRow, "screen">>, at: number): number | undefined {
+  if (v === undefined || v === null || v === "") return undefined;
+  const top = fields.reduce((m, f) => Math.max(m, f.screen), 0);
+  if (v === "new") return top + 1;
+  if (v === "previous") {
+    const before = at > 0 ? fields[at - 1] : fields[fields.length - 1];
+    return before?.screen ?? top + 1;
+  }
+  const n = int(v);
+  return n !== undefined && n >= 1 ? n : undefined;
+}
+
 async function execute(userId: string, name: string, input: Record<string, unknown>): Promise<Outcome> {
   switch (name) {
     case "add_question": {
@@ -323,18 +348,23 @@ async function execute(userId: string, name: string, input: Record<string, unkno
       if (fields.some((f) => f.key === key)) return { result: `A question with key "${key}" already exists — use edit_question.` };
       const config = configFrom(input, undefined) ?? {};
       if (isChoiceType(type) && !config.options?.length) return { result: "A select question needs its options; nothing added." };
-      const err = await saveAppointmentField(userId, { key, label, type, required: input.required === true, config });
-      if (err) return { result: err };
       const after = str(input.after, 60);
-      if (after) {
-        const keys = fields.map((f) => f.key);
-        const at = after === "first" ? 0 : keys.indexOf(after) + 1;
-        if (after === "first" || at > 0) {
-          keys.splice(at, 0, key);
-          await reorderAppointmentFields(userId, keys);
-        }
+      const keys = fields.map((f) => f.key);
+      // Where it lands in order: after the named question, first, or last.
+      const at = after === "first" ? 0 : after && keys.includes(after) ? keys.indexOf(after) + 1 : fields.length;
+      const role = roleFrom(input.role);
+      const screen = screenFrom(input.screen, fields, at);
+      const err = await saveAppointmentField(userId, { key, label, type, required: input.required === true, config, role, screen });
+      if (err) return { result: err };
+      if (at < fields.length) {
+        keys.splice(at, 0, key);
+        await reorderAppointmentFields(userId, keys);
       }
-      return { result: `Added question "${label}" (key ${key}).`, change: `Added the question “${label}”` };
+      const extras = [role && role !== "none" ? `role ${role}` : "", screen !== undefined ? `screen ${screen}` : ""].filter(Boolean);
+      return {
+        result: `Added question "${label}" (key ${key}${extras.length ? `, ${extras.join(", ")}` : ""}).`,
+        change: `Added the question “${label}”${role && role !== "none" ? ` (${role.replace("_", " ")})` : ""}`,
+      };
     }
     case "edit_question": {
       const key = str(input.key, 60);
@@ -346,13 +376,17 @@ async function execute(userId: string, name: string, input: Record<string, unkno
       const required = typeof input.required === "boolean" ? input.required : cur.required;
       const config = configFrom(input, cur.config) ?? (type === cur.type ? undefined : { ...cur.config, generated: undefined });
       if (isChoiceType(type) && !(config ?? cur.config).options?.length) return { result: "A select question needs its options; nothing changed." };
-      const err = await saveAppointmentField(userId, { key, label, type, required, config });
+      const role = roleFrom(input.role);
+      const screen = screenFrom(input.screen, fields, fields.indexOf(cur));
+      const err = await saveAppointmentField(userId, { key, label, type, required, config, role, screen });
       if (err) return { result: err };
       const what = [
         label !== cur.label ? `reworded to “${label}”` : "",
         type !== cur.type ? `now ${type.replace("_", " ")}` : "",
         required !== cur.required ? (required ? "now required" : "now optional") : "",
         config !== undefined ? "options updated" : "",
+        role !== undefined && role !== cur.role ? `now the ${role === "none" ? "answer to an ordinary question" : role.replace("_", " ")}` : "",
+        screen !== undefined && screen !== cur.screen ? `moved to screen ${screen}` : "",
       ].filter(Boolean);
       return { result: `Updated "${label}".`, change: `Changed “${cur.label}”${what.length ? `: ${what.join(", ")}` : ""}` };
     }
@@ -369,28 +403,6 @@ async function execute(userId: string, name: string, input: Record<string, unkno
       if (!keys.length) return { result: "No keys given; order unchanged." };
       await reorderAppointmentFields(userId, keys);
       return { result: "Questions reordered.", change: "Reordered the questions" };
-    }
-    case "set_customer_field": {
-      const key = str(input.key, 40) as CustomerFieldKey;
-      if (!(CUSTOMER_FIELD_KEYS as readonly string[]).includes(key)) return { result: `No customer field "${key}".` };
-      const settings = await getBookingSettings(userId);
-      const customerFields = settings.customerFields.map((f) =>
-        f.key === key
-          ? {
-              ...f,
-              enabled: typeof input.ask === "boolean" ? input.ask : f.enabled,
-              required: typeof input.required === "boolean" ? input.required : f.required,
-              label: input.label !== undefined ? str(input.label, 80) : f.label,
-            }
-          : f,
-      );
-      await saveBookingSettings(userId, { customerFields });
-      const now = (await getBookingSettings(userId)).customerFields.find((f) => f.key === key)!;
-      const state = !now.enabled ? "no longer asked" : now.required ? "asked and required" : "asked, optional";
-      return {
-        result: `${CUSTOMER_FIELD_LABELS[key]}: ${state}.`,
-        change: `${now.label || CUSTOMER_FIELD_LABELS[key]} is ${state}`,
-      };
     }
     case "set_staff_selection": {
       const mode = str(input.mode, 10);
