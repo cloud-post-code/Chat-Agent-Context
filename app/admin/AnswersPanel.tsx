@@ -1,6 +1,6 @@
 import { cannedStats } from "@/lib/canned";
 import { CHIP_COUNT, CHIP_WORDS, deriveLabel } from "@/lib/chipLabel";
-import { saveCanned, deleteCanned, redraftCanned, regenerateCanned } from "./actions";
+import { saveCanned, deleteCanned, redraftCanned, regenerateCanned } from "@/app/admin/actions/canned";
 import { CardFields } from "./CardFields";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btn, btnGhost, btnDanger, SectionTitle, Label } from "./ui";

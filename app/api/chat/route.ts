@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { tenantBySlug } from "@/lib/tenant";
 import { answer, type Msg, type ShownCard } from "@/lib/brain";
 
 export const runtime = "nodejs";
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
 
   const slug = typeof body.slug === "string" ? body.slug.trim() : "";
   if (!slug) return new Response("Missing agent slug", { status: 400 });
-  const user = await prisma.user.findUnique({ where: { slug } });
+  const user = await tenantBySlug(slug);
   if (!user) return new Response("No such agent", { status: 404 });
 
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";

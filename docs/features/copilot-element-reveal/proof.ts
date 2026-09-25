@@ -284,7 +284,7 @@ async function main() {
     // ── 8. Panel side: nodes for every indexed element, built from the same rows ──
     if (load && nodes) {
       const { renderToStaticMarkup } = await import("react-dom/server");
-      const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
+      const { AppointmentsPanel } = await import("../../../app/admin/AppointmentsPanel");
       const loaded = await load.loadElementIndex(user.id);
       const built = await nodes.buildElementNodesForUser(user.id, { cancelAction: async () => {}, confirmAction: async () => {}, deleteOrderAction: async () => {} });
       check("panel-side index equals brain-side index", JSON.stringify(built.index) === JSON.stringify(loaded.index), JSON.stringify(built.index).slice(0, 300));

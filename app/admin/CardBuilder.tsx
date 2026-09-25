@@ -7,7 +7,7 @@ import { Cards } from "@/app/cards/Cards";
 import { parseSampleBlock } from "@/lib/uiCards.parse";
 import type { BuildEvent, CardDraft } from "@/lib/cardBuilder";
 import type { PromptImage } from "@/lib/imageGen";
-import { saveBuiltCard } from "./actions";
+import { saveBuiltCard } from "@/app/admin/actions/cards";
 import { panel, field, btn, btnGhost, SectionTitle, Label } from "./ui";
 
 /**

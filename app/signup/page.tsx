@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { isAuthed } from "@/lib/auth";
-import { signup } from "../admin/actions";
+import { signup } from "@/app/admin/actions/auth";
 import { PendingButton } from "../admin/PendingButton";
 
 export const dynamic = "force-dynamic";

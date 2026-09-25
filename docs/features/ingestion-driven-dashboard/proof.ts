@@ -74,7 +74,7 @@ for (const key of builtin) {
 
 // 5. Dashboard wiring (source-level: the page needs auth + Postgres to render).
 const page = readFileSync(path.join(__dirname, "../../../app/admin/dashboard/page.tsx"), "utf8");
-const panelsSrc = readFileSync(path.join(__dirname, "../../../app/admin/panels.tsx"), "utf8");
+const panelsSrc = readFileSync(path.join(__dirname, "../../../app/admin/panels/index.tsx"), "utf8");
 // Seeding moved to server start (deploy-db-bootstrap): instrumentation.ts
 // runs bootstrapDatabase, so the dashboard is a plain reader.
 const bootstrap = readFileSync(path.join(__dirname, "../../../lib/bootstrap.ts"), "utf8");

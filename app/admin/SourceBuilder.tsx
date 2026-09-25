@@ -11,7 +11,7 @@ import {
   type StorageKinds,
   type SplitMode,
 } from "@/lib/ingestionSources.shared";
-import { saveBuiltSourceAction, updateBuiltSourceAction } from "./actions";
+import { saveBuiltSourceAction, updateBuiltSourceAction } from "@/app/admin/actions/ingestion";
 import { PanelHtml } from "./PanelHtml";
 import { ClassificationSelect } from "./ClassificationSelect";
 import { panel, field, btn, btnGhost, SectionTitle, Label } from "./ui";

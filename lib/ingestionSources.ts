@@ -189,7 +189,7 @@ export async function setIngestionSourceHidden(
 // "split") stay the one source of truth for what an unnamed value means.
 //
 // `builtin: false` is deliberate: builtin rows dispatch to bespoke panels by
-// key in app/admin/panels.tsx, and a builtin row with no panel is DROPPED from
+// key in app/admin/panels/index.tsx, and a builtin row with no panel is DROPPED from
 // the tab strip. These four render the generic ingest panel over their own
 // `ingest:<key>` rows, exactly like an admin-created source.
 export const STARTER_INGESTION_SOURCES: Array<

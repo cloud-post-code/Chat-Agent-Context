@@ -1,12 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import {
-  deleteAppointmentFieldAction,
-  moveAppointmentFieldAction,
-  saveBookingFlowAction,
-  setFieldScreenAction,
-} from "../actions";
+import { deleteAppointmentFieldAction, moveAppointmentFieldAction, saveBookingFlowAction, setFieldScreenAction } from "@/app/admin/actions/booking";
 import { BookingFieldForm } from "../BookingFieldForm";
 import { PendingButton } from "../PendingButton";
 import { panel, btnGhost, btnDanger, field as fieldStyle, SectionTitle } from "../ui";

@@ -2,8 +2,6 @@ import { formatMoney, type LocationRow, type ServiceRow, type StaffRow } from "@
 import type { AppointmentDetail } from "@/lib/booking/store";
 import type { OrderRow } from "@/lib/orders";
 import type { DirectiveRow } from "@/lib/directives";
-import type { CalendarAppointment } from "@/app/admin/CalendarPanel";
-import type { CalendarOrder } from "@/app/admin/OrdersPanel";
 
 /**
  * The element registry behind the copilot's show_elements tool: each list
@@ -119,6 +117,36 @@ export function fallbackTimeZone(): string {
     return "UTC";
   }
 }
+
+// The panel row shapes, owned here so lib never imports from app.
+export type CalendarAppointment = {
+  id: string;
+  /** ISO instant; rendered in the admin's local timezone. */
+  startsAt: string;
+  status: string;
+  serviceName: string;
+  staffName: string;
+  locationName: string;
+  customerName: string;
+  customerEmail: string;
+  customerPhone: string;
+  durationMinutes: number;
+  /** Formatted total ("$45", "From $45", "Quote"), or "" when unpriced. */
+  priceDisplay: string;
+  answers: Record<string, string>;
+};
+
+/** An order placed from the cart card, as the panel lists it. */
+export type CalendarOrder = {
+  id: string;
+  createdAt: string;
+  startsAt: string | null;
+  lines: { name: string; quantity: number; choices: string; note: string; lineTotal: string }[];
+  contact: { name: string; phone: string; email: string };
+  fulfillment: string;
+  notes: string;
+  subtotal: string;
+};
 
 // ── Row → panel shapes (shared with panels.tsx so both sides agree) ─────────
 

@@ -70,8 +70,7 @@ describe("layering", () => {
   });
 
   it("lib/ never imports a value from app/", () => {
-    // Known inversion, moved to lib/admin/contentTabs.ts in cleanup Phase 5.
-    const allowed = new Set(["lib/adminBrain.ts → app/admin/contentTabs.ts"]);
+    const allowed = new Set<string>();
     const offenders: string[] = [];
     for (const file of walk(path.join(root, "lib"))) {
       for (const spec of valueImports(file)) {

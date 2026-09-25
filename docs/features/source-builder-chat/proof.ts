@@ -121,7 +121,7 @@ async function main() {
   check("manual fallback form kept", page.includes("createIngestionSourceAction"));
   const route = readFileSync(path.join(root, "app/api/admin/build-source/route.ts"), "utf8");
   check("route is auth-gated before model calls", route.includes("isAuthed") && route.includes("401"));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check(
     "saveBuiltSourceAction wraps saveIngestionSource",
     /saveBuiltSourceAction[\s\S]{0,500}saveIngestionSource/.test(actions),

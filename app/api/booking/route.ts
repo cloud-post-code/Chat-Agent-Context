@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { tenantBySlug } from "@/lib/tenant";
 import { getBookingFlow, createBooking } from "@/lib/booking/store";
 import { sanitizeSelection } from "@/lib/booking/types";
 
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 
 async function userFromSlug(slug: unknown) {
   const s = String(slug ?? "").trim();
-  return s ? prisma.user.findUnique({ where: { slug: s } }) : null;
+  return tenantBySlug(s);
 }
 
 /** The live flow, for a card that wants to (re)fetch before drawing itself —

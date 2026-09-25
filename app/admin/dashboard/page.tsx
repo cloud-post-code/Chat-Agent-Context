@@ -2,7 +2,8 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 import { currentUser } from "@/lib/auth";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
-import { logout, setIngestionSourceHiddenAction } from "../actions";
+import { logout } from "@/app/admin/actions/auth";
+import { setIngestionSourceHiddenAction } from "@/app/admin/actions/ingestion";
 import { PendingButton } from "../PendingButton";
 import { Tabs } from "../Tabs";
 import { SubTabs } from "../SubTabs";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 
 /**
  * The classic full-page dashboard. Every panel is built once in
- * app/admin/panels.tsx (shared with the chat-first surface at /admin/chat);
+ * app/admin/panels/index.tsx (shared with the chat-first surface at /admin/chat);
  * this page only lays them out on the Tabs/SubTabs strips, in the groups
  * NAV_GROUPS declares.
  */

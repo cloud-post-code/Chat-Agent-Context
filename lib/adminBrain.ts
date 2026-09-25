@@ -22,7 +22,7 @@ import { extractDocument, extractLink, extractText } from "@/lib/scrape";
 import { indexSource } from "@/lib/retrieval/indexer";
 import { getBookingConfig } from "@/lib/appointments";
 import { COLOR_ROLES, type ThemeColors } from "@/lib/theme";
-import { fixedPanelEntries, TAB_ALIASES } from "@/app/admin/contentTabs";
+import { fixedPanelEntries, TAB_ALIASES } from "@/lib/admin/contentTabs";
 import {
   ELEMENT_PANELS,
   FILTER_OPS,

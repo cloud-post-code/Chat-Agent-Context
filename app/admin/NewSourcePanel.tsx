@@ -1,6 +1,6 @@
 import React from "react";
 import { UPLOAD_METHODS, STORAGE_KINDS } from "@/lib/ingestionSources";
-import { createIngestionSourceAction } from "./actions";
+import { createIngestionSourceAction } from "@/app/admin/actions/ingestion";
 import { SourceBuilder } from "./SourceBuilder";
 import { PendingButton } from "./PendingButton";
 import { ClassificationSelect } from "./ClassificationSelect";

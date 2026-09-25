@@ -102,7 +102,7 @@ const page = readFileSync(
   path.join(__dirname, "../../../app/admin/dashboard/page.tsx"),
   "utf8",
 );
-const panels = readFileSync(path.join(__dirname, "../../../app/admin/panels.tsx"), "utf8");
+const panels = readFileSync(path.join(__dirname, "../../../app/admin/panels/index.tsx"), "utf8");
 check("dashboard mounts SubTabs", page.includes("SubTabs"));
 check("dashboard lays out NAV_GROUPS", page.includes("NAV_GROUPS"));
 check("dashboard splices live source keys into Knowledge", page.includes('g.key === "knowledge"'));

@@ -124,7 +124,7 @@ async function main() {
   const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   check("edit + create forms post splitMode",
     editPage.includes('name="splitMode"') && newPage.includes('name="splitMode"'));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check("create/update actions forward splitMode",
     /createIngestionSourceAction[\s\S]{0,900}splitMode/.test(actions) &&
       /updateIngestionSourceAction[\s\S]{0,900}splitMode/.test(actions));

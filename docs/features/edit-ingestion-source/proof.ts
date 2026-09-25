@@ -105,7 +105,7 @@ async function main() {
   check("edit page requires admin auth", editPage.includes("isAuthed"));
   check("edit page gates on the edit cookie", editPage.includes("isEditAuthed"));
   check("edit page has the unlock password form", editPage.includes("unlockIngestionEditAction"));
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check(
     "update action re-checks edit auth server-side",
     /updateIngestionSourceAction[\s\S]{0,400}requireEditAuth/.test(actions),

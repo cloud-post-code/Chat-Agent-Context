@@ -275,8 +275,8 @@ async function main() {
     // shows when booking is on. Real components.
     const { renderToStaticMarkup } = await import("react-dom/server");
     const React = (await import("react")).default;
-    const { AppointmentsPanel } = await import("../../../app/admin/CalendarPanel");
-    const { BookingSettings } = await import("../../../app/admin/BookingPanel");
+    const { AppointmentsPanel } = await import("../../../app/admin/AppointmentsPanel");
+    const { BookingSettings } = await import("../../../app/admin/BookingSettingsPanel");
     const noopAction = async () => {};
 
     const cfgOn = await getBookingConfig(userDefault.id);

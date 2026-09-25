@@ -1,17 +1,8 @@
 import { PendingButton } from "./PendingButton";
 import { panel, btnDanger, SectionTitle } from "./ui";
 
-/** An order placed from the cart card, as the panel lists it. */
-export type CalendarOrder = {
-  id: string;
-  createdAt: string;
-  startsAt: string | null;
-  lines: { name: string; quantity: number; choices: string; note: string; lineTotal: string }[];
-  contact: { name: string; phone: string; email: string };
-  fulfillment: string;
-  notes: string;
-  subtotal: string;
-};
+import type { CalendarOrder } from "@/lib/adminElements";
+export type { CalendarOrder };
 
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });

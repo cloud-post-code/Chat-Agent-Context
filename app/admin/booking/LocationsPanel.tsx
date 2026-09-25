@@ -1,4 +1,4 @@
-import { saveLocationAction, deleteLocationAction, moveLocationAction } from "../actions";
+import { saveLocationAction, deleteLocationAction, moveLocationAction } from "@/app/admin/actions/booking";
 import { PendingButton } from "../PendingButton";
 import { field as fieldStyle, btn, btnGhost, btnDanger, panel, SectionTitle, Label } from "../ui";
 import { LOCATION_KINDS, type LocationKind, type LocationRow, type ServiceRow } from "@/lib/booking/types";

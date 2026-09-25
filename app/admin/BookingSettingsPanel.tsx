@@ -1,4 +1,4 @@
-import { setBookingEnabledAction } from "./actions";
+import { setBookingEnabledAction } from "@/app/admin/actions/booking";
 import { PendingButton } from "./PendingButton";
 import { panel, btn, btnDanger, SectionTitle } from "./ui";
 

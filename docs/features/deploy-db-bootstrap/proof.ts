@@ -82,13 +82,13 @@ async function main() {
 
     // 5. The runtime is pruned.
     const read = (f: string) => readFileSync(path.join(root, f), "utf8");
-    check("contentTabs.ts has no LEGACY_CONTENT_TABS", !read("app/admin/contentTabs.ts").includes("LEGACY_CONTENT_TABS"));
+    check("contentTabs.ts has no LEGACY_CONTENT_TABS", !read("lib/admin/contentTabs.ts").includes("LEGACY_CONTENT_TABS"));
     const persona = read("lib/persona.ts");
     check("persona.ts has no fold/legacy catalogue", !persona.includes("foldLegacy") && !persona.includes("LEGACY_SECTIONS"));
     const dash = read("app/admin/dashboard/page.tsx");
     check("dashboard has no linkedin shim", !dash.includes("linkedin"));
     check("dashboard no longer seeds lazily", !dash.includes("seedStarter"));
-    check("actions.ts no longer writes linkedin", !read("app/admin/actions.ts").includes("linkedin"));
+    check("actions.ts no longer writes linkedin", !read("app/admin/actions/profile.ts").includes("linkedin"));
     check("knowledge.ts no longer formats linkedin", !read("lib/knowledge.ts").includes("linkedin"));
 
     // 6. Reads drop legacy keys instead of folding.

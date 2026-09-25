@@ -1,9 +1,4 @@
-import {
-  saveAddressBookAction,
-  deleteAddressBookAction,
-  syncGmailContactsAction,
-  disconnectGmailAction,
-} from "./actions";
+import { saveAddressBookAction, deleteAddressBookAction, syncGmailContactsAction, disconnectGmailAction } from "@/app/admin/actions/addressbook";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btn, btnDanger, SectionTitle, Label } from "./ui";
 import { TRUST_TIERS, TRUST_LABELS, type AddressBookRow } from "@/lib/addressBook";

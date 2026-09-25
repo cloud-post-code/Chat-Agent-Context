@@ -1,6 +1,7 @@
+import { tenantBySlug } from "@/lib/tenant";
 import { notFound } from "next/navigation";
 import { headers } from "next/headers";
-import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
+import { getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { starterChipsFor } from "@/lib/starterQuestions";
 import { homePhotos } from "@/lib/cards";
 import { TenantThemeStyle } from "@/app/TenantThemeStyle";
@@ -19,7 +20,7 @@ type Params = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: Params) {
   const { slug } = await params;
-  const user = await prisma.user.findUnique({ where: { slug } });
+  const user = await tenantBySlug(slug);
   if (!user) return { title: "Agent not found" };
   const [profile, persona] = await Promise.all([
     getProfile(user.id),
@@ -43,7 +44,7 @@ export async function generateMetadata({ params }: Params) {
 
 export default async function AgentPage({ params }: Params) {
   const { slug } = await params;
-  const user = await prisma.user.findUnique({ where: { slug } });
+  const user = await tenantBySlug(slug);
   if (!user) notFound();
 
   const [profile, persona, theme, starters, photos] = await Promise.all([

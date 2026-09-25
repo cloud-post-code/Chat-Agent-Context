@@ -6,7 +6,8 @@ import { Markdown } from "@/app/Markdown";
 import type { ElementReveal, FocusedEdit, IngestProposal } from "@/lib/adminBrain";
 import { contrastOn } from "@/lib/theme";
 import { CLASSIFICATION_LABELS } from "@/lib/ingestionSources.shared";
-import { applyThemeColorAction, approveIngestionAction, logout } from "../actions";
+import { applyThemeColorAction, approveIngestionAction } from "@/app/admin/actions/ingestion";
+import { logout } from "@/app/admin/actions/auth";
 import { PendingButton } from "../PendingButton";
 import { btnGhost, field } from "../ui";
 

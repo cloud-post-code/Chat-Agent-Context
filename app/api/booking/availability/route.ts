@@ -1,4 +1,4 @@
-import { prisma } from "@/lib/db";
+import { tenantBySlug } from "@/lib/tenant";
 import { availability } from "@/lib/booking/store";
 
 export const runtime = "nodejs";
@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const slug = url.searchParams.get("slug");
-  const user = slug ? await prisma.user.findUnique({ where: { slug } }) : null;
+  const user = await tenantBySlug(slug);
   if (!user) {
     return Response.json({ ok: false, error: "No such agent." }, { status: 404 });
   }

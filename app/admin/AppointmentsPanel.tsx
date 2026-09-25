@@ -19,22 +19,8 @@ import { panel, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
  * server action passed in as a prop (the UsersPanel pattern).
  */
 
-export type CalendarAppointment = {
-  id: string;
-  /** ISO instant; rendered in the admin's local timezone. */
-  startsAt: string;
-  status: string;
-  serviceName: string;
-  staffName: string;
-  locationName: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  durationMinutes: number;
-  /** Formatted total ("$45", "From $45", "Quote"), or "" when unpriced. */
-  priceDisplay: string;
-  answers: Record<string, string>;
-};
+import type { CalendarAppointment } from "@/lib/adminElements";
+export type { CalendarAppointment };
 
 type Props = {
   rows: CalendarAppointment[];

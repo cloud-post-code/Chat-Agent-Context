@@ -1,5 +1,5 @@
-import { deleteServiceAction, moveServiceAction, refreshServicesFromSiteAction } from "../actions";
-import { BookingToggle } from "../BookingPanel";
+import { deleteServiceAction, moveServiceAction, refreshServicesFromSiteAction } from "@/app/admin/actions/booking";
+import { BookingToggle } from "../BookingSettingsPanel";
 import { PendingButton } from "../PendingButton";
 import { panel, field as fieldStyle, btn, btnGhost, btnDanger, SectionTitle } from "../ui";
 import { pricingLabel, formatDuration, type ServiceRow, type StaffRow, type LocationRow } from "@/lib/booking/types";

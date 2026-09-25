@@ -1,4 +1,4 @@
-import { saveDirectiveAction, deleteDirectiveAction } from "./actions";
+import { saveDirectiveAction, deleteDirectiveAction } from "@/app/admin/actions/directives";
 import { PendingButton } from "./PendingButton";
 import { panel, field, btn, btnDanger, SectionTitle, Label } from "./ui";
 import type { DirectiveKind, DirectiveRow } from "@/lib/directives";

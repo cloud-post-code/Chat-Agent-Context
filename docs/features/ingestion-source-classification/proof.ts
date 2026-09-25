@@ -135,7 +135,7 @@ async function main() {
   const newPage = readFileSync(path.join(root, "app/admin/NewSourcePanel.tsx"), "utf8");
   const editPage = readFileSync(path.join(root, "app/admin/sources/[key]/page.tsx"), "utf8");
   const builder = readFileSync(path.join(root, "app/admin/SourceBuilder.tsx"), "utf8");
-  const actions = readFileSync(path.join(root, "app/admin/actions.ts"), "utf8");
+  const actions = readFileSync(path.join(root, "app/admin/actions/ingestion.ts"), "utf8");
   check("manual create form renders the selector", newPage.includes("ClassificationSelect"));
   check("edit form renders the selector", editPage.includes("ClassificationSelect"));
   check("builder save pane renders the selector", builder.includes("ClassificationSelect"));

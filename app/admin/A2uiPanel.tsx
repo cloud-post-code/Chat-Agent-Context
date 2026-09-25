@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Cards } from "@/app/cards/Cards";
 import { parseSampleBlock } from "@/lib/uiCards.parse";
 import type { UiCardRow } from "@/lib/uiCards";
-import { deleteCard } from "./actions";
+import { deleteCard } from "@/app/admin/actions/cards";
 import { PendingButton } from "./PendingButton";
 import { SiteCardsButton, SiteCardsLog, useSiteCardsRun } from "./SiteCardsRun";
 import { panel, field, btn, btnGhost, btnDanger, SectionTitle } from "./ui";
