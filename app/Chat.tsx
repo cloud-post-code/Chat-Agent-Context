@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { UiBlock } from "./cards/Cards";
+import { readNdjson } from "@/lib/client/ndjson";
 import { shownFromCards } from "./cards/shown";
 import { CartProvider, cartSummary, useCart } from "./cards/cart";
 import { BookingSessionsProvider } from "./cards/booking/session";
@@ -204,46 +205,30 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       let acc = "";
       const cards: UiBlock[] = [];
 
-      const flush = (chunk: string) => {
-        buffer += chunk;
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-        for (const l of lines) {
-          if (!l.trim()) continue;
-          try {
-            const obj = JSON.parse(l);
-            if (obj.t === "text") acc += obj.v;
-            else if (obj.t === "card") {
-              const card = obj.v as UiBlock;
-              // The server's booking block is the start of a session; the
-              // session id is the client's to give, so it is unique here.
-              if (card?.type === "booking" && !card.sessionId) card.sessionId = newChatId();
-              cards.push(card);
-            } else if (obj.t === "cart" && obj.v?.op === "add" && obj.v.item?.key) {
-              // The agent added something (add_to_cart): the cart is the
-              // visitor's, so it changes here, on their page.
-              cart.store.add(obj.v.item as MenuItemData, Number(obj.v.quantity) || 1);
-            }
-          } catch {
-            /* partial line — ignore */
-          }
+      const onEvent = (obj: { t: string; v?: unknown }) => {
+        if (obj.t === "text") acc += String(obj.v ?? "");
+        else if (obj.t === "card") {
+          const card = obj.v as UiBlock;
+          // The server's booking block is the start of a session; the
+          // session id is the client's to give, so it is unique here.
+          if (card?.type === "booking" && !card.sessionId) card.sessionId = newChatId();
+          cards.push(card);
+        } else if (obj.t === "cart") {
+          // The agent added something (add_to_cart): the cart is the
+          // visitor's, so it changes here, on their page.
+          const v = obj.v as { op?: string; item?: MenuItemData; quantity?: unknown } | undefined;
+          if (v?.op === "add" && v.item?.key) cart.store.add(v.item, Number(v.quantity) || 1);
         }
-        // By id, not position: a booking card may have appended its next
-        // step below the answer while it was still streaming.
-        setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, content: acc, cards: [...cards] } : x)));
       };
+      // By id, not position: a booking card may have appended its next
+      // step below the answer while it was still streaming.
+      const sync = () =>
+        setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, content: acc, cards: [...cards] } : x)));
 
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        flush(decoder.decode(value, { stream: true }));
-      }
+      await readNdjson(res.body, onEvent, sync);
     } catch {
       setMsgs((m) =>
         m.map((x) =>

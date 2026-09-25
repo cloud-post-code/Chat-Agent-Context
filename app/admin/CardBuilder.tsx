@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { readNdjson } from "@/lib/client/ndjson";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Cards } from "@/app/cards/Cards";
@@ -91,24 +92,7 @@ export function CardBuilder({
       return null;
     }
 
-    // One JSON object per line; a chunk can split a line, so hold the partial.
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buf = "";
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buf += decoder.decode(value, { stream: true });
-      const lines = buf.split("\n");
-      buf = lines.pop() ?? "";
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        let e: BuildEvent;
-        try {
-          e = JSON.parse(line) as BuildEvent;
-        } catch {
-          continue;
-        }
+    await readNdjson<BuildEvent>(res.body, (e) => {
         if (e.t === "thinking") setThinking((t) => t + e.v);
         else if (e.t === "search") setSteps((s) => [...s, `Searching: “${e.query}”`]);
         else if (e.t === "searched") {
@@ -123,8 +107,7 @@ export function CardBuilder({
         } else if (e.t === "status") setSteps((s) => [...s, e.v]);
         else if (e.t === "draft") built = e.draft;
         else if (e.t === "error") setError(e.v);
-      }
-    }
+    });
     return built;
   }
 
