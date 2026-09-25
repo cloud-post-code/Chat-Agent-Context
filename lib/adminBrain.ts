@@ -88,7 +88,8 @@ const PANEL_HINTS: Readonly<Record<string, string>> = {
   "booking-providers": "the staff who perform services — their hours, time off, bios, per-service overrides",
   "booking-locations": "branches, the online option, and the mobile service area",
   "booking-hours": "business hours, holidays, lead time, cutoff, buffers, waitlist, recurring, provider selection",
-  "booking-questions": "the intake question catalog asked during booking, including conditional questions",
+  "booking-questions":
+    "the booking form as the visitor meets it — its steps in order, each screen's questions, roles, and conditions",
   "booking-pricing": "currency, tax, service fee, tips, promo codes, memberships, cancellation/deposit policy",
 };
 

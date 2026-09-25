@@ -104,7 +104,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: "booking-providers", label: "Providers" },
       { key: "booking-locations", label: "Locations" },
       { key: "booking-hours", label: "Hours" },
-      { key: "booking-questions", label: "Questions" },
+      { key: "booking-questions", label: "Form" },
       { key: "booking-pricing", label: "Pricing" },
     ],
   },
