@@ -147,7 +147,7 @@ const servicesBlock = () => ({
     id: s.id, name: s.name, description: "", imageUrl: null,
     priceLabel: T.pricingLabel(s.pricing, "USD"), duration: T.formatDuration(s.durationMinutes),
   })),
-  booking: { fields, serviceKey: null, flow },
+  booking: { fields, flow },
 });
 
 // ── The scripted network ──
