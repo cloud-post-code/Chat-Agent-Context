@@ -54,7 +54,6 @@ import { ServicesPanel } from "./booking/ServicesPanel";
 import { ProvidersPanel } from "./booking/ProvidersPanel";
 import { LocationsPanel } from "./booking/LocationsPanel";
 import { HoursPanel } from "./booking/HoursPanel";
-import { CustomerPanel } from "./booking/CustomerPanel";
 import { QuestionsPanel } from "./booking/QuestionsPanel";
 import { PricingPanel } from "./booking/PricingPanel";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
@@ -830,7 +829,6 @@ export async function buildAdminPanels(
   flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;
   flat["booking-locations"] = <LocationsPanel locations={locationList} services={services} />;
   flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
-  flat["booking-customer"] = <CustomerPanel settings={bookingSettings} />;
   flat["booking-questions"] = <QuestionsPanel config={bookingConfig} />;
   flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
   if (operator) {

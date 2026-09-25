@@ -35,7 +35,7 @@ import {
   saveAppointmentField,
   setBookingEnabled,
 } from "@/lib/appointments";
-import { parseOptionLines } from "@/lib/appointmentTypes";
+import { isFieldRole, parseOptionLines } from "@/lib/appointmentTypes";
 import {
   saveService,
   deleteService,
@@ -49,7 +49,7 @@ import {
   saveBookingSettings,
   setBookingStatus,
 } from "@/lib/booking/store";
-import { CUSTOMER_FIELD_KEYS, type Pricing, type Deposit, type ServiceMode, type LocationKind } from "@/lib/booking/types";
+import { type Pricing, type Deposit, type ServiceMode, type LocationKind } from "@/lib/booking/types";
 import {
   parseVariantLines,
   parseAddonLines,
@@ -1395,11 +1395,14 @@ export async function saveAppointmentFieldAction(formData: FormData) {
     .split(",")
     .map((s) => s.trim())
     .filter(Boolean);
+  const role = formData.get("role");
   await saveAppointmentField(user.id, {
     key: String(formData.get("key") ?? "") || undefined,
     label: String(formData.get("label") ?? ""),
     type: String(formData.get("type") ?? "short_text"),
     required: formData.get("required") === "on",
+    role: isFieldRole(role) ? role : undefined,
+    screen: int("screen"),
     config: {
       options: parseOptionLines(String(formData.get("options") ?? "")),
       allowOther: formData.get("allowOther") === "on",
@@ -1407,6 +1410,8 @@ export async function saveAppointmentFieldAction(formData: FormData) {
       max: int("max"),
       text: String(formData.get("waiverText") ?? "") || undefined,
       showIf: showIfKey ? { key: showIfKey, values: showIfValues } : undefined,
+      placeholder: String(formData.get("placeholder") ?? "").trim() || undefined,
+      help: String(formData.get("help") ?? "").trim() || undefined,
     },
   });
   revalidateAll();
@@ -1667,13 +1672,6 @@ export async function saveBookingSettingsAction(formData: FormData) {
     // The owner's word on confirmation outlives any later site read.
     patch.confirmation = formData.get("confirmation") === "request" ? "request" : "instant";
     patch.confirmationOwner = true;
-  } else if (section === "customer") {
-    patch.customerFields = CUSTOMER_FIELD_KEYS.map((key) => ({
-      key,
-      enabled: formData.get(`ask.${key}`) === "on",
-      required: formData.get(`required.${key}`) === "on",
-      label: String(formData.get(`label.${key}`) ?? ""),
-    }));
   } else if (section === "pricing") {
     const currencySelect = String(formData.get("currency") ?? "").trim().toUpperCase();
     const currencyOther = String(formData.get("currencyOther") ?? "").trim().toUpperCase();
