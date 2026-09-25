@@ -3,9 +3,10 @@
  * Run: npx tsx docs/features/onboarding-booking-form-step/proof.ts
  *
  * A exercises the pure step describer. B drives the staged job's new booking
- * stage (gating, fail-soft, wire shape) with no crawler. C–F run the form chat
- * against the real store under a throwaway user; the scripted model client is
- * the one doubled boundary. Offline.
+ * stage (gating, fail-soft, wire shape) with no crawler. C–H run the form chat
+ * against the real store under a throwaway user (G: the owner's order — whole
+ * steps, one question, a screen's title; H: the empty form described from
+ * scratch); the scripted model client is the one doubled boundary. Offline.
  */
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -277,6 +278,17 @@ async function main() {
         addQ.input_schema.properties?.role?.enum?.join() === "none,name,first_name,last_name,email,phone,notes,policy" && "screen" in (addQ.input_schema.properties ?? {}) &&
         editQ.input_schema.properties?.role?.enum?.length === 8 && "screen" in (editQ.input_schema.properties ?? {}),
       toolNames.join());
+    const props = (n: string) => Object.keys(d1.seen.tools.find((t) => t.name === n)?.input_schema.properties ?? {}).join();
+    check("D11 the order tools are offered: move_question {key, before, after, first}, set_screen_title {screen, title}, set_step_order {steps}",
+      props("move_question") === "key,before,after,first" && props("set_screen_title") === "screen,title" && props("set_step_order") === "steps",
+      `${props("move_question")} | ${props("set_screen_title")} | ${props("set_step_order")}`);
+    check("D12 the rules tell the model the order is the owner's and how an empty form is built from scratch",
+      /set_step_order` moves whole steps/.test(d1.seen.system[0]) && /no questions yet, the owner is describing it from scratch/.test(d1.seen.system[0]) && /all on ONE screen/.test(d1.seen.system[0]));
+    check("D13 the model is told each step with its id in brackets and a screen's questions after its title",
+      /\d\. \[provider\] Choose who you'd like to see/.test(d1.seen.system[0]) && /\d\. \[time\] Date and time/.test(d1.seen.system[0]) &&
+        /\d\. \[screen:1\] "Your name\*, Your phone number\*" — name\*, phone\* \(screen 1, 2 questions together\)/.test(d1.seen.system[0]) &&
+        /\d\. \[q:notes\] "Anything we should know before your visit\?" \(screen 2\)/.test(d1.seen.system[0]) && /\d\. \[review\] Review and confirm/.test(d1.seen.system[0]),
+      d1.seen.system[0].split("THE FORM")[1]);
 
     // ── E. Services, wording, order, removal, provider choice, confirmation ──
     const e1 = await run("Add a $20 beard trim, 30 minutes.", [
@@ -363,22 +375,91 @@ async function main() {
     const on = await C.enableBookingForm(userId);
     check("F8 turning booking on from the step brings the form back", on.enabled && on.steps.length > 0 && !on.empty);
 
-    await prisma.appointmentField.deleteMany({ where: { userId } });
-    const bare = await C.bookingFormSummary(userId);
-    check("F9 a form with no fields is `empty`: only the engine steps remain, and the model is told there are no questions yet",
-      bare.empty && bare.fields.length === 0 && bare.steps.map((s) => s.kind).join() === "service,time,review" && /no questions yet/.test(C.describeFormForModel(bare)), `${titles(bare.steps)} | ${C.describeFormForModel(bare)}`);
-    const f5 = await run("Ask for their name and email.", [
+    // ── G. The order is the owner's: whole steps, one question, a screen's title ──
+    const ids = (steps: { id: string }[]) => steps.map((s) => s.id).join(",");
+    check("G0 the form as it stands: service → time → photo → guest screen → contact screen → email → review (provider hidden)",
+      ids(on.steps) === `service,time,q:a_photo_of_the_problem,screen:${guestScreen},screen:1,q:your_email,review`, ids(on.steps));
+    const g1 = await run("Let people pick a stylist again, and ask for the time first — before the stylist.", [
       {
         tools: [
-          { name: "add_question", input: { label: "Full name", type: "short_text", required: true, role: "name", screen: "new" } },
-          { name: "add_question", input: { label: "Email address", type: "email", required: true, role: "email", screen: "previous" } },
+          { name: "set_staff_selection", input: { mode: "optional" } },
+          { name: "set_step_order", input: { steps: ["service", "time", "provider", "options", "bogus", "screen:99"] } },
         ],
       },
-      { text: "Added name and email." },
+      { text: "The time comes before the stylist now." },
     ]);
-    check("F10 on an empty form 'new' then 'previous' build one contact screen from nothing",
-      f5.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join() === "full_name:name:1,email_address:email:1" && !f5.form.empty && f5.form.steps.some((s) => s.id === "screen:1" && s.title === "Full name*, Email address*"),
-      f5.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join());
+    check("G1 set_step_order moves whole steps: time before provider; steps left out keep their place after, review last; unknown ids ignored",
+      ids(g1.form.steps) === `service,time,provider,q:a_photo_of_the_problem,screen:${guestScreen},screen:1,q:your_email,review` && g1.changes.length === 2 && /Reordered the form's steps/.test(g1.changes[1]),
+      `${ids(g1.form.steps)} | ${JSON.stringify(g1.changes)}`);
+    const storedFlow = (await B.getBookingSettings(userId)).flow;
+    const photoScreen = on.fields.find((f) => f.key === "a_photo_of_the_problem")!.screen;
+    check("G2 the order is stored as the business's own flow (engine steps, every screen, review last)",
+      storedFlow.map((s) => (s.kind === "questions" ? `questions:${s.screen}` : s.kind)).join() === `service,time,provider,location,questions:${photoScreen},questions:${guestScreen},questions:1,questions:${emailNow.screen},review`,
+      JSON.stringify(storedFlow));
+    const g2 = await run("Call the contact screen 'How do we say hello?'.", [
+      { tools: [{ name: "set_screen_title", input: { screen: 1, title: "How do we say hello?" } }, { name: "set_screen_title", input: { screen: 42, title: "Nope" } }] },
+      { text: "Named it." },
+    ]);
+    const hello = g2.form.steps.find((s) => s.id === "screen:1");
+    check("G3 set_screen_title names the screen step; a screen not in use changes nothing",
+      hello?.title === "How do we say hello?" && g2.changes.length === 1 && /Titled screen 1 “How do we say hello\?”/.test(g2.changes[0]) && ids(g2.form.steps) === ids(g1.form.steps),
+      `${hello?.title} | ${JSON.stringify(g2.changes)}`);
+    const toldG = C.describeFormForModel(g2.form);
+    check("G4 the model sees the titled screen with its id and the keys asked on it, and every other step with its id",
+      /\d\. \[screen:1\] "How do we say hello\?" — name\*, phone \(screen 1, 2 questions together\)/.test(toldG) && /^1\. \[service\] Pick a service/m.test(toldG) && /\d\. \[q:your_email\] "Your email" \(screen \d\)/.test(toldG),
+      toldG.split("THE FORM")[1]);
+    const g3 = await run("Ask for the photo right after the phone, and the email first of all.", [
+      {
+        tools: [
+          { name: "move_question", input: { key: "a_photo_of_the_problem", after: "phone" } },
+          { name: "move_question", input: { key: "your_email", first: true } },
+          { name: "move_question", input: { key: "how_many_guests" } },
+          { name: "move_question", input: { key: "nope", first: true } },
+        ],
+      },
+      { text: "Moved both." },
+    ]);
+    check("G5 move_question moves one question after another, or first; no destination or an unknown key moves nothing",
+      g3.form.fields.map((f) => f.key).join() === "your_email,how_many_guests,name,phone,a_photo_of_the_problem,any_allergies_in_the_party" && g3.changes.length === 2 &&
+        /Moved the question “A photo of the problem” after “Your phone number”/.test(g3.changes[0]) && /Moved the question “Your email” first/.test(g3.changes[1]),
+      `${g3.form.fields.map((f) => f.key).join()} | ${JSON.stringify(g3.changes)}`);
+    check("G6 moving a question keeps its screen, the screen's title and the owner's step order",
+      g3.form.fields.find((f) => f.key === "a_photo_of_the_problem")!.screen !== 1 && g3.form.steps.find((s) => s.id === "screen:1")?.title === "How do we say hello?" && ids(g3.form.steps) === ids(g1.form.steps),
+      ids(g3.form.steps));
+    const g4 = await run("Put the contact screen right after the service.", [
+      { tools: [{ name: "set_step_order", input: { steps: ["service", "q:name", "time", "provider"] } }] },
+      { text: "Done." },
+    ]);
+    check("G7 q:<key> names the screen that question is on; a reorder keeps the screen's title",
+      ids(g4.form.steps) === `service,screen:1,time,provider,q:a_photo_of_the_problem,screen:${guestScreen},q:your_email,review` && g4.form.steps[1].title === "How do we say hello?",
+      ids(g4.form.steps));
+
+    // ── H. No form to copy: the owner describes it from scratch ──
+    // A fresh tenant whose site had no form: no fields, no stored step order.
+    await prisma.appointmentField.deleteMany({ where: { userId } });
+    await B.saveBookingSettings(userId, { flow: [] });
+    const bare = await C.bookingFormSummary(userId);
+    check("H1 a form with no fields is `empty`: only the engine steps remain, and the model is told there are no questions yet",
+      bare.empty && bare.fields.length === 0 && bare.steps.map((s) => s.kind).join() === "service,provider,time,review" && /no questions yet/.test(C.describeFormForModel(bare)) && /1\. \[service\] Pick a service/.test(C.describeFormForModel(bare)),
+      `${titles(bare.steps)} | ${C.describeFormForModel(bare)}`);
+    const h1 = await run("Name, phone, and whether it's a first visit", [
+      {
+        tools: [
+          { name: "add_question", input: { label: "Your name", type: "short_text", required: true, role: "name", screen: "new" } },
+          { name: "add_question", input: { label: "Phone number", type: "phone", required: true, role: "phone", screen: "previous" } },
+          { name: "add_question", input: { label: "Is this your first visit?", type: "yes_no", required: false, screen: "previous" } },
+        ],
+      },
+      { text: "Built it — name, phone and a first-visit question on one screen. Should the phone be optional?" },
+    ]);
+    check("H2 the empty-form opener: three add_question calls with roles on one screen build the contact screen from nothing, in the order given",
+      h1.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join() === "your_name:name:1,phone_number:phone:1,is_this_your_first_visit:none:1" && !h1.form.empty &&
+        h1.form.steps.some((s) => s.id === "screen:1" && s.title === "Your name*, Phone number*, Is this your first visit?") && h1.changes.length === 3,
+      h1.form.fields.map((f) => `${f.key}:${f.role}:${f.screen}`).join());
+    check("H3 …the model was told the form had no questions and the one-screen rule; the reply is its own one question back",
+      /no questions yet/.test(h1.seen.system[0]) && /all on ONE screen/.test(h1.seen.system[0]) && /Should the phone be optional\?$/.test(h1.reply), h1.reply);
+    check("H4 the new screen is asked before review",
+      ids(h1.form.steps) === "service,provider,time,screen:1,review", ids(h1.form.steps));
   } finally {
     await prisma.user.deleteMany({ where: { id: userId } });
     await prisma.$disconnect();

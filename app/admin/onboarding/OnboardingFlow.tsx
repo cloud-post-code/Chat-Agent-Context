@@ -33,7 +33,15 @@ type Status = {
   stepSocial?: { links?: { platform?: string; url?: string }[] };
   stepImages?: { images?: { src?: string; caption?: string }[] };
   stepBrand?: { tagline?: string; taglineSource?: string; values?: string[]; tone?: string };
-  stepBooking?: { report?: { services?: number; seededFields?: number; takesAppointments?: boolean } | null };
+  stepBooking?: {
+    report?: {
+      services?: number; seededFields?: number; takesAppointments?: boolean;
+      /** Whether a booking form was found on the site to copy (older jobs: absent). */
+      formFound?: boolean;
+      /** How many screens the copied form has (absent when unknown). */
+      formScreens?: number;
+    } | null;
+  };
   chunkCount?: number;
   report?: {
     blog?: { postsSaved: number; existed: boolean };
@@ -240,20 +248,24 @@ function themeSummary(bodyFont: string, radius: string, tagline: string): string
   return tagline.trim() ? `${line} Tagline: “${tagline.trim()}”` : line;
 }
 
-/** The assistant's opener for the booking-form step, from what the read found. */
+/**
+ * The assistant's opener for the booking-form step, from what the read found:
+ * a form copied from the site (`formFound`, or — for a job from before the
+ * flag — questions seeded), or none, in which case the step opens empty and
+ * asks the owner to describe it.
+ */
 function bookingIntro(
   manual: boolean,
-  report: { services?: number; seededFields?: number } | null,
+  report: { seededFields?: number; formFound?: boolean; formScreens?: number } | null,
 ): string {
-  const tail = "Here are its steps — try it like a customer would, then tell me what's missing or what to change and I'll show it to you again.";
-  if (manual) return `Next, your booking form: this is what visitors fill in to book with you. ${tail}`;
-  if (!report) return `I couldn't read your services, so here's the booking form as it stands. ${tail}`;
-  const n = report.services ?? 0;
-  const q = report.seededFields ?? 0;
-  const built = n
-    ? `I built your booking form from your site — ${n} service${n === 1 ? "" : "s"}${q ? ` and ${q} question${q === 1 ? "" : "s"}` : ""}.`
-    : "I found no services on your site, so here's the booking form as it stands.";
-  return `${built} ${tail}`;
+  const found = !manual && !!report && (report.formFound ?? (report.seededFields ?? 0) > 0);
+  if (!found) {
+    return "I couldn't find a booking form on your site to copy, so it's empty. What do you need to know from a customer to book them? Tell me the questions in order and I'll build it.";
+  }
+  const k = report?.seededFields ?? 0;
+  const m = report?.formScreens;
+  const screens = m ? ` on ${m} screen${m === 1 ? "" : "s"}` : "";
+  return `I copied your booking form from your site — ${k} question${k === 1 ? "" : "s"}${screens}, in the same order. Try it, then tell me what to change.`;
 }
 
 function knowledgeSummary(picked: string[]): string {
