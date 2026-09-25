@@ -938,9 +938,11 @@ export function sanitizeSelection(raw: unknown): BookingSelection {
     rec.frequency === "weekly" || rec.frequency === "biweekly" || rec.frequency === "monthly"
       ? rec.frequency
       : null;
+  // A passthrough for the cards that still post contact details apart from
+  // the answers; createBooking folds them onto the role-tagged fields.
   const customer: Customer = {};
   const givenCustomer = obj(src.customer);
-  for (const key of CUSTOMER_FIELD_KEYS) {
+  for (const key of ["firstName", "lastName", "email", "phone", "notes"] as const) {
     const v = flat(givenCustomer[key], key === "notes" ? 1000 : 200);
     if (v) customer[key] = v;
   }

@@ -1,4 +1,4 @@
-import { keyFromLabel, type FieldConfig, type FieldType } from "./appointmentTypes";
+import { keyFromLabel, type FieldConfig, type FieldRole, type FieldType } from "./appointmentTypes";
 import { SERVICE_PICKER_KEY, servicePickerField, type MenuService } from "./bookingMenu";
 
 /**
@@ -43,20 +43,27 @@ export type PlannedField = {
   type: FieldType;
   required: boolean;
   config?: FieldConfig;
+  /** Which answer is the customer's name/email/phone (FIELD_ROLES); `none` for a question. */
+  role: FieldRole;
+  /** The contact details share screen 1; every other question gets its own, in plan order. */
+  screen: number;
 };
+
+/** A planned question before its screen is known. */
+type Draft = Omit<PlannedField, "role" | "screen"> & { role?: FieldRole };
 
 /** Past this a wizard stops being quicker than a phone call. */
 export const MAX_QUESTIONS = 8;
 export const ANY_STAFF = "Any available";
 
-const NAME: PlannedField = { key: "name", label: "Your name", type: "short_text", required: true };
-const REASON: PlannedField = { key: "reason", label: "What would you like to talk about?", type: "long_text", required: false };
+const NAME: Draft = { key: "name", label: "Your name", type: "short_text", required: true, role: "name" };
+const REASON: Draft = { key: "reason", label: "What would you like to talk about?", type: "long_text", required: false };
 
 type Norm = {
   phone: "required" | "optional" | null;
   email: "required" | "optional" | null;
   /** The specifics this kind of booking can't be taken without. */
-  extras: PlannedField[];
+  extras: Draft[];
   notes: string | null;
 };
 
@@ -90,21 +97,21 @@ const NORMS: Record<BookingKind, Norm> = {
 
 const NOTES_FALLBACK = "Anything we should know?";
 
-function contacts(facts: BookingFacts, norm: Norm): PlannedField[] {
+function contacts(facts: BookingFacts, norm: Norm): Draft[] {
   const need = (seen: ContactNeed, usual: Norm["phone"]) => (seen === "unknown" ? usual : seen);
-  const out: PlannedField[] = [];
+  const out: Draft[] = [];
   const phone = need(facts.phone, norm.phone);
   const email = need(facts.email, norm.email);
-  if (phone) out.push({ key: "phone", label: "Your phone number", type: "phone", required: phone === "required" });
-  if (email) out.push({ key: "email", label: "Your email", type: "email", required: email === "required" });
-  if (!out.length) out.push({ key: "email", label: "Your email", type: "email", required: true });
+  if (phone) out.push({ key: "phone", label: "Your phone number", type: "phone", required: phone === "required", role: "phone" });
+  if (email) out.push({ key: "email", label: "Your email", type: "email", required: email === "required", role: "email" });
+  if (!out.length) out.push({ key: "email", label: "Your email", type: "email", required: true, role: "email" });
   // A booking nobody can be reached about isn't one.
   if (!out.some((f) => f.required)) out[0] = { ...out[0], required: true };
   return out.sort((a, b) => Number(b.required) - Number(a.required));
 }
 
 /** What an extracted requirement is really asking, when the plan already asks it. */
-const REPEATS: { says: RegExp; covered: (plan: PlannedField[]) => boolean }[] = [
+const REPEATS: { says: RegExp; covered: (plan: Draft[]) => boolean }[] = [
   { says: /\bname\b/i, covered: () => true },
   // The wizard's last step is always "when".
   { says: /\b(dates?|times?|days?|when)\b/i, covered: () => true },
@@ -126,7 +133,7 @@ const REPEATS: { says: RegExp; covered: (plan: PlannedField[]) => boolean }[] = 
   { says: /notes?|comments?|requests?|anything else|message/i, covered: (p) => p.some((f) => f.key === "notes" || f.type === "long_text") },
 ];
 
-function staffQuestion(staff: string[]): PlannedField | null {
+function staffQuestion(staff: string[]): Draft | null {
   const names = [...new Set(staff.map((s) => s.trim()).filter(Boolean))];
   if (!names.length) return null;
   return {
@@ -138,6 +145,17 @@ function staffQuestion(staff: string[]): PlannedField | null {
   };
 }
 
+/**
+ * Screens and roles: the contact details (name, phone, email) sit together on
+ * screen 1, the way a details step reads; every other question gets a screen
+ * of its own, in plan order. A question with no role is `none`.
+ */
+function laidOut(drafts: Draft[]): PlannedField[] {
+  const contact = (d: Draft) => d.role === "name" || d.role === "phone" || d.role === "email";
+  let next = 2;
+  return drafts.map((d) => ({ ...d, role: d.role ?? "none", screen: contact(d) ? 1 : next++ }));
+}
+
 /** The ordered questions: who → what → who with → the specifics → notes. */
 export function planBookingForm(facts: BookingFacts): PlannedField[] {
   const norm = NORMS[facts.kind] ?? NORMS.other;
@@ -145,22 +163,22 @@ export function planBookingForm(facts: BookingFacts): PlannedField[] {
   const picker = facts.kind === "table" ? null : servicePickerField(facts.services);
   const staff = facts.kind === "personal_service" ? staffQuestion(facts.staff) : null;
 
-  const plan: PlannedField[] = [NAME, ...contacts(facts, norm)];
+  const plan: Draft[] = [NAME, ...contacts(facts, norm)];
   if (picker) plan.push(picker);
   if (staff) plan.push(staff);
   plan.push(...norm.extras);
 
   const noteLabel = norm.notes ?? (facts.notes ? NOTES_FALLBACK : null);
   // A long answer is already being asked for; a second box is one too many.
-  const notes: PlannedField | null =
+  const notes: Draft | null =
     noteLabel && !plan.some((f) => f.type === "long_text")
-      ? { key: "notes", label: noteLabel, type: "long_text", required: false }
+      ? { key: "notes", label: noteLabel, type: "long_text", required: false, role: "notes" }
       : null;
 
   const taken = new Set(plan.map((f) => f.key));
   const covered = notes ? [...plan, notes] : plan;
   const room = MAX_QUESTIONS - covered.length;
-  const extracted: PlannedField[] = [];
+  const extracted: Draft[] = [];
   for (const r of facts.requirements) {
     if (extracted.length >= room) break;
     const key = keyFromLabel(r.label.trim().slice(0, 120));
@@ -180,6 +198,6 @@ export function planBookingForm(facts: BookingFacts): PlannedField[] {
   plan.push(...extracted);
 
   // "reason" is the generic catch-all: only when nothing more specific was asked.
-  if (facts.kind === "other" && !picker && !extracted.length) return [...plan, REASON];
-  return notes ? [...plan, notes] : plan;
+  if (facts.kind === "other" && !picker && !extracted.length) return laidOut([...plan, REASON]);
+  return laidOut(notes ? [...plan, notes] : plan);
 }

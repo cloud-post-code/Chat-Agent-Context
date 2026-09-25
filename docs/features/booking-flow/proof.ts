@@ -128,9 +128,8 @@ async function main() {
     check("A7 an unknown timezone falls back", s.timezone === T.DEFAULT_TIMEZONE);
     check("A7 an odd slot interval falls back to 30", s.slotIntervalMinutes === 30);
     check("A7 lead time and advance window are clamped", s.leadTimeMinutes === 0 && s.maxAdvanceDays === 730);
-    const first = s.customerFields.find((f) => f.key === "firstName")!;
     const company = s.customerFields.find((f) => f.key === "company")!;
-    check("A7 first name can't be turned off or made optional", first.enabled && first.required);
+    check("A7 a first_name-role field is an ordinary field: unanswered, it names nobody", Object.keys(Q.customerFromAnswers([{ key: "fn", role: "first_name" }], {})).length === 0 && Q.customerFromAnswers([{ key: "fn", role: "first_name" }], { fn: "Ada" }).firstName === "Ada");
     check("A7 a configurable field keeps its wording", company.enabled && company.required && company.label === "Business");
     check("A7 every customer key is present exactly once", s.customerFields.length === T.CUSTOMER_FIELD_KEYS.length);
     check("A7 promo codes are upper-cased and a >100% one is dropped", s.promoCodes.length === 1 && s.promoCodes[0].code === "WELCOME10");

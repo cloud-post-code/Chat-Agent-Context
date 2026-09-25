@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { prisma, getProfile } from "../db";
 import { getBookingConfig, safeAnswers } from "../appointments";
-import type { AppointmentFieldRow } from "../appointmentTypes";
-import { isFieldShown, resolveAnswer, durationMinutes as parseDurationMinutes } from "../appointmentTypes";
+import type { AppointmentFieldRow, CustomerContact, FieldRole } from "../appointmentTypes";
+import { customerFromAnswers, isFieldShown, resolveAnswer, durationMinutes as parseDurationMinutes } from "../appointmentTypes";
 import { SERVICE_PICKER_KEY, serviceOptions } from "../bookingMenu";
 import { onboardingIngestKind } from "../ingestionSources";
 import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "../serviceCatalog";
@@ -14,7 +14,6 @@ import { addMinutes, shiftDays, ymd, zonedParts, zonedToUtc } from "./time";
 import { availableDays, availableSlots, checkSlot, earliestSlot, type AvailabilityInput, type Booked } from "./availability";
 import { durationFor, findPromo, priceBreakdown } from "./pricing";
 import {
-  CUSTOMER_FIELD_LABELS,
   LOCATION_KINDS,
   SERVICE_MODES,
   flat,
@@ -34,7 +33,6 @@ import {
   type BookingSelection,
   type BookingSettings,
   type Customer,
-  type CustomerFieldKey,
   type DayAvailability,
   type LocationKind,
   type LocationRow,
@@ -571,32 +569,11 @@ async function materializeServices(userId: string, settings: BookingSettings): P
   }
 }
 
-/** Folds a legacy name/email/phone question's `required` onto the matching
- *  customer field, so a tenant who required a phone number in the old wizard
- *  doesn't silently stop requiring it once the new flow reads settings instead. */
-function foldLegacyRequired(rules: BookingRules, fields: AppointmentFieldRow[]): BookingRules {
-  const required = new Map<CustomerFieldKey, boolean>();
-  for (const f of fields) {
-    if (f.key === "name") required.set("firstName", f.required);
-    else if (f.key === "email") required.set("email", f.required);
-    else if (f.key === "phone") required.set("phone", f.required);
-  }
-  if (!required.size) return rules;
-  return {
-    ...rules,
-    customerFields: rules.customerFields.map((cf) => (required.get(cf.key) ? { ...cf, required: true } : cf)),
-  };
-}
-
-/** The catalog minus the keys the flow now asks elsewhere: name/email/phone
- *  (the customer step) and the legacy service picker once a real service
- *  step exists to replace it. */
+/** The form as the card asks it: every stored field — contact details are
+ *  ordinary fields now — minus the legacy service picker once a real service
+ *  step exists to replace it (that bridge stays until the picker is gone). */
 function trimIntake(fields: AppointmentFieldRow[], hasServiceStep: boolean): AppointmentFieldRow[] {
-  return fields.filter((f) => {
-    if (f.key === "name" || f.key === "email" || f.key === "phone") return false;
-    if (f.key === SERVICE_PICKER_KEY && hasServiceStep) return false;
-    return true;
-  });
+  return fields.filter((f) => !(f.key === SERVICE_PICKER_KEY && hasServiceStep));
 }
 
 /** The block the card is handed. Null when booking is off. */
@@ -608,7 +585,7 @@ export async function getBookingFlow(
   if (!profile.bookingEnabled) return null;
 
   const settings = await getBookingSettings(userId);
-  const [services, staffRows, locationRows, { fields }] = await Promise.all([
+  const [services, staffRows, locationRows, config] = await Promise.all([
     resolveServices(userId, settings),
     listStaff(userId),
     listLocations(userId),
@@ -617,8 +594,9 @@ export async function getBookingFlow(
   const staff = staffRows.filter((s) => s.enabled);
   const locations = locationRows.filter((l) => l.enabled);
   const categories = [...new Set(services.map((s) => s.category).filter(Boolean))];
+  const fields = trimIntake(config.fields, services.length > 0);
   const rules: BookingRules = {
-    ...foldLegacyRequired(publicRules(settings), fields),
+    ...publicRules(settings),
     // The business's own step order, resolved against its form.
     flow: sanitizeFlow(settings.flow, fields),
   };
@@ -641,8 +619,9 @@ export async function getBookingFlow(
       rules,
       preselect,
     },
-    intake: trimIntake(fields, services.length > 0),
-    /** Every field, role-tagged and screen-grouped — what the flow-driven card asks. */
+    /** @deprecated The same list as `fields`; kept until the last reader moves over. */
+    intake: fields,
+    /** Every field the card asks, role-tagged and screen-grouped, in order. */
     fields,
   };
 }
@@ -898,18 +877,33 @@ function recurrenceDates(start: Date, rec: Recurrence | null, tz: string): Date[
   return out;
 }
 
-/** required present, email shaped like an email, phone has enough digits. */
-function validateCustomer(customer: Customer, fields: BookingSettings["customerFields"]): string | null {
-  for (const cf of fields) {
-    if (!cf.enabled) continue;
-    const v = (customer[cf.key] ?? "").trim();
-    const label = cf.label || CUSTOMER_FIELD_LABELS[cf.key];
-    if (cf.required && !v) return `${label} is required.`;
-    if (!v) continue;
-    if (cf.key === "email" && !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return "That email doesn't look right.";
-    if (cf.key === "phone" && (v.match(/\d/g)?.length ?? 0) < 7) return "That phone number doesn't look right.";
+/**
+ * A card that still posts contact details apart from the answers (the
+ * `customer` object) has them folded onto the form: each detail lands on the
+ * first field with the matching role, unless that field was answered
+ * directly. A `name` role takes the first and last name together.
+ */
+function foldCustomerIntoAnswers(
+  customer: Customer,
+  fields: ReadonlyArray<Pick<AppointmentFieldRow, "key" | "role">>,
+  answers: Record<string, unknown>,
+): void {
+  const given: Partial<Record<FieldRole, string>> = {
+    first_name: customer.firstName ?? "",
+    last_name: customer.lastName ?? "",
+    name: [customer.firstName, customer.lastName].filter(Boolean).join(" "),
+    email: customer.email ?? "",
+    phone: customer.phone ?? "",
+    notes: customer.notes ?? "",
+  };
+  const folded = new Set<FieldRole>();
+  for (const f of fields) {
+    const value = given[f.role];
+    if (!value || folded.has(f.role)) continue;
+    folded.add(f.role);
+    const current = answers[f.key];
+    if (current === undefined || current === null || current === "") answers[f.key] = value;
   }
-  return null;
 }
 
 type OccurrenceRow = { id: string; status: "confirmed" | "waitlisted"; startsAt: Date; endsAt: Date; staffName: string };
@@ -944,15 +938,10 @@ export async function createBooking(
   if (!resolved.ok) return resolved;
   const { service, variant, addons, location, mode, chosenStaff, staffPool } = resolved;
 
-  const customerErr = validateCustomer(selection.customer, settings.customerFields);
-  if (customerErr) return { ok: false, error: customerErr };
-  const customer: Customer = { ...selection.customer };
-  if (customer.smsConsent) customer.smsConsent = /^(yes|true|on|1)$/i.test(customer.smsConsent) ? "yes" : "no";
-
-  // Intake: every catalog question the flow doesn't ask elsewhere. The
-  // legacy service picker is the one exception — when the chosen service came
-  // from it, the visitor's pick is fed back in so it still validates and the
-  // old Calendar readers (which key off answers.service) keep working.
+  // The form: every stored question, contact details included. The legacy
+  // service picker is the one exception — when the chosen service came from
+  // it, the visitor's pick is fed back in so it still validates and the old
+  // Calendar readers (which key off answers.service) keep working.
   const { fields } = await getBookingConfig(userId);
   const picker = fields.find((f) => f.key === SERVICE_PICKER_KEY);
   // The pick is written back only when the picker will accept it — its own
@@ -964,10 +953,10 @@ export async function createBooking(
       (picker.config.options ?? []).some((o) => o.label.toLowerCase() === service.name.toLowerCase()));
   const rawAnswers: Record<string, unknown> = { ...selection.answers };
   if (pickerTakes && service) rawAnswers[SERVICE_PICKER_KEY] = [service.name];
+  foldCustomerIntoAnswers(selection.customer, fields, rawAnswers);
 
   const answers: Record<string, string> = {};
   for (const f of fields) {
-    if (f.key === "name" || f.key === "email" || f.key === "phone") continue;
     if (f.key === SERVICE_PICKER_KEY && service && !pickerTakes) continue; // asked in the new Service step instead
     if (!isFieldShown(f, rawAnswers, fields.map((x) => x.key))) continue;
     const resolvedAns = resolveAnswer(f, rawAnswers[f.key]);
@@ -975,6 +964,9 @@ export async function createBooking(
     if (f.required && !resolvedAns.value) return { ok: false, error: `"${f.label}" is required.` };
     if (resolvedAns.value) answers[f.key] = resolvedAns.value;
   }
+  // The customer as the calendar, the .ics file and the knowledge index read
+  // it, found through the fields' roles whatever the form calls them.
+  const customer: CustomerContact = customerFromAnswers(fields, answers);
 
   const durationMinutes = durationFor({ service, variant, addons, staff: chosenStaff, settings, quantity: selection.quantity });
   const today = ymd(new Date(), settings.timezone);

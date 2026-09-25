@@ -13,9 +13,6 @@ import {
   type AppointmentFieldRow,
   type BookingConfig,
 } from "./appointmentTypes";
-import { LEGACY_PICKER_HEAD, SERVICE_PICKER_KEY, servicePickerField } from "./bookingMenu";
-import { onboardingIngestKind } from "./ingestionSources";
-import { SERVICES_SOURCE_TITLE, parseServiceCatalog } from "./serviceCatalog";
 import { indexAppointment } from "./retrieval/origins";
 import { dropOrigin } from "./retrieval/indexer";
 import { sanitizeBookingSettings } from "./booking/types";
@@ -26,6 +23,11 @@ import { addMinutes } from "./booking/time";
  * wizard asks from, and the appointments themselves. Data only — the booking
  * card is hydrated in lib/cards.ts and rendered in app/cards/Cards.tsx; the
  * admin Calendar panel reads listAppointments.
+ *
+ * The form is the business's own: what is stored is what is asked, in the
+ * stored order — nothing seeded on enable, nothing rewritten on read. A
+ * field's `role` says which answer is the customer's name/email/phone; its
+ * `screen` says which questions are asked together.
  *
  * Every validation the visitor-facing submit needs lives in
  * createAppointment, because the client wizard is untrusted: disabled means
@@ -52,15 +54,6 @@ export type AppointmentRow = {
   createdAt: Date;
 };
 
-/** Seeded on first enable; from there the tenant owns the catalog. */
-export const DEFAULT_APPOINTMENT_FIELDS: ReadonlyArray<
-  Pick<AppointmentFieldRow, "key" | "label" | "type" | "required">
-> = [
-  { key: "name", label: "Your name", type: "short_text", required: true },
-  { key: "email", label: "Your email", type: "email", required: true },
-  { key: "reason", label: "What would you like to talk about?", type: "long_text", required: false },
-];
-
 function toFieldRow(f: {
   key: string;
   label: string;
@@ -86,119 +79,28 @@ function toFieldRow(f: {
 }
 
 /**
- * The service question onboarding used to write: a text box whose label
- * listed what fit of the menu. Recognized only while it is still exactly what
- * was generated — the seeded key, still a text box, still the generated
- * opening words — so a question the tenant has since made their own is never
- * touched.
- */
-const isLegacyPicker = (f: AppointmentFieldRow) =>
-  f.key === SERVICE_PICKER_KEY && f.type === "short_text" && f.label.startsWith(LEGACY_PICKER_HEAD);
-
-const isDefaultField = (f: AppointmentFieldRow) =>
-  DEFAULT_APPOINTMENT_FIELDS.some(
-    (d) => d.key === f.key && d.label === f.label && d.type === f.type && d.required === f.required,
-  );
-
-/** Exactly the three questions the first enable writes, nothing edited. */
-const isBareDefaults = (fields: AppointmentFieldRow[]) =>
-  fields.length === DEFAULT_APPOINTMENT_FIELDS.length && fields.every(isDefaultField);
-
-/**
  * Nobody has edited this form, so onboarding may rebuild it: it is empty, or
- * every question is one onboarding wrote (`generated`), or it is still the
- * defaults — with or without the legacy picker older onboardings added. One
- * admin save, delete or reorder ends that (`claimForm`).
+ * every question is one onboarding wrote (`generated`). One admin save,
+ * delete, reorder or screen change ends that (`claimForm`).
  */
 export function isUntouchedForm(fields: AppointmentFieldRow[]): boolean {
-  if (fields.every((f) => f.config.generated)) return true;
-  const rest = fields.filter((f) => !isLegacyPicker(f));
-  return fields.length - rest.length <= 1 && rest.length >= 2 && rest.every(isDefaultField);
-}
-
-/** The services on file as the menu question; null when there are none. */
-async function servicesMenu(userId: string) {
-  const source = await prisma.source.findFirst({
-    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
-    orderBy: { updatedAt: "desc" },
-    select: { rawText: true },
-  });
-  return servicePickerField(parseServiceCatalog(source?.rawText));
-}
-
-/**
- * Present a legacy picker as the menu it was standing in for, built from the
- * services on file. On read, not as a data migration: the catalog is text
- * only this code can parse, and a read-time rule fixes every tenant's form
- * the moment it deploys. Everything downstream — the card, the validator, the
- * admin editor — reads this one config, so they all agree on what is being
- * asked; the first admin Save writes the menu down and the rule lets go.
- */
-async function upgradeLegacyPicker(userId: string, fields: AppointmentFieldRow[]): Promise<AppointmentFieldRow[]> {
-  if (!fields.some(isLegacyPicker)) return fields;
-  const picker = await servicesMenu(userId);
-  // No services on file: the text box is still the best question available.
-  if (!picker) return fields;
-  return fields.map((f) =>
-    isLegacyPicker(f) ? { ...f, label: picker.label, type: picker.type, config: picker.config } : f,
-  );
-}
-
-const GENERATED = JSON.stringify({ generated: true });
-
-/**
- * Bare defaults with services on file: booking is on by default, so the three
- * defaults were written before onboarding knew the services, and nothing ever
- * revisited them. The menu takes the place of "What would you like to talk
- * about?". Written down rather than presented — unlike the legacy picker, the
- * menu's key ("service") is not the key of the row it replaces ("reason"), and
- * an admin deleting or saving the question they are shown must be acting on a
- * row that exists. Once, idempotently; the rows stay `generated`, so onboarding
- * can still rebuild the form. True when it wrote.
- */
-async function adoptServicesMenu(userId: string, fields: AppointmentFieldRow[]): Promise<boolean> {
-  if (!isBareDefaults(fields)) return false;
-  const picker = await servicesMenu(userId);
-  const reason = fields.find((f) => f.key === "reason");
-  if (!picker || !reason) return false;
-  const menu = {
-    label: picker.label,
-    type: picker.type,
-    required: picker.required,
-    order: reason.order,
-    config: JSON.stringify({ ...picker.config, generated: true }),
-  };
-  await prisma.$transaction([
-    prisma.appointmentField.deleteMany({ where: { userId, key: "reason" } }),
-    prisma.appointmentField.updateMany({ where: { userId }, data: { config: GENERATED } }),
-    prisma.appointmentField.upsert({
-      where: { userId_key: { userId, key: picker.key } },
-      update: menu,
-      create: { userId, key: picker.key, ...menu },
-    }),
-  ]);
-  return true;
+  return fields.every((f) => f.config.generated);
 }
 
 const storedFields = async (userId: string) =>
   (await prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } })).map(toFieldRow);
 
+/** The booking flag and the stored questions, in order — exactly what is on file. */
 export async function getBookingConfig(userId: string): Promise<BookingConfig> {
-  const [profile, stored] = await Promise.all([getProfile(userId), storedFields(userId)]);
-  const fields = (await adoptServicesMenu(userId, stored)) ? await storedFields(userId) : stored;
-  return { enabled: profile.bookingEnabled, fields: await upgradeLegacyPicker(userId, fields) };
+  const [profile, fields] = await Promise.all([getProfile(userId), storedFields(userId)]);
+  return { enabled: profile.bookingEnabled, fields };
 }
 
-/** Toggle booking; the first enable seeds the default fields so the wizard
- *  is never a zero-question flow. */
+/** Toggle booking. Nothing else: the form is whatever the tenant (or
+ *  onboarding, on their behalf) has written. */
 export async function setBookingEnabled(userId: string, enabled: boolean): Promise<void> {
   await getProfile(userId); // ensure the row exists
   await prisma.profile.update({ where: { userId }, data: { bookingEnabled: enabled } });
-  if (enabled && (await prisma.appointmentField.count({ where: { userId } })) === 0) {
-    await prisma.appointmentField.createMany({
-      data: DEFAULT_APPOINTMENT_FIELDS.map((f, i) => ({ ...f, userId, order: i })),
-    });
-  }
 }
 
 export { keyFromLabel };
@@ -283,14 +185,33 @@ async function claimForm(userId: string): Promise<void> {
  */
 export async function rebuildUntouchedForm(
   userId: string,
-  plan: { key: string; label: string; type: string; required: boolean; config?: FieldConfig }[],
+  plan: {
+    key: string;
+    label: string;
+    type: string;
+    required: boolean;
+    config?: FieldConfig;
+    role?: FieldRole;
+    /** Left out = a screen of its own, after every screen written so far. */
+    screen?: number;
+  }[],
 ): Promise<number> {
   const rows = await prisma.appointmentField.findMany({ where: { userId } });
   if (!isUntouchedForm(rows.map(toFieldRow))) return 0;
   await prisma.appointmentField.deleteMany({ where: { userId } });
   let written = 0;
   for (const f of plan) {
-    if ((await saveAppointmentField(userId, { ...f, config: f.config ?? {}, generated: true })) === null) written++;
+    const saved = await saveAppointmentField(userId, {
+      key: f.key,
+      label: f.label,
+      type: f.type,
+      required: f.required,
+      config: f.config ?? {},
+      generated: true,
+      ...(f.role !== undefined ? { role: f.role } : {}),
+      ...(f.screen !== undefined ? { screen: f.screen } : {}),
+    });
+    if (saved === null) written++;
   }
   return written;
 }
@@ -335,6 +256,40 @@ export async function reorderAppointmentFields(userId: string, keys: string[]): 
       prisma.appointmentField.update({ where: { userId_key: { userId, key } }, data: { order: i } }),
     ),
   );
+  await claimForm(userId);
+}
+
+/**
+ * Put a question on a screen — with the questions already there, or on a new
+ * one. Which screen a field is on never changes where it sits in the order;
+ * the flow (BookingSettings.flow) says when each screen is asked.
+ */
+export async function setFieldScreen(userId: string, key: string, screen: number): Promise<void> {
+  if (!Number.isInteger(screen) || screen < 1) return;
+  await prisma.appointmentField.updateMany({ where: { userId, key }, data: { screen } });
+  await claimForm(userId);
+}
+
+/**
+ * Compact the screens to 1..m, numbered by first appearance in field order,
+ * so a deleted or moved question never leaves a gap. Fields keep their order:
+ * a screen number is a grouping, not a position, and never sorts against it.
+ */
+export async function renumberScreens(userId: string): Promise<void> {
+  const fields = await prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } });
+  const numbered = new Map<number, number>();
+  const writes = [];
+  for (const f of fields) {
+    // A row from before screens existed (0) is a screen of its own.
+    const current = f.screen >= 1 ? f.screen : -(f.order + 1);
+    let next = numbered.get(current);
+    if (next === undefined) {
+      next = numbered.size + 1;
+      numbered.set(current, next);
+    }
+    if (next !== f.screen) writes.push(prisma.appointmentField.update({ where: { id: f.id }, data: { screen: next } }));
+  }
+  if (writes.length) await prisma.$transaction(writes);
   await claimForm(userId);
 }
 
