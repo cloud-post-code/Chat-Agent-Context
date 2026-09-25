@@ -5,6 +5,8 @@ import { saveAppointmentFieldAction } from "./actions";
 import { PendingButton } from "./PendingButton";
 import { field as fieldStyle, btn, Label } from "./ui";
 import {
+  FIELD_ROLES,
+  FIELD_ROLE_LABELS,
   FIELD_TYPES,
   formatOptionLines,
   isChoiceType,
@@ -65,6 +67,7 @@ export function BookingFieldForm({
     <form action={saveAppointmentFieldAction}>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10, alignItems: "flex-end" }}>
         {field ? <input type="hidden" name="key" value={field.key} /> : null}
+        {field ? <input type="hidden" name="screen" value={field.screen} /> : null}
         <div style={{ flex: "1 1 220px" }}>
           <Label>{field ? "Question" : "New question"}</Label>
           <input
@@ -89,12 +92,47 @@ export function BookingFieldForm({
             ))}
           </select>
         </div>
+        <div>
+          <Label>What this answer is</Label>
+          <select
+            name="role"
+            defaultValue={field?.role ?? "none"}
+            style={{ ...fieldStyle, width: "auto" }}
+          >
+            {FIELD_ROLES.map((r) => (
+              <option key={r} value={r}>
+                {FIELD_ROLE_LABELS[r]}
+              </option>
+            ))}
+          </select>
+        </div>
         <label style={{ fontSize: 13, display: "flex", alignItems: "center", gap: 6, paddingBottom: 8 }}>
           <input type="checkbox" name="required" defaultChecked={field?.required} /> Required
         </label>
         <PendingButton pendingLabel={field ? "Saving…" : "Adding…"} style={btn as React.CSSProperties}>
           {field ? "Save" : "Add question"}
         </PendingButton>
+      </div>
+
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <div style={{ flex: "1 1 200px" }}>
+          <Label>Placeholder</Label>
+          <input
+            name="placeholder"
+            defaultValue={config.placeholder}
+            placeholder="Shown greyed out inside the empty answer box"
+            style={fieldStyle}
+          />
+        </div>
+        <div style={{ flex: "1 1 200px" }}>
+          <Label>Help text</Label>
+          <input
+            name="help"
+            defaultValue={config.help}
+            placeholder="One line shown under the question"
+            style={fieldStyle}
+          />
+        </div>
       </div>
 
       {isChoiceType(type) ? (
