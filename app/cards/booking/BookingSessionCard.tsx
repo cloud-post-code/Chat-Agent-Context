@@ -4,11 +4,10 @@ import { useEffect, useState } from "react";
 import { useChatThread, type ChatThread } from "@/app/ChatThread";
 import { planSteps } from "@/lib/booking/flowSteps";
 import { ids, nextUnasked, stepId, withService } from "@/lib/booking/session";
-import type { BookingField } from "../BookingQuestion";
 import type { UiBlock } from "../Cards";
 import { getBookingFlow } from "./api";
-import { LegacyWizard, toFlowFields } from "./BookingFlowCard";
-import { BookingThread } from "./BookingThread";
+import { toFlowFields } from "./BookingFlowCard";
+import { BookingThread, BookingUnavailable } from "./BookingThread";
 import { useBookingSession, useBookingSessions } from "./session";
 import { advanceBooking, bindSession, completeStep, reconcileThread } from "./thread";
 
@@ -36,8 +35,8 @@ type Mode =
   | { kind: "live" }
   /** Another booking is under way in this chat: nothing starts here. */
   | { kind: "elsewhere" }
-  /** No flow to be had (fetch failed, or the tenant has none): the pre-flow wizard, inline. */
-  | { kind: "legacy"; fields: BookingField[] };
+  /** No flow to be had (fetch failed, or the tenant has none): one line says so. */
+  | { kind: "unavailable" };
 
 function SessionStart({ block, slug, thread, sessionId }: { block: BookingBlock; slug: string; thread: ChatThread; sessionId: string }) {
   const { sessions } = useBookingSessions();
@@ -62,7 +61,7 @@ function SessionStart({ block, slug, thread, sessionId }: { block: BookingBlock;
           const res = await getBookingFlow(slug, preselect);
           if (cancelled) return;
           if (!res.ok || !res.flow) {
-            setMode({ kind: "legacy", fields: res.ok && res.fields.length ? res.fields : block.fields });
+            setMode({ kind: "unavailable" });
             return;
           }
           store.seed(res.flow, toFlowFields(res.fields));
@@ -113,6 +112,6 @@ function SessionStart({ block, slug, thread, sessionId }: { block: BookingBlock;
       </p>
     );
   }
-  if (mode.kind === "legacy") return <LegacyWizard slug={slug} fields={mode.fields} />;
+  if (mode.kind === "unavailable") return <BookingUnavailable />;
   return null;
 }

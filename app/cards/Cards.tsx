@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useChatThread, type ChatThread } from "@/app/ChatThread";
 import type { CardStep, FlowField } from "@/lib/booking/flowSteps";
 import type { BookingFlow } from "@/lib/booking/types";
-import { LegacyWizard, toFlowFields } from "./booking/BookingFlowCard";
+import { toFlowFields } from "./booking/BookingFlowCard";
 import { BookingSessionCard } from "./booking/BookingSessionCard";
 import { BookingStepCard } from "./booking/BookingStepCard";
 import { BookingThread } from "./booking/BookingThread";
@@ -58,7 +58,7 @@ export type ServiceCard = {
   duration?: string;
   category?: string;
 };
-export type ServiceBooking = { fields: BookingField[]; serviceKey: string | null; flow?: BookingFlow | null };
+export type ServiceBooking = { fields: BookingField[]; flow?: BookingFlow | null };
 export type UiBlock =
   | { type: "projects"; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
@@ -426,12 +426,7 @@ function ServicesCard({
             Change
           </button>
         </p>
-        {!flow && booking?.serviceKey ? (
-          // The pre-flow wizard, with the tapped service already answered.
-          <LegacyWizard key={picked.id} slug={slug} fields={fields ?? []} prefill={{ [booking.serviceKey]: picked.name }} />
-        ) : (
-          <BookingThread key={picked.id} slug={slug} fields={fields ?? []} flow={flow} preselectServiceId={flowService?.id} />
-        )}
+        <BookingThread key={picked.id} slug={slug} fields={fields ?? []} flow={flow} preselectServiceId={flowService?.id} />
       </div>
     );
   }

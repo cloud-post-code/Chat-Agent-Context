@@ -1,7 +1,5 @@
 import { prisma } from "@/lib/db";
-import { FIELD_TYPES, rebuildUntouchedForm } from "@/lib/appointments";
-import { isChoiceType } from "@/lib/appointmentTypes";
-import { BOOKING_KINDS, planBookingForm, type BookingKind, type ContactNeed } from "@/lib/bookingFormPlan";
+import { writeFormSpec } from "@/lib/booking/formSpec";
 import { replaceMenu } from "@/lib/menu";
 import { sanitizeMenuItem, type MenuItemData } from "@/lib/menuTypes";
 import { onboardingIngestKind } from "@/lib/ingestionSources";
@@ -11,19 +9,22 @@ import { bookingCorpus, findBookingFrames, findBookingLink } from "./bookingPage
 import { llmCorpus, llmExtract } from "./knowledgeLlm";
 import { saveKnowledgeRecord } from "./knowledge";
 import { applyBookingChannels, seedServices, type ExtractedService } from "./bookingSeed";
+import { readBookingForm, snapshotStatic, type FormSnapshot } from "./formReader";
+import { transcribeForm, type FormSpec, type LlmFn as FormLlmFn } from "./formTranscribe";
 import { BOOKING_CHANNELS, type BookingChannel } from "@/lib/booking/types";
 
 /**
  * The services-and-booking extractor: one read of the pages most likely to
  * describe what the business sells and how it takes bookings. Services become
- * knowledge (the sibling extractors' Source+Chunk path), and they also seed the
- * appointment-question catalog: the stage always leaves a usable form, asking
- * what this business asks when it takes a booking (lib/bookingFormPlan.ts).
- * The business's own booking page is read too, even when it is an offsite
- * widget — that is where the full menu and the real questions are.
+ * knowledge (the sibling extractors' Source+Chunk path) and Service rows; then
+ * the business's own booking form is read as it renders (formReader.ts),
+ * transcribed verbatim (formTranscribe.ts) and written into the tenant's form
+ * (lib/booking/formSpec.ts) — the same steps, the same questions, the same
+ * words. The booking page is read even when it is an offsite widget — that is
+ * where the full menu and the real questions are.
  *
  * Booking itself is on by default (Profile.bookingEnabled), so this stage is
- * configuring a live capability, not staging one behind a toggle. It rebuilds
+ * configuring a live capability, not staging one behind a toggle. It rewrites
  * a form nobody has edited; one the tenant has touched is theirs.
  */
 
@@ -37,47 +38,27 @@ Rules:
 - "cancellationPolicy" and "preparation" are this service's own cancellation/rescheduling rule and any prep or eligibility instructions the text states for it, copied as written; "" when not stated. Never copy the business's general policy onto a specific service unless the text itself ties it there.
 - "menu" holds the rest of what the text states about the item, for a menu the customer can order from. Every field is optional: leave it "", [], false or omit it when the text does not state it — never fill one in from what such an item usually has. Fields: subcategory; shortDescription (one line); fullDescription (the text's longer description); image (a URL from the IMAGES list whose alt or position clearly matches this item, else ""); gallery (more matching image URLs); priceType (fixed | starting_at | market | varies | free); originalPrice and salePrice (only when the text shows a struck-through or reduced price); currency (code like USD, only when stated); unit (each | person | lb | hour …); availability (available | unavailable | limited | unknown); availabilityWindow ("breakfast only", "after 4 PM"); locations (branches it is available at); modifiers: the choices the text offers for this item — sizes, sides, temperature, add-ons — each {"name":"Size","choices":[{"label":"Large","price":"+$2"}],"required":true,"min":1,"max":1,"defaults":["Medium"]} with min/max as the text states ("choose 1–2 toppings") and price only when the text prices that choice; quantityMin/quantityMax when the text limits how many; ingredients; dietaryTags (vegan, vegetarian, gluten-free, keto …, as written); allergens; warnings ("contains raw or undercooked …"); customization (true when the text invites requests like "no onions" or "sauce on the side"); nutrition ("720 cal"); servingSize ("serves 2"); popularity (popular | bestseller | new | staff_pick, only when the text marks it); rating and reviewCount as written; estimatedTime ("15–20 min"); inventory ("4 remaining"); fulfillment (pickup | delivery | dine_in | appointment | shipping — how the text says this item is had); related, upsells, pairings (names of other listed items the text pairs or suggests with it).
 - "takesAppointments" is true ONLY if the text says customers can book, schedule, or make an appointment/reservation with this business.
-- "requirements" are the concrete pieces of information the text says a customer provides when booking (e.g. a phone number, party size, a preferred stylist). One entry per piece. Do NOT list the choice of service itself — services are already reported above — nor the date and time, which every booking asks. "required" is true when the text presents it as needed.
-- A requirement's "type" is one of: short_text, long_text, email, phone, number (a count: party size, guests, pets), yes_no, select (the customer picks ONE of choices the text lists), multi_select (picks ANY of them). "options" holds those listed choices, copied from the text, and is [] for every other type. Use select/multi_select only when the text itself lists at least two choices; otherwise short_text.
-- "kind" is what a customer books, judged from what the business is: personal_service (a person's time at the business: salon, spa, barber, clinic, studio), table (restaurant, bar, café), home_service (the business comes to the customer: trades, cleaning, repair), class (places in a class, tour or event), consultation (a conversation: agency, adviser, coach), other (anything else, or unclear).
-- "staff" are the names of people the text says a customer can choose or ask for when booking (technicians, stylists, practitioners). Copy the names; [] when the text names nobody. Never the owner's name just because it appears.
-- "phone" and "email" say whether the text shows the booking asking for each: "required", "optional", or "unknown" when the text doesn't show it. "notes" is true when the booking takes a free-text note or special request.
 - "channels" lists every way the text says a customer can book: "online" (a booking page, widget or form), "phone" ("call to book", a number beside "book"), "email", "walk_in" ("walk-ins welcome"). [] when the text says nothing about how to book.
-- Nothing qualifying? Return empty lists, false, "other" and "unknown". Never guess.
+- Nothing qualifying? Return empty lists and false. Never guess.
 
 Respond with ONLY this JSON, no other text:
-{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"kind":"other","staff":[],"phone":"unknown","email":"unknown","notes":false,"channels":[],"requirements":[{"label":"","type":"short_text","required":false,"options":[]}]}}`;
+{"services":[{"name":"","description":"","price":"","duration":"","category":"","addons":[{"name":"","price":""}],"deposit":"","cancellationPolicy":"","preparation":"","menu":{"subcategory":"","shortDescription":"","fullDescription":"","image":"","gallery":[],"priceType":"","originalPrice":"","salePrice":"","currency":"","unit":"","availability":"","availabilityWindow":"","locations":[],"modifiers":[],"quantityMin":0,"quantityMax":0,"ingredients":[],"dietaryTags":[],"allergens":[],"warnings":[],"customization":false,"nutrition":"","servingSize":"","popularity":"","rating":"","reviewCount":"","estimatedTime":"","inventory":"","fulfillment":[],"related":[],"upsells":[],"pairings":[]}}],"booking":{"takesAppointments":false,"channels":[]}}`;
 
 export type { ServiceItem } from "@/lib/serviceCatalog";
-export type BookingRequirement = {
-  label: string;
-  type: (typeof FIELD_TYPES)[number];
-  required: boolean;
-  /** The choices the site lists, for select / multi_select; empty otherwise. */
-  options: string[];
-};
 export type ServicesExtract = {
-  /** A ServiceItem plus the menu facts (price, duration, category) the form's
-   *  picker shows, and the long tail (addons, deposit, policy) the booking
-   *  seeder (lib/onboarding/bookingSeed.ts) reads. */
+  /** A ServiceItem plus the menu facts (price, duration, category) and the
+   *  long tail (addons, deposit, policy) the booking seeder
+   *  (lib/onboarding/bookingSeed.ts) reads. */
   services: ExtractedService[];
   /** The same items with everything the site states about them (lib/menuTypes.ts). */
   menu: MenuItemData[];
   takesAppointments: boolean;
-  kind: BookingKind;
-  /** People a customer can ask for. Unverified here; see `namedInText`. */
-  staff: string[];
-  phone: ContactNeed;
-  email: ContactNeed;
-  notes: boolean;
   /** How the site says one books: online, by phone, by email, walking in. */
   channels: BookingChannel[];
-  requirements: BookingRequirement[];
 };
 
-/** The menu cap: what one choice question can hold (appointmentTypes MAX_OPTIONS). */
+/** Services read per business. */
 const MAX_SERVICES = 60;
-const contactNeed = (v: unknown): ContactNeed => (v === "required" || v === "optional" ? v : "unknown");
 
 const str = (v: unknown, max = 2000): string =>
   typeof v === "string" ? v.trim().slice(0, max) : "";
@@ -88,13 +69,7 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
     services: [],
     menu: [],
     takesAppointments: false,
-    kind: "other",
-    staff: [],
-    phone: "unknown",
-    email: "unknown",
-    notes: false,
     channels: [],
-    requirements: [],
   };
   if (!raw || typeof raw !== "object") return out;
 
@@ -154,39 +129,10 @@ export function sanitizeServices(raw: Record<string, unknown> | null): ServicesE
       : null;
   if (booking) {
     out.takesAppointments = booking.takesAppointments === true;
-    if ((BOOKING_KINDS as readonly string[]).includes(String(booking.kind))) out.kind = booking.kind as BookingKind;
-    if (Array.isArray(booking.staff)) {
-      out.staff = [...new Set(booking.staff.map((n) => str(n, 60)).filter(Boolean))].slice(0, 12);
-    }
-    out.phone = contactNeed(booking.phone);
-    out.email = contactNeed(booking.email);
-    out.notes = booking.notes === true;
     if (Array.isArray(booking.channels)) {
       out.channels = [...new Set(booking.channels.map((c) => String(c)))].filter((c): c is BookingChannel =>
         (BOOKING_CHANNELS as readonly string[]).includes(c),
       );
-    }
-    if (Array.isArray(booking.requirements)) {
-      for (const r of booking.requirements.slice(0, 10)) {
-        if (!r || typeof r !== "object") continue;
-        const item = r as Record<string, unknown>;
-        const label = str(item.label, 120);
-        if (!label) continue;
-        let type = (FIELD_TYPES as readonly string[]).includes(String(item.type))
-          ? (String(item.type) as BookingRequirement["type"])
-          : "short_text";
-        const options = isChoiceType(type) && Array.isArray(item.options)
-          ? [...new Set(item.options.map((o) => str(o, 120)).filter(Boolean))].slice(0, 30)
-          : [];
-        // A pick-from-a-list question with nothing to pick from is a text question.
-        if (isChoiceType(type) && options.length < 2) type = "short_text";
-        out.requirements.push({
-          label,
-          type,
-          required: item.required === true,
-          options: isChoiceType(type) ? options : [],
-        });
-      }
     }
   }
   return out;
@@ -264,20 +210,21 @@ function servicesCorpus(pages: Page[]): string {
     .join("\n\n");
 }
 
-/** Keep a name only when the text read actually contains it. */
-const namedInText = (names: string[], corpus: string) => {
-  const text = corpus.toLowerCase();
-  return names.filter((n) => text.includes(n.toLowerCase()));
-};
-
 export type ServicesReport = {
   services: number;
   takesAppointments: boolean;
-  /** What kind of booking the form was planned for. */
-  kind: BookingKind;
   /** Menu items written for the menu card. */
   menuItems: number;
+  /** Questions copied from the site's booking form into the tenant's (0 when
+   *  no form was found, or the tenant's form is their own). */
   seededFields: number;
+  /** A booking form was found on the site and transcribed. */
+  formFound: boolean;
+  /** Screens the copied form walks (its `questions` steps). */
+  formScreens: number;
+  /** How the form was read: driven in the browser, from the loaded page's
+   *  HTML, or not at all (no booking link, no reader). */
+  formHow: "playwright" | "static" | "none";
   pagesChecked: string[];
   /** How many Service rows the booking seeder wrote (0 when the tenant
    *  already had services, or nothing was extracted). */
@@ -288,39 +235,52 @@ export type ServicesReport = {
 
 type LlmFn = typeof llmExtract;
 
+export type ServicesDeps = {
+  /** The services model call; the production extractor when left out. */
+  llm?: LlmFn;
+  /** Reads the booking form at a url as it renders; null = fall back to the
+   *  loaded page's HTML. Left out, the crawler's browser reads it. */
+  readForm?: (url: string) => Promise<FormSnapshot | null>;
+  /** The transcriber's model call; the production one when left out. */
+  formLlm?: FormLlmFn;
+  /** The job's browser, for driving the booking form. */
+  crawler?: Crawler;
+};
+
 /**
- * Extract from already-loaded pages and persist. `deps.llm` is the one
- * injectable boundary (the lib/customIngest precedent) so proofs run offline;
- * everything downstream — sanitizing, the knowledge write, field seeding —
- * is the real path.
+ * Extract from already-loaded pages and persist. `deps.llm` and
+ * `deps.formLlm` are the injectable model boundaries (the lib/customIngest
+ * precedent) so proofs run offline, `deps.readForm` the browser's; everything
+ * downstream — sanitizing, the knowledge write, the form write — is the real
+ * path.
  */
 export async function extractServicesAndBooking(
   pages: Page[],
   userId: string,
   onEvent: (m: string) => void,
-  deps: { llm?: LlmFn } = {},
-): Promise<{ report: ServicesReport; chunks: number; extract: ServicesExtract }> {
+  deps: ServicesDeps = {},
+): Promise<{ report: ServicesReport; chunks: number; extract: ServicesExtract; form: FormSpec | null }> {
   const llm = deps.llm ?? llmExtract;
   const report: ServicesReport = {
     services: 0,
     takesAppointments: false,
-    kind: "other",
     menuItems: 0,
     seededFields: 0,
+    formFound: false,
+    formScreens: 0,
+    formHow: "none",
     pagesChecked: pages.map((p) => p.url),
     seededServices: 0,
     imagedServices: 0,
   };
-  if (!pages.length) return { report, chunks: 0, extract: sanitizeServices(null) };
+  if (!pages.length) return { report, chunks: 0, extract: sanitizeServices(null), form: null };
 
   const corpus = servicesCorpus(pages);
   const raw = await llm(SERVICES_SYSTEM_PROMPT, corpus, 16000, onEvent);
   const clean = sanitizeServices(raw);
-  clean.staff = namedInText(clean.staff, corpus);
   report.services = clean.services.length;
   report.menuItems = clean.menu.length;
   report.takesAppointments = clean.takesAppointments;
-  report.kind = clean.kind;
 
   let chunks = 0;
   if (clean.services.length) {
@@ -362,16 +322,6 @@ export async function extractServicesAndBooking(
     }
   }
 
-  // One rule: after this stage the tenant has the form this business would
-  // have built. A form somebody has edited is the only gate — that one is
-  // theirs, never ours. Best-effort, so a field write that fails never costs
-  // the knowledge saved above.
-  try {
-    report.seededFields = await rebuildUntouchedForm(userId, planBookingForm(clean));
-  } catch {
-    // Left as-is; the tenant can still build the form by hand.
-  }
-
   // How the business takes bookings decides how the card words its own:
   // a phone-only business gets a request the owner confirms, and a phone
   // number is asked for. Best-effort; an owner's own choice is kept.
@@ -382,8 +332,8 @@ export async function extractServicesAndBooking(
   }
 
   // The Service table (lib/booking/): same empty-catalog gate, same
-  // best-effort rule — a failure here must never cost the knowledge or the
-  // intake form seeded above.
+  // best-effort rule — a failure here must never cost the knowledge saved
+  // above.
   try {
     const seeded = await seedServices(userId, clean.services, pages, onEvent);
     report.seededServices = seeded.seeded;
@@ -391,5 +341,75 @@ export async function extractServicesAndBooking(
   } catch {
     // Left as-is; the tenant can still build the booking menu by hand.
   }
-  return { report, chunks, extract: clean };
+
+  // The business's own booking form, copied verbatim. A form somebody has
+  // edited is the only gate (writeFormSpec). Best-effort: a read or write
+  // that fails costs the pre-filled form, never the knowledge or services.
+  let form: FormSpec | null = null;
+  try {
+    form = await runFormRead(pages, userId, onEvent, deps, report);
+  } catch (err) {
+    onEvent(`Booking form: couldn't copy it — ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`);
+  }
+  return { report, chunks, extract: clean, form };
+}
+
+/**
+ * The booking form's url: the homepage's booking link first (offsite widgets
+ * included), else the first booking or form widget framed in the homepage or
+ * any loaded page. Null when the site shows none.
+ */
+export function bookingFormUrl(pages: Page[]): string | null {
+  const home = pages[0];
+  if (!home) return null;
+  const link = findBookingLink(home);
+  if (link) return link;
+  for (const p of pages) {
+    const frames = findBookingFrames(p);
+    if (frames.length) return frames[0];
+  }
+  return null;
+}
+
+/**
+ * Read → transcribe → write, filling the report. The browser reads the form
+ * as it renders (`readForm`, or the crawler's own browser); when it can't, a
+ * page already loaded for that url is read statically; with neither there is
+ * no form to copy.
+ */
+async function runFormRead(
+  pages: Page[],
+  userId: string,
+  onEvent: (m: string) => void,
+  deps: ServicesDeps,
+  report: ServicesReport,
+): Promise<FormSpec | null> {
+  const url = bookingFormUrl(pages);
+  if (!url) {
+    onEvent("Booking form: no booking link or widget on the site");
+    return null;
+  }
+  const readForm =
+    deps.readForm ??
+    ((u: string) => (deps.crawler ? readBookingForm(deps.crawler, u, onEvent) : Promise.resolve<FormSnapshot | null>(null)));
+  let snapshot = await readForm(url);
+  if (!snapshot) {
+    const loaded = pages.find((p) => p.url === url);
+    if (!loaded) {
+      onEvent("Booking form: the booking page couldn't be read");
+      return null;
+    }
+    snapshot = snapshotStatic(loaded);
+  }
+  report.formHow = snapshot.how;
+  const spec = await transcribeForm(snapshot, { llm: deps.formLlm }, onEvent);
+  report.formFound = spec.found;
+  if (!spec.found) {
+    onEvent("Booking form: the booking page has no form to copy");
+    return spec;
+  }
+  const written = await writeFormSpec(userId, spec, onEvent);
+  report.seededFields = written.fields;
+  report.formScreens = spec.steps.filter((s) => s.kind === "questions").length;
+  return spec;
 }

@@ -7,17 +7,26 @@ import type { StoredMsg } from "@/lib/chatStore";
 import type { BookingFlow } from "@/lib/booking/types";
 import type { BookingField } from "../BookingQuestion";
 import { getBookingFlow } from "./api";
-import { LegacyWizard, toFlowFields } from "./BookingFlowCard";
+import { toFlowFields } from "./BookingFlowCard";
 import { BookingSessionsProvider, useBookingSessions } from "./session";
 import { startSession } from "./thread";
+
+/** The one line drawn when there is no flow to book through (booking off, or the fetch failed). */
+export function BookingUnavailable() {
+  return (
+    <p data-booking-unavailable="" style={{ fontSize: 13, fontStyle: "italic", color: "var(--on-bg-soft)", margin: 0 }}>
+      Booking is unavailable right now.
+    </p>
+  );
+}
 
 /**
  * A booking conversation with a thread of its own — for a booking that sits
  * outside the visitor chat: the services card on a server-rendered page, and
  * the owner trying their form in onboarding (`preview`). The same cards, the
  * same controller; only the thread is local. A block with no flow (an old
- * stored sample) draws the pre-flow wizard at once and moves to the
- * conversation if the fetch brings a flow back.
+ * stored sample) fetches one first; until it arrives nothing is drawn, and
+ * when none comes back one line says booking is unavailable.
  */
 export function BookingThread({
   slug,
@@ -33,12 +42,17 @@ export function BookingThread({
   preview?: boolean;
 }) {
   const [remote, setRemote] = useState<{ flow: BookingFlow; fields: BookingField[] } | null>(flow ? { flow, fields } : null);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     if (flow) return;
     let cancelled = false;
     getBookingFlow(slug, preselectServiceId ?? undefined).then((res) => {
-      if (cancelled || !res.ok || !res.flow) return;
+      if (cancelled) return;
+      if (!res.ok || !res.flow) {
+        setFailed(true);
+        return;
+      }
       setRemote({ flow: res.flow, fields: res.fields });
     });
     return () => {
@@ -46,7 +60,7 @@ export function BookingThread({
     };
   }, [slug, flow, preselectServiceId]);
 
-  if (!remote) return <LegacyWizard slug={slug} fields={fields} preview={preview} />;
+  if (!remote) return failed ? <BookingUnavailable /> : null;
 
   return (
     <LocalChatThreadProvider slug={slug} initial={[]}>

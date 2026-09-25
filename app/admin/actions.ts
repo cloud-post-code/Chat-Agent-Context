@@ -29,7 +29,6 @@ import {
 } from "@/lib/accountAdmin";
 import { createUser, provisionUserDefaults } from "@/lib/users";
 import {
-  cancelAppointment,
   deleteAppointmentField,
   getBookingConfig,
   moveAppointmentField,
@@ -1528,12 +1527,6 @@ export async function deleteOrderAction(formData: FormData) {
   revalidateAll();
 }
 
-export async function cancelAppointmentAction(formData: FormData) {
-  const user = await requireUser();
-  await cancelAppointment(user.id, String(formData.get("id") ?? ""));
-  revalidateAll();
-}
-
 // ── Booking (app/admin/booking/): services, providers, locations, settings,
 // and the richer Calendar's status actions. Thin auth wrappers around
 // lib/booking/store, same idiom as every action above — the parsing helpers
@@ -1792,8 +1785,7 @@ export async function saveBookingSettingsAction(formData: FormData) {
   revalidateAll();
 }
 
-/** Cancel a booking — the richer Calendar's version of cancelAppointmentAction,
- *  for rows created through the new booking flow (lib/booking/store.ts). */
+/** Cancel a booking: the row keeps its status history (lib/booking/store.ts). */
 export async function cancelBookingAction(formData: FormData) {
   const user = await requireUser();
   const id = String(formData.get("id") ?? "");
