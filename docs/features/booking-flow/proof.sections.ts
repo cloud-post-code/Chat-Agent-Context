@@ -418,16 +418,35 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   // An old stored block: fields saved before roles and screens existed, and no flow.
   const oldFields = [{ key: "notes", label: "Anything else?", type: "long_text" as const, required: false, config: {} }];
 
+  // A booking is a conversation of cards. Outside a chat the block draws a
+  // thread of its own: on the server nothing is asked yet (the cards come one
+  // at a time once the browser takes over), and the other way to book is in
+  // view from the first paint.
   const html = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields, flow }, slug: "proof" }));
   const $ = cheerio.load(html);
-  check("D1 the service step opens with a tile per service", $("img").length === 1 && $('[data-testid="placeholder-image"]').length === 2, `${$("img").length} img, ${$('[data-testid="placeholder-image"]').length} placeholders`);
-  check("D1 the imaged service draws its photo", $("img").attr("src") === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
-  check("D1 prices read as the business would say them", html.includes("$45") && html.includes("From $80") && html.includes("Quote"));
-  check("D1 durations and badges", html.includes("45 min") && html.includes("1 hr 30 min") && html.includes("Deposit") && html.includes(T.MODE_LABELS.mobile));
-  check("D1 category chips", ["All", "Hair", "Color", "Advice"].every((c) => $("button").filter((_, b) => $(b).text().trim() === c).length > 0));
+  check("D1 a booking block outside a chat draws its own thread shell", $("[data-booking-thread]").length === 1);
+  check("D1 no step is asked before the browser takes over, and no step counter anywhere", $("[data-booking-step]").length === 0 && !/Step \d+ of/.test(html));
   check("D1 no network was needed to draw it", !html.includes("Loading"));
-  check("D1 the step counter", /Step 1 of \d+/.test(html));
   check("D1 the other way to book is one tap away", $('a[href="tel:+15125550100"], a[href="tel:5125550100"]').length === 1 && html.includes("Prefer to call?"));
+  check("D1 a visitor sees no preview banner", !html.includes("Preview — nothing gets booked."));
+  const { BookingThread } = await import("../../../app/cards/booking/BookingThread");
+  const previewHtml = renderToStaticMarkup(React.createElement(BookingThread, { slug: "proof", fields, flow, preview: true }));
+  check("D1 the owner's preview says so", previewHtml.includes("Preview — nothing gets booked."));
+
+  // The service step's card, as the thread lays it out first: a tile per service.
+  const { ServiceStep } = await import("../../../app/cards/booking/ServiceStep");
+  const { emptySelection } = await import("../../../lib/booking/session");
+  const serviceProps = { flow, selection: emptySelection(null, "America/New_York"), onPick: () => {} };
+  const service = renderToStaticMarkup(React.createElement(ServiceStep, serviceProps));
+  const $v = cheerio.load(service);
+  check("D1 the service step opens with a tile per service", $v("img").length === 1 && $v('[data-testid="placeholder-image"]').length === 2, `${$v("img").length} img, ${$v('[data-testid="placeholder-image"]').length} placeholders`);
+  check("D1 the imaged service draws its photo", $v("img").attr("src") === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
+  check("D1 prices read as the business would say them", service.includes("$45") && service.includes("From $80") && service.includes("Quote"));
+  check("D1 durations and badges", service.includes("45 min") && service.includes("1 hr 30 min") && service.includes("Deposit") && service.includes(T.MODE_LABELS.mobile));
+  check("D1 category chips", ["All", "Hair", "Color", "Advice"].every((c) => $v("button").filter((_, b) => $v(b).text().trim() === c).length > 0));
+  check("D1 the service card carries the phone line as well", $v('a[href^="tel:"]').length === 1);
+  const $locked = cheerio.load(renderToStaticMarkup(React.createElement(ServiceStep, { ...serviceProps, locked: true })));
+  check("D1 a finished booking locks the service card: tiles disabled, still in view", $locked("fieldset[disabled]").length === 1 && $locked('[role="button"]').length === 3);
 
   const noFlow = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields: oldFields }, slug: "proof" }));
   check("D2 an old stored block still draws the first question at once", noFlow.includes("Anything else?") && !noFlow.includes("Loading"));
@@ -445,16 +464,25 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   check("D4 the options step appears once a service with options is chosen", planSteps({ ...flow, services: [svc({ id: "cut", variants: [{ id: "v", name: "Long", pricing: { kind: "fixed", amount: 60 }, durationMinutes: 60 }] })] }, fields, { ...empty, serviceId: "cut" }).map((s) => s.kind).join() === "service,options,provider,time,screen,screen,review");
   check("D4 a block from before roles and screens reads as one question per screen", toFlowFields(oldFields).every((f) => f.role === "none" && f.screen === 1) && toFlowFields([...oldFields, ...oldFields]).map((f) => f.screen).join() === "1,2");
 
-  // A business whose form asks for details first: the card opens on that
-  // screen, drawing every field on it together, as its own form does.
+  // A business whose form asks for details first: the first card asked is
+  // that screen, drawing every field on it together, as its own form does.
   const detailsFirst: BookingFlow = { ...flow, rules: { ...flow.rules, flow: [{ kind: "questions", screen: 1, title: "Your details" }, { kind: "service" }, { kind: "provider" }, { kind: "time" }, { kind: "questions", screen: 2 }, { kind: "review" }] } };
-  const first = renderToStaticMarkup(React.createElement(Cards, { block: { type: "booking", fields, flow: detailsFirst }, slug: "proof" }));
+  type ScreenCardStep = import("../../../app/cards/booking/ScreenStep").ScreenCardStep;
+  const { ScreenStep } = await import("../../../app/cards/booking/ScreenStep");
+  const firstStep = planSteps(detailsFirst, fields, empty)[0];
+  check("D5 the details screen is the first card asked, with no separate details step", firstStep?.kind === "screen" && firstStep.screen === 1 && planSteps(detailsFirst, fields, empty).length === 6);
+  const screenProps = { step: firstStep as ScreenCardStep, answers: {}, setAnswer: () => {}, slug: "proof", onNext: () => {} };
+  const first = renderToStaticMarkup(React.createElement(ScreenStep, screenProps));
   const $f = cheerio.load(first);
   const labels = $f("label").map((_, l) => $f(l).text().trim()).get();
   check("D5 the details screen lists its fields together, required ones starred", labels.join("|") === "First name *|Last name *|Email *|Phone|Text me appointment reminders", labels.join("|"));
   check("D5 the screen's own heading, placeholder and help line", first.includes("Your details") && $f('input[type="email"]').attr("placeholder") === "you@example.com" && first.includes("For reminders only.") && $f('input[type="tel"]').attr("placeholder") === "Optional");
-  check("D5 the step counter counts the screens, with no separate details step", /Step 1 of 6/.test(first), first.match(/Step \d+ of \d+/)?.[0]);
+  check("D5 no Back button and no step counter: earlier cards stay editable in the thread", $f("button").filter((_, b) => $f(b).text().trim() === "Back").length === 0 && !/Step \d+ of/.test(first));
   check("D5 Next waits for the required answers", $f("button").filter((_, b) => $f(b).text().trim() === "Next").attr("aria-disabled") === "true");
+  const $again = cheerio.load(renderToStaticMarkup(React.createElement(ScreenStep, { ...screenProps, nextLabel: "Update" })));
+  check("D5 a step already answered offers Update", $again("button").filter((_, b) => $again(b).text().trim() === "Update").length === 1);
+  const $done = cheerio.load(renderToStaticMarkup(React.createElement(ScreenStep, { ...screenProps, locked: true })));
+  check("D5 a locked step keeps its answers in view: controls disabled, no Next", $done("fieldset[disabled]").length === 1 && $done("button").filter((_, b) => /^(Next|Update|Skip)$/.test($done(b).text().trim())).length === 0 && $done("label").length === 5);
 
   const services = renderToStaticMarkup(React.createElement(Cards, {
     block: { type: "services", items: [{ id: "cut", name: "Haircut", description: "A cut.", imageUrl: "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", priceLabel: "$45", duration: "45 min" }, { id: "color", name: "Color", description: "" }], booking: { fields, serviceKey: null, flow } },

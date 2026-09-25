@@ -8,14 +8,25 @@ import { Badge, Chip, chipRow, inputStyle, linkBtn, liveBtn, optionRow, picked, 
 /** Past this many services, a search box appears above the grid. */
 const SEARCH_OVER = 8;
 
+/**
+ * A step's controls all sit in one fieldset: `locked` disables every input,
+ * tile and chip at once (a disabled fieldset disables its form controls),
+ * with the fieldset's own chrome reset so the card looks as before.
+ */
+export const stepFrame: React.CSSProperties = { border: 0, padding: 0, margin: 0, minWidth: 0 };
+
 export function ServiceStep({
   flow,
   selection,
   onPick,
+  locked = false,
 }: {
   flow: BookingFlow;
   selection: BookingSelection;
+  /** Picking a service finishes the step; picking again (unless locked) changes it. */
   onPick: (serviceId: string) => void;
+  /** The booking is done (or abandoned): tiles disabled, no button. */
+  locked?: boolean;
 }) {
   const [category, setCategory] = useState("All");
   const [query, setQuery] = useState("");
@@ -32,17 +43,23 @@ export function ServiceStep({
   const detail = detailId ? (enabledServices.find((s) => s.id === detailId) ?? null) : null;
   if (detail) {
     return (
-      <ServiceDetail
-        service={detail}
-        flow={flow}
-        onBack={() => setDetailId(null)}
-        onChoose={() => onPick(detail.id)}
-      />
+      <fieldset disabled={locked} style={stepFrame}>
+        <ServiceDetail
+          service={detail}
+          flow={flow}
+          onBack={() => setDetailId(null)}
+          locked={locked}
+          onChoose={() => {
+            setDetailId(null);
+            onPick(detail.id);
+          }}
+        />
+      </fieldset>
     );
   }
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {flow.business.phone && (
         // The other way to book, always in view: some visitors would rather
         // call, and a phone-only business needs its number where the menu is.
@@ -83,7 +100,7 @@ export function ServiceStep({
         ))}
       </div>
       {filtered.length === 0 && <p style={{ fontSize: 13, marginTop: 8 }}>No services match.</p>}
-    </div>
+    </fieldset>
   );
 }
 
@@ -144,6 +161,8 @@ function ServiceDetail({
   service,
   flow,
   onBack,
+  nextLabel,
+  locked = false,
   onChoose,
 }: {
   service: ServiceRow;
@@ -161,9 +180,11 @@ function ServiceDetail({
   const policy = service.cancellationPolicy || flow.rules.cancellationPolicy;
   return (
     <div>
-      <button type="button" onClick={onBack} style={linkBtn}>
-        Back to services
-      </button>
+      {onBack && (
+        <button type="button" onClick={onBack} style={linkBtn}>
+          Back to services
+        </button>
+      )}
       <div
         style={{
           aspectRatio: "16 / 9",
@@ -231,13 +252,15 @@ function ServiceDetail({
           <p style={{ fontSize: 13 }}>{policy}</p>
         </>
       )}
-      <button
-        type="button"
-        onClick={onChoose}
-        style={{ ...linkBtn, ...liveBtn, width: "100%", marginTop: 14, padding: "12px 18px", fontSize: 15, fontWeight: 600 }}
-      >
-        Choose {service.name}
-      </button>
+      {!locked && (
+        <button
+          type="button"
+          onClick={onChoose}
+          style={{ ...linkBtn, ...liveBtn, width: "100%", marginTop: 14, padding: "12px 18px", fontSize: 15, fontWeight: 600 }}
+        >
+          {nextLabel ?? `Choose ${service.name}`}
+        </button>
+      )}
     </div>
   );
 }
@@ -252,6 +275,8 @@ export function OptionsStep({
   setSelection,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
   currency,
 }: {
   service: ServiceRow;
@@ -281,7 +306,7 @@ export function OptionsStep({
     .reduce((sum, a) => sum + (a.price ?? 0), 0);
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {service.variants.length > 0 && (
         <div role="radiogroup" aria-label="Options" style={{ marginBottom: 12 }}>
           <div style={sectionLabel}>Choose an option</div>
@@ -363,14 +388,18 @@ export function OptionsStep({
         </div>
       )}
       {addonsTotal > 0 && <p style={{ fontSize: 13, fontWeight: 600 }}>Add-ons total: {formatMoney(addonsTotal, currency)}</p>}
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={onNext} style={{ ...linkBtn, ...liveBtn }}>
-          Next
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={onNext} style={{ ...linkBtn, ...liveBtn }}>
+            {nextLabel ?? "Next"}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }

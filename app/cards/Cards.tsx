@@ -1,9 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { CardStep } from "@/lib/booking/flowSteps";
+import { useChatThread, type ChatThread } from "@/app/ChatThread";
+import type { CardStep, FlowField } from "@/lib/booking/flowSteps";
 import type { BookingFlow } from "@/lib/booking/types";
-import { BookingFlowCard } from "./booking/BookingFlowCard";
+import { LegacyWizard, toFlowFields } from "./booking/BookingFlowCard";
+import { BookingSessionCard } from "./booking/BookingSessionCard";
+import { BookingStepCard } from "./booking/BookingStepCard";
+import { BookingThread } from "./booking/BookingThread";
+import { Confirmed } from "./booking/Confirmed";
+import { useBookingSession, useBookingSessions } from "./booking/session";
+import { startOver, startSession } from "./booking/thread";
 import type { BookingField } from "./BookingQuestion";
 
 import { MenuCard, type MenuBlockView } from "./MenuCard";
@@ -108,7 +115,13 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
     return <ContactForm slug={slug} />;
   }
   if (block.type === "booking") {
-    return <BookingFlowCard slug={slug} fields={block.fields} flow={block.flow} />;
+    return <BookingSessionCard block={block} slug={slug} />;
+  }
+  if (block.type === "booking_step") {
+    return <BookingStepCard block={block} slug={slug} />;
+  }
+  if (block.type === "booking_confirmed") {
+    return <BookingConfirmedCard sessionId={block.sessionId} />;
   }
   if (block.type === "menu") {
     return <MenuCard block={block} slug={slug} />;
@@ -304,17 +317,77 @@ function CustomEl({ el }: { el: CustomElement }) {
   }
 }
 
+/**
+ * The end of a booking conversation: what was booked, read from the session's
+ * store, and a way to start again — a fresh session below, this one locked.
+ */
+function BookingConfirmedCard({ sessionId }: { sessionId: string }) {
+  const thread = useChatThread();
+  const { sessions } = useBookingSessions();
+  const { store, state } = useBookingSession(sessionId);
+  const { flow, confirmed, selection } = state;
+  if (!flow || !confirmed) return null;
+  return (
+    <div>
+      <Confirmed
+        flow={flow}
+        result={confirmed.result}
+        waitlisted={confirmed.waitlisted}
+        service={flow.services.find((s) => s.id === selection.serviceId) ?? null}
+        provider={flow.staff.find((s) => s.id === selection.staffId) ?? null}
+        location={flow.locations.find((l) => l.id === selection.locationId) ?? null}
+        selection={selection}
+      />
+      {thread && (
+        <button type="button" onClick={() => startOver(thread, sessions, store)} style={{ ...textBtn, marginTop: 8 }}>
+          Start over
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Book, tapped inside a chat: the booking starts as a conversation below the
+ * services card (which stays where it is). Mounted once per tap; the session
+ * starts on mount and the thread carries it from there.
+ */
+function StartBookingInThread({
+  thread,
+  flow,
+  fields,
+  preselectServiceId,
+}: {
+  thread: ChatThread;
+  flow: BookingFlow;
+  fields: FlowField[];
+  preselectServiceId?: string;
+}) {
+  const { sessions } = useBookingSessions();
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return;
+    started.current = true;
+    startSession(thread, sessions, { flow, fields, preselectServiceId });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return null;
+}
+
 /** Past this many the list folds: a chat bubble is not a menu page. */
 const SERVICES_SHOWN = 5;
 /** Longer than this and a description clamps to two lines behind "More". */
 const SERVICE_BLURB = 140;
 
 /**
- * The tenant's services, with booking one tap away. Book swaps the list for
- * the same wizard show_booking draws, opened with that service already
- * answered, so the visitor never retypes what they just tapped. The block can
- * come from a stored sample, which is admin-typed JSON: a booking config that
- * isn't a field list means "no Book button", never a crash.
+ * The tenant's services, with booking one tap away. In a chat, Book starts
+ * the booking conversation below — the picked service's line and the next
+ * step's card append at the bottom, and this card stays put. Outside a chat
+ * (a server-rendered page), Book swaps the list for a booking thread of its
+ * own, opened with that service already answered, so the visitor never
+ * retypes what they just tapped. The block can come from a stored sample,
+ * which is admin-typed JSON: a booking config that isn't a field list means
+ * "no Book button", never a crash.
  */
 function ServicesCard({
   slug,
@@ -325,12 +398,23 @@ function ServicesCard({
   items: ServiceCard[];
   booking: ServiceBooking | null;
 }) {
+  const thread = useChatThread();
   const [all, setAll] = useState(false);
   const [picked, setPicked] = useState<ServiceCard | null>(null);
+  // Every Book tap in a chat is a session of its own: the counter remounts the starter.
+  const [started, setStarted] = useState<{ service: ServiceCard; n: number } | null>(null);
   const fields =
     booking && Array.isArray(booking.fields) && booking.fields.length > 0 ? booking.fields : null;
   const flow = booking?.flow ?? null;
   const canBook = !!(fields || flow);
+
+  function book(s: ServiceCard) {
+    if (thread && flow) {
+      setStarted((prev) => ({ service: s, n: (prev?.n ?? 0) + 1 }));
+      return;
+    }
+    setPicked(s);
+  }
 
   if (picked && canBook) {
     const flowService = flow?.services.find((s) => s.id === picked.id) ?? null;
@@ -342,14 +426,12 @@ function ServicesCard({
             Change
           </button>
         </p>
-        <BookingFlowCard
-          key={picked.id}
-          slug={slug}
-          fields={fields ?? []}
-          flow={flow}
-          preselectServiceId={flowService ? flowService.id : undefined}
-          prefill={!flowService && booking?.serviceKey ? { [booking.serviceKey]: picked.name } : undefined}
-        />
+        {!flow && booking?.serviceKey ? (
+          // The pre-flow wizard, with the tapped service already answered.
+          <LegacyWizard key={picked.id} slug={slug} fields={fields ?? []} prefill={{ [booking.serviceKey]: picked.name }} />
+        ) : (
+          <BookingThread key={picked.id} slug={slug} fields={fields ?? []} flow={flow} preselectServiceId={flowService?.id} />
+        )}
       </div>
     );
   }
@@ -357,6 +439,15 @@ function ServicesCard({
   const shown = all ? items : items.slice(0, SERVICES_SHOWN);
   return (
     <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
+      {started && thread && flow && (
+        <StartBookingInThread
+          key={started.n}
+          thread={thread}
+          flow={flow}
+          fields={toFlowFields(fields ?? [])}
+          preselectServiceId={flow.services.find((s) => s.id === started.service.id)?.id}
+        />
+      )}
       <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Services</strong>
       {canBook && (
         <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 4px" }}>
@@ -369,7 +460,7 @@ function ServicesCard({
             key={s?.id ?? i}
             service={s}
             first={i === 0}
-            onBook={canBook ? () => setPicked(s) : undefined}
+            onBook={canBook ? () => book(s) : undefined}
           />
         ))}
       </ul>

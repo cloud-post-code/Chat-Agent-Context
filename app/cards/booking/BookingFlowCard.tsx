@@ -1,35 +1,19 @@
 "use client";
 
-import { editTargetStep, emptySelection, type EditTarget } from "@/lib/booking/session";
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { resolveAnswer } from "@/lib/appointmentTypes";
-import type { BookingFlow, BookingSelection } from "@/lib/booking/types";
-import { planSteps, providerCandidates, type CardStep, type FlowField } from "@/lib/booking/flowSteps";
-import { answerLines, hasAnswer, QuestionInput, type Answer, type Answers, type BookingField } from "../BookingQuestion";
-import { createLegacyBooking, getBookingFlow, type CreateBookingResult } from "./api";
-import { Confirmed } from "./Confirmed";
-import { LocationStep } from "./LocationStep";
-import { ProviderStep } from "./ProviderStep";
-import { ReviewStep } from "./ReviewStep";
-import { ScreenStep } from "./ScreenStep";
-import { OptionsStep, ServiceStep } from "./ServiceStep";
-import { TimeStep } from "./TimeStep";
-import { card, headingStyle, inputStyle, linkBtn, liveBtn, progressStyle, textBtn } from "./ui";
+import type { FlowField } from "@/lib/booking/flowSteps";
+import { answerLines, hasAnswer, QuestionInput, type Answers, type BookingField } from "../BookingQuestion";
+import { createLegacyBooking } from "./api";
+import { card, headingStyle, inputStyle, linkBtn, liveBtn, progressStyle } from "./ui";
 
 /**
- * The visitor-facing booking card: a state machine over one `BookingSelection`
- * (see docs/features/booking-flow/DESIGN.md "The visitor's flow"), driven by
- * a `BookingFlow` handed in the block or fetched on mount when the block is an
- * old stored sample with no `flow`. The steps are the business's own
- * (`planSteps` over `flow.rules.flow` and its role-tagged, screen-grouped
- * fields), so the card walks the form the business already has — contact
- * details are ordinary fields on a screen, not a fixed step of ours. When
- * there is truly no flow to be had (fetch fails, or the tenant has none), this
- * draws the pre-flow wizard — intake questions, a datetime picker, confirm —
- * so nothing ever goes blank.
+ * What is left of the one-card booking wizard now that a booking is a
+ * conversation of cards (BookingSessionCard, BookingStepCard, BookingThread):
+ * the reading of a block's fields the planner needs, and the pre-flow wizard
+ * for a tenant with no flow at all — intake questions, a datetime picker,
+ * confirm — so nothing ever goes blank.
  */
-
-/** Where the review's Edit links go: an engine step, the contact screen, or the first question screen. */
 
 /**
  * A block's fields as the planner reads them. An old stored block (a canned
@@ -49,228 +33,12 @@ export function toFlowFields(fields: BookingField[]): FlowField[] {
   }));
 }
 
-function visitorZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-export function BookingFlowCard({
-  slug,
-  fields,
-  flow: flowProp,
-  preselectServiceId,
-  prefill,
-  preview = false,
-}: {
-  slug: string;
-  fields: BookingField[];
-  /** Absent/null on an old stored sample — the card fetches it itself. */
-  flow?: BookingFlow | null;
-  /** From the services card: the service the visitor already tapped. */
-  preselectServiceId?: string | null;
-  /** Legacy-mode prefill (no flow): an intake answer the visitor already gave elsewhere. */
-  prefill?: Record<string, string>;
-  /**
-   * The owner trying their own form (the onboarding booking-form step): every
-   * step is the real one — live availability, the real quote — but confirming
-   * books nothing, and the card can be started over.
-   */
-  preview?: boolean;
-}) {
-  const [remote, setRemote] = useState<{ flow: BookingFlow | null; fields: BookingField[] } | null>(
-    flowProp ? { flow: flowProp, fields } : null,
-  );
-
-  // A block with no flow (an old stored sample, or a server-rendered card)
-  // draws the intake-only wizard from the fields it was handed straight away
-  // — nothing waits on the network — and quietly upgrades to the full flow if
-  // the fetch brings one back. A failed fetch leaves the wizard as it is.
-  useEffect(() => {
-    if (flowProp) return;
-    let cancelled = false;
-    getBookingFlow(slug, preselectServiceId ?? undefined).then((res) => {
-      if (cancelled || !res.ok || !res.flow) return;
-      setRemote({ flow: res.flow, fields: res.fields });
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, flowProp, preselectServiceId]);
-
-  const flow = remote?.flow ?? null;
-  const blockFields = remote?.fields ?? fields;
-  const flowFields = useMemo(() => toFlowFields(blockFields), [blockFields]);
-
-  if (!flow) {
-    return <LegacyWizard slug={slug} fields={blockFields} prefill={prefill} preview={preview} />;
-  }
-
-  return (
-    <FlowWizard slug={slug} flow={flow} fields={flowFields} preselectServiceId={preselectServiceId ?? flow.preselect.serviceId} preview={preview} />
-  );
-}
-
-/** The step a review Edit link lands on, by target. */
-function editIndex(steps: CardStep[], target: EditTarget): number {
-  const step = editTargetStep(steps, target);
-  return step ? steps.indexOf(step) : -1;
-}
-
-function FlowWizard({
-  slug,
-  flow,
-  fields,
-  preselectServiceId,
-  preview,
-}: {
-  slug: string;
-  flow: BookingFlow;
-  fields: FlowField[];
-  preselectServiceId: string | null;
-  preview: boolean;
-}) {
-  const [selection, setSelection] = useState<BookingSelection>(() => emptySelection(preselectServiceId, visitorZone()));
-  const [stepIndex, setStepIndex] = useState(0);
-  const [returnToReview, setReturnToReview] = useState(false);
-  const [confirmed, setConfirmed] = useState<{ result: CreateBookingResult; waitlisted: boolean } | null>(null);
-
-  const steps = useMemo(() => planSteps(flow, fields, selection), [flow, fields, selection]);
-  const index = Math.min(stepIndex, steps.length - 1);
-  const step = steps[index];
-
-  const service = flow.services.find((s) => s.id === selection.serviceId) ?? null;
-  const variant = service?.variants.find((v) => v.id === selection.variantId) ?? null;
-  const provider = flow.staff.find((s) => s.id === selection.staffId) ?? null;
-  const location = flow.locations.find((l) => l.id === selection.locationId) ?? null;
-
-  function goNext() {
-    if (returnToReview) {
-      setReturnToReview(false);
-      const reviewIdx = steps.findIndex((s) => s.kind === "review");
-      setStepIndex(reviewIdx >= 0 ? reviewIdx : Math.min(index + 1, steps.length - 1));
-      return;
-    }
-    setStepIndex((i) => Math.min(i + 1, steps.length - 1));
-  }
-  function goBack() {
-    setStepIndex((i) => Math.max(i - 1, 0));
-  }
-  function editTarget(target: EditTarget) {
-    const idx = editIndex(steps, target);
-    if (idx >= 0) {
-      setReturnToReview(true);
-      setStepIndex(idx);
-    }
-  }
-  function pickService(id: string) {
-    setSelection((sel) => {
-      const next = flow.services.find((s) => s.id === id) ?? null;
-      // Provider may come before service in the business's flow: a provider
-      // already chosen who doesn't perform this service is let go, so the
-      // server never sees a pair it would refuse.
-      const keepStaff = !sel.staffId || providerCandidates(flow, next).some((s) => s.id === sel.staffId);
-      return { ...sel, serviceId: id, variantId: null, addonIds: [], quantity: 1, staffId: keepStaff ? sel.staffId : null };
-    });
-  }
-  function setAnswer(key: string, value: Answer) {
-    setSelection((sel) => ({ ...sel, answers: { ...sel.answers, [key]: value } }));
-  }
-  function startOver() {
-    setSelection(emptySelection(preselectServiceId, visitorZone()));
-    setStepIndex(0);
-    setReturnToReview(false);
-    setConfirmed(null);
-  }
-
-  // The owner's preview says so on every screen, and can always be restarted.
-  const previewNote = preview && (
-    <p style={{ ...progressStyle, display: "flex", justifyContent: "space-between", gap: 10 }}>
-      <span>Preview — nothing gets booked.</span>
-      {(confirmed || index > 0) && (
-        <button type="button" onClick={startOver} style={textBtn}>
-          Start over
-        </button>
-      )}
-    </p>
-  );
-
-  if (confirmed) {
-    return (
-      <div>
-        {previewNote}
-        <Confirmed
-          flow={flow}
-          result={confirmed.result}
-          waitlisted={confirmed.waitlisted}
-          service={service}
-          provider={provider}
-          location={location}
-          selection={selection}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div data-fill="bg-soft" style={{ ...card, maxWidth: 560 }}>
-      {previewNote}
-      <p style={progressStyle}>
-        Step {index + 1} of {steps.length}
-      </p>
-      {step.kind === "service" && (
-        <ServiceStep
-          flow={flow}
-          selection={selection}
-          onPick={(id) => {
-            pickService(id);
-            goNext();
-          }}
-        />
-      )}
-      {step.kind === "options" && service && (
-        <OptionsStep service={service} selection={selection} setSelection={setSelection} onNext={goNext} onBack={goBack} currency={flow.business.currency} />
-      )}
-      {step.kind === "provider" && (
-        <ProviderStep flow={flow} service={service} selection={selection} setSelection={setSelection} slug={slug} onNext={goNext} onBack={goBack} />
-      )}
-      {step.kind === "location" && (
-        <LocationStep flow={flow} service={service} selection={selection} setSelection={setSelection} onNext={goNext} onBack={goBack} />
-      )}
-      {step.kind === "time" && <TimeStep flow={flow} selection={selection} setSelection={setSelection} slug={slug} onNext={goNext} onBack={goBack} />}
-      {step.kind === "screen" && (
-        <ScreenStep key={step.screen} step={step} answers={selection.answers as Answers} setAnswer={setAnswer} slug={slug} onNext={goNext} onBack={goBack} />
-      )}
-      {step.kind === "review" && (
-        <ReviewStep
-          flow={flow}
-          service={service}
-          variant={variant}
-          provider={provider}
-          location={location}
-          selection={selection}
-          setSelection={setSelection}
-          fields={fields}
-          title={step.title}
-          slug={slug}
-          onEdit={editTarget}
-          onBack={goBack}
-          onConfirmed={(result, waitlisted) => setConfirmed({ result, waitlisted })}
-          preview={preview}
-        />
-      )}
-    </div>
-  );
-}
-
 /**
  * The pre-flow wizard: unchanged behaviour from the original booking card —
  * one intake question per screen, then a plain datetime picker, then confirm,
  * POSTing the legacy `{ slug, startsAt, answers }` body.
  */
-function LegacyWizard({
+export function LegacyWizard({
   slug,
   fields,
   prefill,

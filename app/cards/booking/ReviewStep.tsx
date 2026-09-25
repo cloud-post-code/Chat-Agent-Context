@@ -19,6 +19,7 @@ import { createBooking, quoteBooking, type CreateBookingResult } from "./api";
 import { answerLines, hasAnswer, type Answer } from "../BookingQuestion";
 import type { EditTarget } from "@/lib/booking/session";
 import { Chip, chipRow, inputStyle, linkBtn, sectionLabel, textBtn } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
 /** The client's stand-in for BookingSettings: the visitor's flow carries only
  * the public `rules`, never the tenant's promo code list, so the local
@@ -57,8 +58,10 @@ export function ReviewStep({
   title = "",
   slug,
   onEdit,
-  onBack,
   onConfirmed,
+  ready = true,
+  notReady,
+  locked = false,
   preview = false,
 }: {
   flow: BookingFlow;
@@ -73,9 +76,8 @@ export function ReviewStep({
   /** The business's own heading for this step; "" = the card's default. */
   title?: string;
   slug: string;
+  /** An Edit link: the thread scrolls to that step's card, which stays editable. */
   onEdit: (target: EditTarget) => void;
-  /** Left out when earlier steps stay editable in the thread: no Back button. */
-  onBack?: () => void;
   onConfirmed: (result: CreateBookingResult, waitlisted: boolean) => void;
   /** False while a planned step before review has no valid answer: Confirm is disabled with `notReady`. */
   ready?: boolean;
@@ -159,8 +161,10 @@ export function ReviewStep({
   const answered = fields.filter((f) => (f.role === "none" || f.role === "notes") && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
   const agreed = fields.filter((f) => f.role === "policy" && hasAnswer(f, selection.answers[f.key] as Answer | undefined));
 
+  const canConfirm = !sending && ready;
+
   async function submit(waitlist: boolean) {
-    if (sending) return;
+    if (!canConfirm) return;
     if (preview) {
       const start = new Date(selection.startsAt || Date.now());
       onConfirmed(
@@ -193,7 +197,7 @@ export function ReviewStep({
   }
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       <div style={{ marginBottom: 14 }}>
         <p style={{ fontSize: 12, opacity: 0.75, margin: 0 }}>{title || "Your appointment"}</p>
         <strong style={{ fontSize: 17, fontFamily: "var(--font-heading)", display: "block" }}>{service?.name ?? "Appointment"}</strong>
@@ -328,44 +332,44 @@ export function ReviewStep({
       )}
 
       {error && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginTop: 10 }}>{error}</p>}
+      {!ready && notReady && <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginTop: 10 }}>{notReady}</p>}
 
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-      </div>
-      <button
-        type="button"
-        onClick={() => submit(false)}
-        disabled={sending}
-        style={{
-          width: "100%",
-          padding: 12,
-          fontSize: 15,
-          fontWeight: 600,
-          marginTop: 10,
-          background: "var(--primary)",
-          color: "var(--on-primary)",
-          border: "none",
-          borderRadius: "var(--radius-sm)",
-          cursor: "pointer",
-          opacity: sending ? 0.55 : 1,
-        }}
-      >
-        {sending ? "Sending…" : flow.rules.confirmation === "request" ? "Request booking" : "Confirm booking"}
-      </button>
-      {flow.rules.confirmation === "request" && (
-        <p style={{ fontSize: 12, fontStyle: "italic", margin: "8px 0 0" }}>
-          {flow.business.name || "The business"} confirms requests
-          {flow.business.phone ? ` — or call ${flow.business.phone} to book now` : ""}.
-        </p>
+      {!locked && (
+        <>
+          <button
+            type="button"
+            onClick={() => submit(false)}
+            disabled={!canConfirm}
+            style={{
+              width: "100%",
+              padding: 12,
+              fontSize: 15,
+              fontWeight: 600,
+              marginTop: 14,
+              background: "var(--primary)",
+              color: "var(--on-primary)",
+              border: "none",
+              borderRadius: "var(--radius-sm)",
+              cursor: canConfirm ? "pointer" : "default",
+              opacity: canConfirm ? 1 : 0.55,
+            }}
+          >
+            {sending ? "Sending…" : flow.rules.confirmation === "request" ? "Request booking" : "Confirm booking"}
+          </button>
+          {flow.rules.confirmation === "request" && (
+            <p style={{ fontSize: 12, fontStyle: "italic", margin: "8px 0 0" }}>
+              {flow.business.name || "The business"} confirms requests
+              {flow.business.phone ? ` — or call ${flow.business.phone} to book now` : ""}.
+            </p>
+          )}
+          {full && flow.rules.waitlist && (
+            <button type="button" onClick={() => submit(true)} disabled={!canConfirm} style={{ ...linkBtn, width: "100%", marginTop: 8, textAlign: "center" }}>
+              Join waitlist instead
+            </button>
+          )}
+        </>
       )}
-      {full && flow.rules.waitlist && (
-        <button type="button" onClick={() => submit(true)} disabled={sending} style={{ ...linkBtn, width: "100%", marginTop: 8, textAlign: "center" }}>
-          Join waitlist instead
-        </button>
-      )}
-    </div>
+    </fieldset>
   );
 }
 

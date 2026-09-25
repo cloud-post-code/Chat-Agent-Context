@@ -5,6 +5,7 @@ import { resolveAnswer } from "@/lib/appointmentTypes";
 import type { CardStep, FlowField } from "@/lib/booking/flowSteps";
 import { QuestionInput, hasAnswer, type Answer, type Answers } from "../BookingQuestion";
 import { headingStyle, inputStyle, linkBtn, liveBtn } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
 export type ScreenCardStep = Extract<CardStep, { kind: "screen" }>;
 
@@ -28,6 +29,8 @@ export function ScreenStep({
   slug,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
 }: {
   step: ScreenCardStep;
   answers: Answers;
@@ -60,7 +63,7 @@ export function ScreenStep({
   }
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {step.title && <strong style={{ ...headingStyle, display: "block", marginBottom: 10 }}>{step.title}</strong>}
       {rows.map(({ field, value, error }, i) => (
         <ScreenField
@@ -71,18 +74,22 @@ export function ScreenStep({
           onEnter={next}
           error={touched ? error : null}
           slug={slug}
-          autoFocus={i === 0}
+          autoFocus={i === 0 && !locked}
         />
       ))}
-      <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={next} aria-disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
-          {skip ? "Skip" : "Next"}
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={next} aria-disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
+            {skip ? "Skip" : (nextLabel ?? "Next")}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

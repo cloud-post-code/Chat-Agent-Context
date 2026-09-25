@@ -6,6 +6,7 @@ import { formatMoney } from "@/lib/booking/types";
 import { formatInZone } from "@/lib/booking/time";
 import { getAvailabilityMonth } from "./api";
 import { Badge, Chip, chipRow, linkBtn, liveBtn, PlaceholderImage, textBtn, Tile } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
 import { providerCandidates } from "@/lib/booking/flowSteps";
 export { providerCandidates };
@@ -18,6 +19,8 @@ export function ProviderStep({
   slug,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
@@ -73,7 +76,7 @@ export function ProviderStep({
   const canNext = flow.rules.staffSelection !== "required" || !!selection.staffId;
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {flow.rules.genderPreference && genders.length > 0 && (
         <div style={chipRow}>
           <Chip selected={!genderFilter} onClick={() => setGenderFilter("")}>
@@ -116,15 +119,19 @@ export function ProviderStep({
           />
         ))}
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
-          Next
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
+            {nextLabel ?? "Next"}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }
 

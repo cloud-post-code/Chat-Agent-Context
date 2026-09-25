@@ -5,6 +5,7 @@ import type { BookingFlow, BookingSelection, LocationRow, ServiceRow } from "@/l
 import { formatMoney } from "@/lib/booking/types";
 import { zonedParts } from "@/lib/booking/time";
 import { inputStyle, linkBtn, liveBtn, sectionLabel, Tile } from "./ui";
+import { stepFrame } from "./ServiceStep";
 
 import { offeringLocations } from "@/lib/booking/flowSteps";
 export { offeringLocations, locationChoiceReal } from "@/lib/booking/flowSteps";
@@ -24,6 +25,8 @@ export function LocationStep({
   setSelection,
   onNext,
   onBack,
+  nextLabel,
+  locked = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
@@ -65,7 +68,7 @@ export function LocationStep({
   const canNext = selection.mode === "online" || selection.mode === "mobile" || !!selection.locationId || businesses.length === 0;
 
   return (
-    <div>
+    <fieldset disabled={locked} style={stepFrame}>
       {businesses.length > 0 && (
         <div role="radiogroup" aria-label="Locations" style={{ marginBottom: 12 }}>
           {businesses.map((loc) => (
@@ -111,14 +114,18 @@ export function LocationStep({
           </button>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button type="button" onClick={onBack} style={linkBtn}>
-          Back
-        </button>
-        <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
-          Next
-        </button>
-      </div>
-    </div>
+      {!locked && (
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          {onBack && (
+            <button type="button" onClick={onBack} style={linkBtn}>
+              Back
+            </button>
+          )}
+          <button type="button" onClick={onNext} disabled={!canNext} style={{ ...linkBtn, ...liveBtn, opacity: canNext ? 1 : 0.55 }}>
+            {nextLabel ?? "Next"}
+          </button>
+        </div>
+      )}
+    </fieldset>
   );
 }
