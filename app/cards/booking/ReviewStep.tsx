@@ -17,7 +17,7 @@ import { priceBreakdown } from "@/lib/booking/pricing";
 import { formatInZone } from "@/lib/booking/time";
 import { createBooking, quoteBooking, type CreateBookingResult } from "./api";
 import { answerLines, hasAnswer, type Answer } from "../BookingQuestion";
-import type { EditTarget } from "./BookingFlowCard";
+import type { EditTarget } from "@/lib/booking/session";
 import { Chip, chipRow, inputStyle, linkBtn, sectionLabel, textBtn } from "./ui";
 
 /** The client's stand-in for BookingSettings: the visitor's flow carries only
@@ -74,8 +74,14 @@ export function ReviewStep({
   title?: string;
   slug: string;
   onEdit: (target: EditTarget) => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
   onConfirmed: (result: CreateBookingResult, waitlisted: boolean) => void;
+  /** False while a planned step before review has no valid answer: Confirm is disabled with `notReady`. */
+  ready?: boolean;
+  notReady?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
   /** The owner trying their own form: confirm draws the confirmation without booking anything. */
   preview?: boolean;
 }) {

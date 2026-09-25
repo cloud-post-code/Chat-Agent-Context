@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { CardStep } from "@/lib/booking/flowSteps";
 import type { BookingFlow } from "@/lib/booking/types";
 import { BookingFlowCard } from "./booking/BookingFlowCard";
 import type { BookingField } from "./BookingQuestion";
@@ -59,7 +60,14 @@ export type UiBlock =
   | { type: "services"; items: ServiceCard[]; booking: ServiceBooking | null }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
-  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null }
+  // The server's booking block is the START of a booking conversation: the
+  // chat gives it a sessionId the moment it arrives (or on load, for older
+  // chats), then lays the steps out below it one card at a time.
+  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null; sessionId?: string; preselectServiceId?: string | null }
+  // Client-side kinds the server never emits: one step of a booking session,
+  // and the confirmation once it is booked.
+  | { type: "booking_step"; sessionId: string; step: { kind: CardStep["kind"]; screen?: number } }
+  | { type: "booking_confirmed"; sessionId: string }
   | ({ type: "menu" } & MenuBlockView)
   | { type: "cart"; checkout: CartCheckout };
 

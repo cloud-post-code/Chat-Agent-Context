@@ -1,9 +1,10 @@
 "use client";
 
+import { editTargetStep, emptySelection, type EditTarget } from "@/lib/booking/session";
 import { useEffect, useMemo, useState } from "react";
 import { resolveAnswer } from "@/lib/appointmentTypes";
 import type { BookingFlow, BookingSelection } from "@/lib/booking/types";
-import { contactFields, planSteps, providerCandidates, type CardStep, type FlowField } from "@/lib/booking/flowSteps";
+import { planSteps, providerCandidates, type CardStep, type FlowField } from "@/lib/booking/flowSteps";
 import { answerLines, hasAnswer, QuestionInput, type Answer, type Answers, type BookingField } from "../BookingQuestion";
 import { createLegacyBooking, getBookingFlow, type CreateBookingResult } from "./api";
 import { Confirmed } from "./Confirmed";
@@ -29,7 +30,6 @@ import { card, headingStyle, inputStyle, linkBtn, liveBtn, progressStyle, textBt
  */
 
 /** Where the review's Edit links go: an engine step, the contact screen, or the first question screen. */
-export type EditTarget = "service" | "options" | "provider" | "location" | "time" | "details" | "intake";
 
 /**
  * A block's fields as the planner reads them. An old stored block (a canned
@@ -55,32 +55,6 @@ function visitorZone(): string {
   } catch {
     return "UTC";
   }
-}
-
-function emptySelection(preselectServiceId: string | null): BookingSelection {
-  return {
-    serviceId: preselectServiceId,
-    variantId: null,
-    addonIds: [],
-    quantity: 1,
-    staffId: null,
-    locationId: null,
-    mode: "in_person",
-    customerAddress: "",
-    postalCode: "",
-    startsAt: "",
-    timezone: visitorZone(),
-    recurrence: null,
-    waitlist: false,
-    // The customer is read from the role-tagged answers server-side; nothing
-    // is collected outside `answers` any more.
-    customer: {},
-    answers: {},
-    promoCode: "",
-    tipPercent: null,
-    tipAmount: null,
-    membershipId: null,
-  };
 }
 
 export function BookingFlowCard({
@@ -141,11 +115,8 @@ export function BookingFlowCard({
 
 /** The step a review Edit link lands on, by target. */
 function editIndex(steps: CardStep[], target: EditTarget): number {
-  if (target === "details") {
-    return steps.findIndex((s) => s.kind === "screen" && contactFields(s.fields).length > 0);
-  }
-  if (target === "intake") return steps.findIndex((s) => s.kind === "screen");
-  return steps.findIndex((s) => s.kind === target);
+  const step = editTargetStep(steps, target);
+  return step ? steps.indexOf(step) : -1;
 }
 
 function FlowWizard({
@@ -161,7 +132,7 @@ function FlowWizard({
   preselectServiceId: string | null;
   preview: boolean;
 }) {
-  const [selection, setSelection] = useState<BookingSelection>(() => emptySelection(preselectServiceId));
+  const [selection, setSelection] = useState<BookingSelection>(() => emptySelection(preselectServiceId, visitorZone()));
   const [stepIndex, setStepIndex] = useState(0);
   const [returnToReview, setReturnToReview] = useState(false);
   const [confirmed, setConfirmed] = useState<{ result: CreateBookingResult; waitlisted: boolean } | null>(null);
@@ -208,7 +179,7 @@ function FlowWizard({
     setSelection((sel) => ({ ...sel, answers: { ...sel.answers, [key]: value } }));
   }
   function startOver() {
-    setSelection(emptySelection(preselectServiceId));
+    setSelection(emptySelection(preselectServiceId, visitorZone()));
     setStepIndex(0);
     setReturnToReview(false);
     setConfirmed(null);

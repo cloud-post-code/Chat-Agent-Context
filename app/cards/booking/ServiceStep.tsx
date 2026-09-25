@@ -148,7 +148,12 @@ function ServiceDetail({
 }: {
   service: ServiceRow;
   flow: BookingFlow;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
   onChoose: () => void;
 }) {
   const providers = flow.staff.filter((p) => p.enabled && (service.staffIds.length === 0 || service.staffIds.includes(p.id)));
@@ -253,7 +258,12 @@ export function OptionsStep({
   selection: BookingSelection;
   setSelection: (s: BookingSelection) => void;
   onNext: () => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
   currency: string;
 }) {
   const variant = service.variants.find((v) => v.id === selection.variantId) ?? null;

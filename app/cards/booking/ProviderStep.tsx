@@ -25,7 +25,12 @@ export function ProviderStep({
   setSelection: (s: BookingSelection) => void;
   slug: string;
   onNext: () => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
 }) {
   const all = useMemo(() => providerCandidates(flow, service), [flow, service]);
   const genders = useMemo(() => [...new Set(all.map((p) => p.genderLabel).filter(Boolean))], [all]);

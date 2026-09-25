@@ -59,7 +59,12 @@ export function TimeStep({
   setSelection: (s: BookingSelection) => void;
   slug: string;
   onNext: () => void;
-  onBack: () => void;
+  /** Left out when earlier steps stay editable in the thread: no Back button. */
+  onBack?: () => void;
+  /** "Next" by default; a step already answered reads "Update". */
+  nextLabel?: string;
+  /** The booking is done (or abandoned): controls disabled, no button. */
+  locked?: boolean;
 }) {
   const businessTz = flow.business.timezone;
   const [zone, setZone] = useState(() => selection.timezone || visitorZone());
