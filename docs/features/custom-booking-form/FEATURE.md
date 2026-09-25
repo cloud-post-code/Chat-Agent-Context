@@ -46,6 +46,14 @@ null), `snapshotStatic` reads the one screen cheerio already loaded — the
 same label resolution over the parsed HTML, plus a booking-or-form-widget
 `<iframe>` named as one more thing found there.
 
+Two things a real visitor's browser has that a cold automated one doesn't,
+and that a widget can key off to refuse rendering: `readBookingForm` sends
+the `referer` of the page the link was actually found on (normally the site's
+own homepage — `services.ts` passes it through), and `guardedContext`
+(`crawl.ts`) masks `navigator.webdriver`, the one flag Chromium sets only for
+an automated launch. Neither changes what the reader can do — the same
+never-click-Book rule and the same public-hosts-only network guard apply.
+
 A client-rendered booking app can finish its network activity before it
 finishes painting: the first screen only gets one bounded extra wait
 (`FIRST_SCREEN_GRACE_MS`, 6s, inside the existing time budget) for anything a

@@ -185,6 +185,12 @@ async function requestAllowed(url: string): Promise<boolean> {
  */
 export async function guardedContext(browser: Browser): Promise<{ context: BrowserContext; page: BrowserPage }> {
   const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
+  // The one flag Chromium sets only for automated launches: a real visitor's
+  // browser never carries it, and some third-party widgets refuse to render
+  // for a page that does. Nothing else about the page is misrepresented.
+  await context.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, "webdriver", { get: () => undefined });
+  });
   await context.route("**/*", async (route) => {
     let ok = false;
     try {

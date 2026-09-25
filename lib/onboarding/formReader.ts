@@ -774,11 +774,16 @@ const withTimeout = <T>(work: Promise<T>, ms: number, onTimeout: () => void): Pr
  * context refuses to load anything off the public internet (crawl.ts
  * guardedContext), and on top of that a screen is only ever taken from a frame
  * whose url the reader may read, and only such screens are returned.
+ *
+ * `referer` is the page a real visitor would have clicked through from (the
+ * business's own homepage) — some booking widgets refuse to render for a
+ * cold, referrer-less navigation the way ours otherwise is.
  */
 export async function readBookingForm(
   crawler: Crawler,
   url: string,
   onEvent?: (m: string) => void,
+  referer?: string,
 ): Promise<FormSnapshot | null> {
   const safeHere = (u: string) => pageReadable(u, url);
   const screenOk = (s: Screen) => safeHere(s.url) || frameReadable(s.url, url);
@@ -799,7 +804,7 @@ export async function readBookingForm(
         const halted = () => aborted;
         const finish = (): FormSnapshot => ({ url, screens: screens.filter(screenOk), how: "playwright", truncated });
 
-        const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000 });
+        const res = await page.goto(url, { waitUntil: "domcontentloaded", timeout: 15_000, ...(referer ? { referer } : {}) });
         if (res && !res.ok()) {
           onEvent?.(`Booking page answered ${res.status()}`);
           return null;

@@ -388,9 +388,14 @@ async function runFormRead(
     onEvent("Booking form: no booking link or widget on the site");
     return null;
   }
+  // A real visitor reaches this page by clicking through from the site, so it
+  // carries a referrer; a cold direct navigation with none is a signal some
+  // booking widgets use to refuse rendering. pages[0] is the homepage.
+  const referer = pages[0]?.url;
   const readForm =
     deps.readForm ??
-    ((u: string) => (deps.crawler ? readBookingForm(deps.crawler, u, onEvent) : Promise.resolve<FormSnapshot | null>(null)));
+    ((u: string) =>
+      deps.crawler ? readBookingForm(deps.crawler, u, onEvent, referer) : Promise.resolve<FormSnapshot | null>(null));
   let snapshot = await readForm(url);
   if (!snapshot) {
     const loaded = pages.find((p) => p.url === url);
