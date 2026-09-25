@@ -269,7 +269,7 @@ async function main() {
     // ── 6. Theme → the booking form (second to last) ──
     await waitFor("theme form", () => !!button("Done — use this theme"));
     await click("Done — use this theme");
-    await waitFor("booking form review", () => text().includes("I built your booking form from your site — 3 services and 2 questions"));
+    await waitFor("booking form review", () => text().includes("I copied your booking form from your site — 2 questions, in the same order"));
     check("booking-running bubble appended", text().includes("Saved. Now your booking form"));
     check("theme review still on the page", text().includes("Here's the look and brand voice"));
     check("saved theme collapsed into a user message naming the choices",
@@ -306,7 +306,7 @@ async function main() {
     // ── 6b. Booking form → knowledge selection (the last step) ──
     await click("Done — the form is right");
     await waitFor("knowledge selection", () => text().includes("Last step: which of these"));
-    check("booking review still on the page", text().includes("I built your booking form from your site"));
+    check("booking review still on the page", text().includes("I copied your booking form from your site"));
     check("the booking form collapsed into a user message with its step count and changes",
       bubbles("user").some((b) => /Booking form: 5 steps, 1 change made\./.test(b)), bubbles("user").join(" | "));
     check("services are not offered again on the knowledge pick", !text().includes("Services & how you take bookings"));
@@ -331,7 +331,7 @@ async function main() {
       "Saved. I'll now extract your theme",
       "Here's the look and brand voice",
       "Saved. Now your booking form",
-      "I built your booking form from your site",
+      "I copied your booking form from your site",
       "Last step: which of these",
       "All done — I saved",
     ]);
