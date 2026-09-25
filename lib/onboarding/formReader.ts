@@ -522,6 +522,27 @@ const HAS_CONTENT_BODY = String.raw`
   return controls().length > 0 || tileLists().length > 0 || calendarCells().length > 0 || headingEls().length > 0;
 `;
 
+/**
+ * Last resort, tried only once every other plan has found nothing: the first
+ * enabled, visible button whose text doesn't read like a commitment (the
+ * same `NEVER` list `PLAN_NEXT` refuses) and that the browser wouldn't
+ * submit a form for. Some widgets show their menu as an accordion of plain
+ * category buttons — no shared parent for `tileLists()` to group, no
+ * "next"/"continue" wording for `PLAN_NEXT` to match, nothing to fill or
+ * pick — so a customer's only way forward is to click the category itself.
+ * Since this runs after every other plan came up empty, it can never
+ * preempt a real tile, choice, day, slot or Next button.
+ */
+const PLAN_EXPAND_BODY = String.raw`
+  for (const b of buttonEls()) {
+    if (!isVisible(b) || isDisabled(b) || submits(b)) continue;
+    const t = buttonText(b);
+    if (!t || NEVER.test(t)) continue;
+    return { el: b, state: t };
+  }
+  return { el: null, state: "" };
+`;
+
 const COUNT_INPUTS = String.raw`(() => {
   let n = 0;
   for (const el of document.querySelectorAll("input:not([type=hidden]), select, textarea")) {
@@ -549,6 +570,7 @@ const FILL_CHOICES = script(FILL_CHOICES_BODY);
 const PLAN_DAY = script(PLAN_DAY_BODY);
 const PLAN_SLOT = script(PLAN_SLOT_BODY);
 const PLAN_NEXT = script(PLAN_NEXT_BODY);
+const PLAN_EXPAND = script(PLAN_EXPAND_BODY);
 
 // ── Driving ────────────────────────────────────────────────────────────────
 
@@ -689,6 +711,19 @@ export async function advanceFrame(frame: Frame, halted: () => boolean = () => f
   if (next.state && (await act(next))) {
     actions.push(`next:${next.state}`);
     await settle(frame, 4000, before);
+    return actions;
+  }
+  // Nothing to fill, pick or advance with: some widgets show their menu as
+  // an accordion of plain category buttons with no shared parent and no
+  // "next"-like wording, so the only way forward is the button itself.
+  if (!actions.length) {
+    if (halted()) return actions;
+    before = await mark(frame);
+    const expand = await plan(frame, PLAN_EXPAND);
+    if (expand.state && (await act(expand))) {
+      actions.push(`expand:${expand.state}`);
+      await settle(frame, 2500, before);
+    }
   }
   return actions;
 }

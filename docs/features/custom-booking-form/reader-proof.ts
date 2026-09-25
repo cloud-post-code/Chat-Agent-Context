@@ -59,6 +59,7 @@ const same = (a: unknown, b: unknown): boolean => {
 
 const html = readFileSync(path.join(__dirname, "reader.html"), "utf8");
 const trapsHtml = readFileSync(path.join(__dirname, "reader-traps.html"), "utf8");
+const accordionHtml = readFileSync(path.join(__dirname, "reader-accordion.html"), "utf8");
 const field = (s: Screen | undefined, label: string) => s?.elements.find((e) => e.tag !== "button" && e.label === label);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -290,6 +291,31 @@ async function main() {
       await page.setContent(`<dialog open id="d"><p>No staff available</p><button type="button" id="ok">OK</button></dialog><script>window.__ok=false;document.getElementById("ok").onclick=()=>{window.__ok=true;document.getElementById("d").close()}</script>`);
       const dialogActions = await advanceFrame(page.mainFrame());
       check("OK inside a dialog is clicked to dismiss it", (await page.evaluate("window.__ok")) === true && same(dialogActions, ["next:OK"]), dialogActions.join(", "));
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // ── F2. Accordion widget (GoCheckIn shape: no shared-parent tile list) ──
+  console.log("F2. advanceFrame over reader-accordion.html — expands an unmarked accordion category");
+  {
+    const browser = await launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent(accordionHtml);
+      const frame = page.mainFrame();
+      const before = await snapshotFrame(frame);
+      check("the collapsed screen has no tile list yet", before.elements.every((e) => e.tag !== "tile_list"), JSON.stringify(before.elements.map((e) => e.tag)));
+      const actions = await advanceFrame(frame);
+      console.log(`    accordion → ${actions.join(", ") || "(nothing to do)"}`);
+      check("advanceFrame did something instead of stalling", actions.length > 0, actions.join(", "));
+      const clicks = (await page.evaluate("window.__clicks")) as string[];
+      check("a category header was clicked, not the Book button", clicks.includes("cat-manicure") && !clicks.includes("BOOK"), clicks.join(", "));
+      const after = await snapshotFrame(frame);
+      const tiles = after.elements.find((e) => e.tag === "tile_list");
+      check("the Manicure category is now expanded into a tile list", tiles?.options?.includes("Gel Manicure $35.00") === true, JSON.stringify(after.elements));
+      const booked = (await page.evaluate("window.__booked")) as boolean;
+      check("Book appointment was never clicked", booked === false);
     } finally {
       await browser.close();
     }
