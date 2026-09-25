@@ -744,7 +744,7 @@ export async function buildAdminPanels(
 
   // Rows for Appointments/Home come from the richer booking store
   // (service/staff/location/customer/pricing/status) rather than the old
-  // intake-only listAppointments.
+  // the booking store (listBookings).
   const appointmentRows = bookings.map((a) => ({
     id: a.id,
     startsAt: a.startsAt,
