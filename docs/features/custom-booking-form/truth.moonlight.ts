@@ -3,10 +3,12 @@
  * 2026-09-21 (https://booking.gocheckin.net/v2/20986, linked as "Booking"
  * from https://moonlightnailsspabrighton.com). Nothing was submitted.
  *
- * Flow: Service (by category, priced, "Add more service") → Select Staff
- * ("Any available staff" or a name) → Select Date/Time (15-minute slots) →
- * "How do we say hello?": Full Name (*), Phone Number (*), Email,
- * Appointment Notes → agree to the cancellation policy → Book appointment.
+ * Flow: Service (categories as an accordion; priced rows; "Add more service")
+ * → Select Staff (a sheet: "Any available staff" or a name, each with its own
+ * "Book" button) → a "Your appointment" confirm page (Back / Next) → Select
+ * Date/ Time (a month grid, 15-minute slots, "Continue booking") → confirm
+ * again → "How do we say hello?": Full Name (*), Phone Number (*), Email,
+ * Appointment Notes, the cancellation-policy agreement → Book appointment.
  *
  * This is the yardstick the live cross-check (crosscheck.ts) scores a copied
  * form against; fixture.moonlight.ts is the same flow in miniature, as the
@@ -42,7 +44,16 @@ export const MOONLIGHT = {
     { label: "Phone Number", type: "phone", required: true, role: "phone" },
     { label: "Email", type: "email", required: false, role: "email" },
     { label: "Appointment Notes", type: "long_text", required: false, role: "notes" },
-    { label: "I agree to the cancellation policy", type: "waiver", required: true, role: "policy" },
+    // The widget's own words, as read on 2026-09-25 (the 09-21 walk abbreviated
+    // them). The box is drawn by the widget — no <input>, no required mark —
+    // and comes up already agreed, so the page shows it as optional.
+    {
+      label:
+        "I have read and agree to the cancellation policy of MoonLight Nails & Spa & also agree to Fastboy Marketing’s terms and conditions/privacy policy.",
+      type: "waiver",
+      required: false,
+      role: "policy",
+    },
   ],
   /** The provider screen offers "Any available staff" first. */
   anyStaffOffered: true,
