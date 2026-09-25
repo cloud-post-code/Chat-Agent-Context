@@ -1,6 +1,6 @@
 /**
  * Primary proof for create-ingestion-source (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/create-ingestion-source/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/create-ingestion-source/proof.ts
  *
  * Local dev Postgres; zero model calls (fakes injected, embedding keys unset

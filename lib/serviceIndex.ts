@@ -41,11 +41,14 @@ function clampLimit(limit: number | undefined): number {
   return Math.max(1, Math.min(MAX_LIMIT, Math.round(limit)));
 }
 
-/** words(name) ∪ words(first 200 chars of description) ∪ tags. */
+/** words(name) ∪ words(first 200 chars of description) ∪ tags. Tags are run
+ *  through meaningfulWords too (not just lowercased) so a query term like
+ *  "nails" — stemmed to "nail" — still overlaps a service whose only "nails"
+ *  signal is a plain tag, not just prose in the name/description. */
 export function serviceTerms(s: ServiceMeta): string[] {
   const nameWords = meaningfulWords(s.name);
   const descWords = meaningfulWords(s.description.slice(0, 200));
-  const tagWords = (s.tags ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean);
+  const tagWords = (s.tags ?? []).flatMap((t) => meaningfulWords(t));
   const seen = new Set<string>();
   const out: string[] = [];
   for (const w of [...nameWords, ...descWords, ...tagWords]) {
@@ -58,7 +61,7 @@ export function serviceTerms(s: ServiceMeta): string[] {
 }
 
 export function isEmptyServiceFilter(f: ServiceFilter): boolean {
-  return !f.ids?.length && !f.category && !f.query;
+  return !f.ids?.length && !(f.category ?? "").trim() && !(f.query ?? "").trim();
 }
 
 function byIds<T extends { id: string }>(items: T[], ids: string[]): T[] {
@@ -120,12 +123,7 @@ function withinPriceBand(a: number, b: number): boolean {
   return (hi - lo) / lo <= 0.4;
 }
 
-function similarityScore(
-  candidate: ServiceMeta,
-  focusList: ServiceMeta[],
-  idf: Map<string, number>,
-  termsOf: Map<string, string[]>,
-): number {
+function similarityScore(candidate: ServiceMeta, focusList: ServiceMeta[], idf: Map<string, number>): number {
   let best = 0;
   const candNameTerms = new Set(meaningfulWords(candidate.name));
   const candDescTerms = new Set(meaningfulWords(candidate.description.slice(0, 200)));
@@ -143,7 +141,6 @@ function similarityScore(
     if (candPrice !== null && focusPrice !== null && withinPriceBand(candPrice, focusPrice)) score += 0.5;
     if (score > best) best = score;
   }
-  void termsOf;
   return best;
 }
 
@@ -162,12 +159,11 @@ export function similarServices<T extends ServiceMeta>(
 
   const docs = items.map((it) => serviceTerms(it));
   const idf = idfWeights(docs);
-  const termsOf = new Map<string, string[]>(items.map((it, i) => [it.id, docs[i]]));
 
   const scored = candidates.map((it, i) => ({
     it,
     i,
-    score: similarityScore(it, focus, idf, termsOf),
+    score: similarityScore(it, focus, idf),
   }));
   const anyPositive = scored.some((s) => s.score > 0);
   scored.sort((a, b) => b.score - a.score || a.i - b.i);
@@ -202,8 +198,8 @@ export function serviceIndexLines(items: ServiceMeta[], cap = 3000): string {
   return out;
 }
 
-function isEmptyProjectFilter(f: ProjectFilter): boolean {
-  return !f.ids?.length && !f.tags?.length && !f.query;
+export function isEmptyProjectFilter(f: ProjectFilter): boolean {
+  return !f.ids?.length && !f.tags?.length && !(f.query ?? "").trim();
 }
 
 /** Same semantics as filterPhotos: empty filter => all, no limit; ids kept in
@@ -216,15 +212,24 @@ export function filterProjects<T extends ProjectMeta>(items: T[], f: ProjectFilt
   let pool = items;
   if (f.ids?.length) pool = byIds(items, f.ids);
   if (f.tags?.length) {
-    const wanted = f.tags.map((t) => t.toLowerCase().trim()).filter(Boolean);
+    // Stem the filter's tags and the item's own tags the same way (via
+    // meaningfulWords) so a filter tag like "nails" matches an item whose
+    // stored tag is the same word, consistent with the query path below.
+    const wanted = f.tags.flatMap((t) => meaningfulWords(t));
     pool = pool.filter((it) => {
-      const ownTags = new Set(it.tags.map((t) => t.toLowerCase().trim()));
+      const ownTags = new Set(it.tags.flatMap((t) => meaningfulWords(t)));
       const textWords = new Set(meaningfulWords(`${it.name} ${it.blurb}`));
       return wanted.every((tag) => ownTags.has(tag) || textWords.has(tag));
     });
   }
   if (f.query) {
-    const docs = pool.map((it) => [...it.tags.map((t) => t.toLowerCase().trim()), ...meaningfulWords(`${it.name} ${it.blurb}`)]);
+    // Stem tags via meaningfulWords, same as the `tags` filter's own
+    // comparison above, so query terms and tag terms agree on what "nails"
+    // means.
+    const docs = pool.map((it) => [
+      ...it.tags.flatMap((t) => meaningfulWords(t)),
+      ...meaningfulWords(`${it.name} ${it.blurb}`),
+    ]);
     const idf = idfWeights(docs);
     const queryTerms = meaningfulWords(f.query);
     const scored = pool

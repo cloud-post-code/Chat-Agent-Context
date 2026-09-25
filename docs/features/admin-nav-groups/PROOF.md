@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/admin-nav-groups/tsconfig.json docs/features/admin-nav-groups/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/admin-nav-groups/proof.ts
 ```
 
 Offline: pure nav config + resolver + Home item computation, server-rendered

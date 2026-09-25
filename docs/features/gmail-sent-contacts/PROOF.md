@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/gmail-sent-contacts/tsconfig.json docs/features/gmail-sent-contacts/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/gmail-sent-contacts/proof.ts
 ```
 
 Local dev Postgres via `.env`. **Zero model calls and zero network calls**: a

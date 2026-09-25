@@ -12,7 +12,7 @@ Type: integration (renders the real component; no browser, no database)
 
 Command:
 ```bash
-npx tsx --tsconfig docs/features/persona-prompt-handoff/tsconfig.proof.json docs/features/persona-prompt-handoff/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/persona-prompt-handoff/proof.ts
 ```
 
 The `--tsconfig` flag is required, not incidental: the app's `tsconfig.json`

@@ -2,7 +2,7 @@
  * Proof: booking as a conversation of cards — the visitor chat lays a booking
  * out one card at a time, down the thread, and every finished card stays.
  *
- *   npx tsx --tsconfig docs/features/booking-in-chat/tsconfig.proof.json docs/features/booking-in-chat/proof/chat-thread.ts
+ *   npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-in-chat/proof/chat-thread.ts
  *
  * Mounts the REAL visitor Chat (app/Chat.tsx) in a jsdom document and books
  * the way a visitor would: asks to book, taps a service, a provider, a day

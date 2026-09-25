@@ -8,7 +8,7 @@ Exit 0 and `All checks passed.` Fully client-side: no database, no model
 call, no browser process. Section A imports the pure rules; section B runs
 `proof/chat-thread.ts` as a child process —
 ```
-npx tsx --tsconfig docs/features/booking-in-chat/tsconfig.proof.json docs/features/booking-in-chat/proof/chat-thread.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-in-chat/proof/chat-thread.ts
 ```
 (the `--tsconfig` override sets `jsx: react-jsx` for this run only) — which
 mounts the REAL visitor `Chat` (`app/Chat.tsx`) in a jsdom document and books
@@ -105,7 +105,7 @@ Secondary guards:
 - `npx tsx docs/features/guided-onboarding/proof/chat-transcript.ts` — the
   onboarding preview now opens on "Which service would you like?" (no
   "Step 1 of") and still says "Preview — nothing gets booked."
-- `npx tsx --tsconfig docs/features/booking-flow/tsconfig.proof.json docs/features/booking-flow/proof.ts`
+- `npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-flow/proof.ts`
   still green (engines, store, static card render).
 - `npx tsc --noEmit` and `npm run lint` clean.
 

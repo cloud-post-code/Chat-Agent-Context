@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/custom-upload-methods/tsconfig.json docs/features/custom-upload-methods/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/custom-upload-methods/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls (injected extractors,

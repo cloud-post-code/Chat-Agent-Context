@@ -1,56 +1,40 @@
 {
   "features": [
     {
-      "id": "theme-visual-picker",
-      "title": "Visual theme picker: color swatches + pickers, in-font font menus, corner preview boxes",
-      "status": "done",
-      "notes": "Colors as swatch boxes open by default with color picker + hex entry (Colors above Corners); font menus render each option in its own white-text font (expanded curated Google Fonts library); corners as 3 preview boxes in different colors. app/admin/ThemePicker.tsx. Live."
-    },
-    {
-      "id": "profile-experience-list",
-      "title": "Experience list on Profile tab (add-one-at-a-time, animated boxes)",
-      "status": "done",
-      "notes": "ExperienceEditor: role/company/dates/description entries added one at a time, each box animates in like a chat message. Stored on Profile.experience (JSON) and fed into the chatbot system prompt. Live."
-    },
-    {
       "id": "retrieval-engine-v1",
       "title": "Retrieval engine v1: chunk/entity/edge tables, hybrid retrieval + one-hop graph expansion, persona-core prompt",
-      "status": "done",
-      "notes": "Sources are chunked+embedded+entity-extracted inline at ingest (lib/retrieval/*); chat builds persona-core prompt + retrieved context for the visitor's question (buildSystemPrompt(query)). Embeddings: VOYAGE_API_KEY/OPENAI_API_KEY if set, else local hashed n-grams; hybrid BM25+cosine with EntityEdge one-hop expansion. Backfill: npx tsx scripts/reindex.ts. Proof: docs/features/retrieval-engine-v1/proof.ts (green); gate PASS; verified live in browser."
+      "status": "stale",
+      "notes": "Sources are chunked+embedded+entity-extracted inline at ingest (lib/retrieval/*); chat builds persona-core prompt + retrieved context for the visitor's question (buildSystemPrompt(query)). Embeddings: VOYAGE_API_KEY/OPENAI_API_KEY if set, else local hashed n-grams; hybrid BM25+cosine with EntityEdge one-hop expansion. Backfill: npx tsx scripts/reindex.ts. Proof: docs/features/retrieval-engine-v1/proof.ts (green); gate PASS; verified live in browser.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched."
     },
     {
       "id": "knowledge-graph-admin",
       "title": "Graph tab: see and fix the extracted entity/relation graph",
-      "status": "done",
+      "status": "stale",
       "notes": "Admin dashboard 'Graph' tab (app/admin/GraphPanel.tsx) over lib/retrieval/graph.ts: index-health stats (sources/chunks/entities/relations/orphans, plus warnings for missing embeddings and a mixed-embedding-model index), every entity with mention count + source titles + edge count, orphans flagged, and every relation. Fixes: rename/retype an entity (renaming onto an existing name MERGES them — mentions move, edges rewire, duplicates collapse, self-loops drop), delete entity, delete relation, add relation. Server actions are thin auth wrappers so the logic stays testable. Proof: docs/features/knowledge-graph-admin/proof.ts (28 assertions green); gate PASS. Not yet visually clicked through (admin login required).",
-      "next": "Phase 2 continues: persona-aware entity ontology in lib/retrieval/entities.ts + persona-biased ranking."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Phase 2 continues: persona-aware entity ontology in lib/retrieval/entities.ts + persona-biased ranking.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "universal-knowledge-index",
       "title": "Index every admin surface into one knowledge graph (profile, persona, projects, photos, knowledge, approved answers)",
-      "status": "done",
+      "status": "stale",
       "notes": "Chunk gains originKind/originId/originLabel and sourceId becomes nullable, so the index is origin-agnostic (lib/retrieval/indexer.ts indexOrigin/dropOrigin). lib/retrieval/origins.ts turns each surface into indexable text and is triggered inline by the admin saves (saveProfile/uploadResume, savePersona, add/update/deleteProject, upload/update/deletePhoto, saveChatFeedback, deleteChatSession) — best-effort, never fails a save. ACTIVITY IS APPROVAL-GATED: only assistant answers rated up are indexed, because visitor-typed chat is untrusted input and would otherwise poison the KB. Prompt slimmed: bio/experience/project blurbs/photo descriptions are now retrieved, while identity, contact, persona, project id index and A2UI rules stay always-on. Graph tab shows an 'Indexed from' per-origin breakdown. Proof: docs/features/universal-knowledge-index/proof.ts (25 assertions green); prior three proofs still green; gate PASS.",
-      "next": "Deploy + run `npx tsx scripts/reindex.ts --all` on production: existing prod chunks predate the origin columns and carry empty originId/originLabel until reindexed."
-    },
-    {
-      "id": "visual-knowledge-graph",
-      "title": "Visual graph view; Entities and Relations as paginated tabs",
-      "status": "done",
-      "notes": "app/admin/GraphView.tsx (client) adds three panes under the Graph tab: 'Visual graph' renders a force-directed SVG node-link diagram (Fruchterman-Reingold, deterministic circle seeding so it doesn't reshuffle on edits, iterations shed as n grows since it also runs during SSR) with nodes sized by mention count, coloured by entity type, orphans ringed red, click-to-isolate neighbours and a legend; 'Entities' and 'Relations' hold the editing UI, each paginated at 20. GraphPanel keeps stats + origin breakdown + health warnings. Also paced the backfill (EMBED_PACE_MS, default 21s between origins) because one embed request per origin back-to-back trips the provider per-minute limit; pacing lives in the backfill, not the embed layer, so live chat is never throttled. Gate PASS. Verified live: production reindexed to 21 chunks all on voyage-3.5-lite, 0 stale, and the chatbot now answers background questions from the profile origin.",
-      "next": "Visual pane not yet clicked through by Claude (admin login required)."
-    },
-    {
-      "id": "github-profile-import",
-      "title": "Import all projects from a GitHub profile link",
-      "status": "done",
-      "notes": "Projects tab 'Import from GitHub': paste a profile URL, fetches public non-fork repos via GitHub API (lib/github.ts), creates a Project per repo (name, description->blurb, html_url->githubUrl, homepage->liveUrl), most-starred first, capped at 12, skips already-imported (deduped by githubUrl). Verified live against a real profile. Live."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Deploy + run `npx tsx scripts/reindex.ts --all` on production: existing prod chunks predate the origin columns and carry empty originId/originLabel until reindexed.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "persona-sections",
       "title": "Persona: one free-prose field (collapsed from the 21-section persona + agent-behaviors catalogue); Persona and Theme split into two tabs",
-      "status": "done",
+      "status": "stale",
       "notes": "lib/persona.ts is the catalogue, now a SINGLE section (`persona`) plus PERSONA_BLURB, the one-paragraph brief rendered above the field; the admin form, savePersona, and the chat prompt all iterate it. Stored as JSON in Profile.personaSections (map shape unchanged, no migration). The 21 template sections were retired 2026-07-26: they came from buyer-persona instruments whose fields (purchasing approval, budget cuts, onboarding tolerance, crisis mode) either don't apply to a personal site or can't be known without inventing them, and an invented section enters the prompt with the same authority as a true one. safePersonaSections folds any text stored under the 21 retired keys forward into the single field on read (LEGACY_SECTIONS, deletable once the live row is saved again), so prod persona text can't silently vanish. buildSystemPrompt renders the field verbatim with no headings; an empty field renders as \"\" so the hardcoded fallback still applies. Proof: docs/features/persona-sections/proof.ts (21 assertions green); tsc + next lint clean; admin markup verified server-rendered (one section_persona textarea, blurb present, zero retired labels).",
-      "next": "Ingestion: fill the field from an uploaded document, existing knowledge, or sent email (see the persona-from-email design), incl. mapping the legacy persona/overview/values/tone columns."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Ingestion: fill the field from an uploaded document, existing knowledge, or sent email (see the persona-from-email design), incl. mapping the legacy persona/overview/values/tone columns.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "persona-knowledge-entries",
@@ -68,18 +52,22 @@
       "feature_dir": "docs/features/canned-answers-and-brain",
       "proof": "docs/features/canned-answers-and-brain/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "Two tiers only: a hand-written CannedAnswer table matched by normalized string equality (case, spacing, trailing punctuation ignored — nothing fuzzy) and served with no Anthropic call, then Haiku for everything else. No classifier call, no escalation, no second model — ruled out by Blake. Canned rows carry an optional cardTool/cardInput hydrated through the same path the model uses, so the projects starter still renders cards. Part two moved TOOLS/hydrate()/the streaming tool loop out of app/api/chat/route.ts (179 -> 54 lines) into lib/brain.ts as answer({message, history, sessionId, channel}) yielding {t:'text'|'card'} — the route is now only NDJSON, and a second channel needs a transport rather than a second brain. New admin 'Answers' tab (app/admin/AnswersPanel.tsx) bootstraps the 5 starters as blank rows; a blank answer falls through to the model, so the tab is safe half-finished. Saving onto an existing question merges rather than throwing a unique-constraint error, and seeding only fills an empty table so deleted starters stay deleted. Proof: docs/features/canned-answers-and-brain/proof.ts (38 assertions green, was red at import); gate PASS; tsc + eslint clean. Verified live in the browser: the projects chip returned the stored text instantly with hydrated cards and hits went 0 -> 1, and a non-canned question still streamed a real Haiku answer through /api/chat.",
-      "next": "Deploy (prisma db push runs on start, so CannedAnswer is created automatically), then fill the five starter answers on the Answers tab — every one left blank is still costing a model call. Admin tab itself not yet clicked through by Claude (admin login required). The WhatsApp channel this refactor was for is still unbuilt."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Deploy (prisma db push runs on start, so CannedAnswer is created automatically), then fill the five starter answers on the Answers tab — every one left blank is still costing a model call. Admin tab itself not yet clicked through by Claude (admin login required). The WhatsApp channel this refactor was for is still unbuilt.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "ai-drafted-answers",
       "feature_dir": "docs/features/ai-drafted-answers",
       "proof": "docs/features/ai-drafted-answers/PROOF.md",
       "priority": 2,
-      "status": "passing",
+      "status": "stale",
       "notes": "Blank Answers-tab rows draft themselves from the knowledge base (lib/answerDrafts.ts: buildSystemPrompt(question) + a stored-answer brief, no tools) when the dashboard loads, and a draft is served to visitors immediately with zero model calls — it is the same answer the chatbot would have given, only instant and free. CannedAnswer gains aiDraft (unreviewed marker, cleared by saving) and draftedAt (the auto pass gets one shot per row, ever, so a row Blake empties stays empty). Per-row Redraft button; failures are swallowed and retryable; a pass is capped at 8 rows and hands the page back at DRAFT_DEADLINE_MS (12s) while in-flight drafts still land. Proof: docs/features/ai-drafted-answers/proof.ts (22 assertions green, offline, 2.4s); gate PASS; verified live in the browser — the drafted starter answer is served instantly on the public chat.",
-      "next": "Admin tab not clicked through by Claude (login required — Claude does not enter passwords). Redraft failures are logged, not surfaced in the UI."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Admin tab not clicked through by Claude (login required — Claude does not enter passwords). Redraft failures are logged, not surfaced in the UI.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "persona-prompt-handoff",
@@ -97,9 +85,11 @@
       "feature_dir": "docs/features/graph-delete-provenance",
       "proof": "docs/features/graph-delete-provenance/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "Deleting a source/project/photo/approved answer removed its Chunk + EntityMention rows but left every Entity and EntityEdge behind, with no provenance to clean them up. That was a live correctness bug, not just debris: retrieve() seeds entities by matching the raw query against ALL entity keys and renders their edges into the prompt as KNOWN RELATIONSHIPS, so a deleted source's extracted relations kept being stated as fact with no chunk supporting them. New EntityEdgeOrigin table records which origin asserted each edge; persistGraph claims edges for the indexing origin; dropOrigin retracts that origin's ownership, deletes edges left with no owner, and prunes entities with no mentions AND no edges. Cross-origin dedup is preserved — a relation two origins assert survives losing one. Edges with NO ownership rows are never auto-pruned, which protects hand-added Graph tab relations and every edge written before this table existed, so shipping it cannot empty an existing graph. clearOrigin was split into clearOriginChunks so a flaky extraction no longer retracts claims mid-reindex; an origin whose text becomes empty now retracts like a delete; mergeInto carries ownership onto rewired edges; deleteSource routes through dropOrigin instead of relying on the Source->Chunk cascade alone. Proof: docs/features/graph-delete-provenance/proof.ts (22 assertions green, was red on 3; the merge assertion verified independently red with lib/retrieval/graph.ts reverted). Gate PASS on this change; a later gate run fails inside the concurrent ai-drafted-answers work (lib/answerDrafts.ts), unrelated to this feature. Schema applied locally with prisma db push.",
-      "next": "Deploy — `prisma db push` runs on start, so EntityEdgeOrigin is created automatically on Railway. Existing prod edges carry no ownership until `npx tsx scripts/reindex.ts --all` re-asserts it; until then they are treated as untracked and are never auto-pruned, so deletes won't retract pre-existing relations. Graph tab not clicked through (admin login required)."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Deploy — `prisma db push` runs on start, so EntityEdgeOrigin is created automatically on Railway. Existing prod edges carry no ownership until `npx tsx scripts/reindex.ts --all` re-asserts it; until then they are treated as untracked and are never auto-pruned, so deletes won't retract pre-existing relations. Graph tab not clicked through (admin login required).",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "a2a-agent-interface",
@@ -107,19 +97,11 @@
       "feature_dir": "docs/features/a2a-agent-interface",
       "proof": "docs/features/a2a-agent-interface/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "The site is now callable by other AI agents, not just readable by people. Agent Card at /.well-known/agent-card.json (A2A v1.0 — the CURRENT spec; note v1.0 renamed nearly everything from the v0.3 shape most tutorials still show: supportedInterfaces replaces url/preferredTransport, PascalCase SendMessage replaces message/send, TASK_STATE_* replaces lowercase states, and the `kind` discriminator is gone). Both live generations are served: v1.0 and v0.3, negotiated by the A2A-Version header, with absent = 0.3 per §3.6.2, and the 0.3 card also at the legacy /.well-known/agent.json. Endpoints: /api/a2a (JSON-RPC + SSE) and /api/a2a/rest (HTTP+JSON), both thin wrappers over one dispatch() so the two bindings cannot drift. Methods: SendMessage, SendStreamingMessage, GetTask, ListTasks, CancelTask, SubscribeToTask; push-notification methods and the extended card return the specific -32003/-32004 the card's capabilities imply. NO SECOND BRAIN — lib/a2a/run.ts translates lib/brain.ts's {text,card} events into A2A messages/artifacts, and A2UI blocks become `data` parts, so a calling agent gets machine-readable projects instead of prose. New A2ATask table persists tasks in Postgres (an in-memory store would break GetTask across a redeploy) and contextId doubles as the chat sessionId, so agent traffic lands in Activity. Open by default but rate limited (A2A_RATE_LIMIT, default 30/min/IP); A2A_API_KEY closes it and the card then advertises the bearer scheme. Also /.well-known/agent-facts.json in NANDA AgentFacts format — self-hosted, with no fabricated audit claims (no evaluations block, certification.level = self-declared) — and a human /agent page linked from the homepage. Card and facts are both generated from the Profile row, so any site built from this template describes its own owner. Proof: docs/features/a2a-agent-interface/proof.ts (61 assertions green, zero Anthropic calls — it drives the real dispatcher over a seeded canned answer; verified red by breaking the 0.3 `final` flag and the card data-part). tsc + eslint clean. Verified live on the dev server: all three well-known docs 200, a real knowledge-base answer through /api/a2a, SSE streaming with card data parts, the REST binding on every path, non-blocking send + SubscribeToTask reattachment, and the /agent page in the browser.",
-      "next": "Deploy — `prisma db push` runs on start, so A2ATask is created automatically on Railway. Set NEXT_PUBLIC_SITE_URL on Railway or the card will advertise the wrong host. Not done: gRPC binding, Agent Card JWS signing (needs a key story), and the two stale agentcards.host39.org cards under blakemauri2@gmail.com, which are near-empty and point at a dead URL — decide whether to repoint them at /.well-known/agent-card.json or delete them."
-    },
-    {
-      "id": "booking-card",
-      "title": "In-chat booking card backed by the real Google Calendar",
-      "feature_dir": "docs/features/booking-card",
-      "proof": "docs/features/booking-card/PROOF.md",
-      "priority": 1,
-      "status": "passing",
-      "notes": "A second conversion path alongside the contact form: show_booking renders real open times pulled from Google free/busy, and picking one writes a confirmed event with a Meet link and emails the visitor an invite. Auth is an OAuth REFRESH TOKEN, not a service account — the calendar is a personal @gmail.com, where a robot identity can only be granted access by an explicit share and still couldn't invite as Blake. Scopes are deliberately calendar.freebusy + calendar.events only: the site sees WHEN he's busy and can add events, but cannot read meeting titles, guests or contents. No googleapis dependency (three fetch calls in lib/google.ts, following lib/github.ts). lib/booking/slots.ts is pure slot math — Intl-derived tz conversion with a second correction pass so DST is right, calendar-date day walking rather than +24h, buffers, lead time, horizon. EVERYTHING FAILS CLOSED: booking off, creds missing, token rejected, freeBusy returning a per-calendar `errors` entry inside a 200, network down — each yields zero slots, never the unsubtracted grid. The server never trusts a submitted start; createBooking recomputes open slots and refuses anything off the list. Booking.startsAt is UNIQUE and the row is claimed BEFORE the Google call, so a race has one winner and a failed insert releases the claim. Read path caches free/busy 60s; the write path always calls Google, because the unique constraint guards only this site's own bookings and a cached read there is a double-booking. Tool + prompt instructions are withheld from the model unless bookingEnabled AND Google is connected. Admin 'Booking' tab: connection status, availability settings, and the upcoming list. One-time authorization via `node scripts/google-auth.mjs`. Proof: docs/features/booking-card/proof.ts (39 assertions green, zero Google and zero Anthropic calls; verified red four ways — swallowing the freeBusy error, trusting the submitted slot, and serving the write path from cache, which booked a slot that had just been taken). Gate PASS; tsc + eslint clean (only the pre-existing Chat.tsx img warning). Card UI clicked through end to end in the browser: day/time picker, correct grouping across a UTC-day boundary into the VISITOR's timezone, details form, confirmation with Meet link.",
-      "next": "NOT YET CONNECTED — the card stays hidden until Blake does the Google setup: create a Cloud project, enable the Calendar API, PUBLISH the consent screen (while it's in Testing, Google expires refresh tokens after 7 days and the card silently goes quiet), create a Web OAuth client with redirect http://localhost:5858/callback, then run `node scripts/google-auth.mjs` and set GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN in .env and on Railway. Then switch it on and set weekly hours on the admin Booking tab (the form pre-fills weekdays 9-5). `prisma db push` runs on start so the Booking table is created automatically on Railway. Not verified against a real Google account by Claude — that needs Blake's credentials. Admin tab not clicked through (login required). Out of scope and still unbuilt: cancel/reschedule from the site (Google's own invite handles it), multiple durations or calendars, per-date holiday overrides. Note the A2A channel receives a bare {type:'booking'} data part with no slots in it, which is not actionable for a calling agent — worth revisiting if agent-initiated booking is ever wanted."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Deploy — `prisma db push` runs on start, so A2ATask is created automatically on Railway. Set NEXT_PUBLIC_SITE_URL on Railway or the card will advertise the wrong host. Not done: gRPC binding, Agent Card JWS signing (needs a key story), and the two stale agentcards.host39.org cards under blakemauri2@gmail.com, which are near-empty and point at a dead URL — decide whether to repoint them at /.well-known/agent-card.json or delete them.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "experience-timeline-card",
@@ -127,16 +109,9 @@
       "feature_dir": "docs/features/experience-timeline-card",
       "proof": "docs/features/experience-timeline-card/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "unproven",
       "notes": "Sixth A2UI card. \"What is your background?\" was the one question a personal site exists to answer with no card behind it — the model reassembled it from retrieved chunks, and dates and company names are exactly what a language model paraphrases away. show_timeline renders Profile.experience verbatim as a vertical timeline (rail + a dot per role, dates/role/company/description), headed by Profile.experienceSummary, Blake’s own paragraph. No schema change, no migration, no dependency: the data has been on the Profile row since the Experience editor shipped and only reached the chat as retrieval text. STORED ORDER IS PRESERVED, NOTHING IS SORTED — `dates` is free text (\"2021–2024\", \"Summer ’19\", \"2023 – present\"), and a parser that misreads one format silently reorders a correct history into a false one; chronology is a claim about Blake’s life and the code should not guess at it. Folds past 4 roles so a long career cannot push the conversation off the screen. Not withheld when empty, unlike show_booking: an empty booking card is a broken promise, an empty timeline is just an empty state, and a conditional tool would cost a Profile read on every message. Touched the standard six places (lib/cards.ts, app/cards/Cards.tsx, lib/brain.ts, lib/canned.ts, lib/knowledge.ts, README). Proof: docs/features/experience-timeline-card/proof.ts (30 assertions green, zero Anthropic calls and zero network — the hosted embedders are unset so buildSystemPrompt uses the local hashed one; verified red by stashing the five source files: \"experienceTimelineBlock is not a function\"). tsc + next lint were clean on this change. Server-rendered against the live theme and screenshotted in headless Chrome, which caught a bug all 27 functional assertions missed: the dot was var(--primary), and lib/theme.ts lets `surface` double as --primary, so the default palette painted a navy dot on a navy card and the timeline read as an indented list. Now --accent-on-bg-soft (derived by readableOn against that exact surface). No assertion guards it — contrast is not observable from textContent.",
-      "next": "Visual regression of the dot/rail contrast is unguarded (see PROOF.md) — this repo has no screenshot-diff harness. Not clicked through inside a real chat bubble at real widths. Whether Haiku actually reaches for show_timeline on \"what’s your background?\" is a live model call the proof deliberately does not make. QUICK WIN: the first starter chip is already \"What's your background and past experience?\" — attaching show_timeline to that canned row on the Answers tab makes the card render instantly for free. The Experience editor has no reordering control, so the card’s order is append order plus whatever the resume parser produced; worth drag-to-reorder now that the order is visible to visitors. A2A emits the block as a plain data part, unexercised."
-    },
-    {
-      "id": "google-connect-button",
-      "title": "Connect Google Calendar from the admin Booking tab (browser OAuth, encrypted token)",
-      "priority": 1,
-      "status": "removed",
-      "notes": "REMOVED at Blake's request. Shipped in a97f9f2 and reverted the same day: the browser OAuth flow worked, but it could not remove the step that actually hurt — Google will not grant calendar access to an app that is not registered in the Cloud Console, and that registration is manual by design. The button therefore still sat behind a five-minute console errand, which was the objection. Removed: app/api/admin/google/*, lib/googleConnection.ts, the four Profile google* columns, and the whole Booking tab from the admin sidebar. KEPT: lib/booking/*, app/api/booking/*, the Booking model, the show_booking card, and lib/google.ts back on env-only googleConfig() — so the card still works for a deploy that sets GOOGLE_CLIENT_ID/SECRET/REFRESH_TOKEN, there is just no admin UI for it. booking-card proof still green."
+      "next": "No proof script exists for this feature (2026-09-25 audit). Write one or retire the feature."
     },
     {
       "id": "graph-suggested-merges",
@@ -144,9 +119,11 @@
       "feature_dir": "docs/features/graph-suggested-merges",
       "proof": "docs/features/graph-suggested-merges/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "lib/retrieval/graph.ts suggestedMerges(): duplicate-entity pairs from two deterministic signals — condensed-key containment ('brambleworks' ⊂ 'brambleworksltd', shorter side ≥ 4 chars) and shared-neighbor overlap (Jaccard ≥ 0.5, ≥ 2 shared, both ≥ 2 neighbors) which ALSO requires a shared 3+-char name word, because nearly everything in this graph neighbors Blake and raw overlap would pair unrelated skills ('TypeScript'/'React') for a one-click merge. Survivor = more mentions, then more edges, then longer name. Capped at 20, containment ranked first, each unordered pair once. mergeEntities(from,into) is the one-click path through the existing mergeInto machinery, fail-soft on stale ids. UI: Suggested merges block atop the Entities pane (hidden when empty) + ⚠ count on the pane tab (no colour override — the tab background swaps with the theme); mergeSuggestedEntities server action is the standard thin auth+revalidate wrapper. No LLM call, no schema change. Proof: docs/features/graph-suggested-merges/proof.ts (18 assertions green, was red at 'suggestedMerges is not a function'; zero Anthropic calls). tsc + next lint clean on touched files. Evaluator PASS. Gate: initially failed in the concurrent session's mid-edit google-connect proof; after they fixed it, GATE: PASS with this feature's changes included.",
-      "next": "Merge button not clicked in a browser (admin login required)."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Merge button not clicked in a browser (admin login required).",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "retrieval-playground",
@@ -154,9 +131,11 @@
       "feature_dir": "docs/features/retrieval-playground",
       "proof": "docs/features/retrieval-playground/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "Test retrieval box on the Graph tab: lib/retrieval/graph.ts retrievalPreview(query) returns the REAL retrieve() result shaped for display — chunks with origin ref, blended score, and rank/graph provenance, the KNOWN RELATIONSHIPS lines, plus queryEntities (the exact q.includes(key) match retrieve() uses to seed expansion, so the admin can see whether the graph even recognizes the question) and an indexEmpty flag for an honest empty state. previewRetrieval server action is auth-only (read-only, no revalidate); app/admin/RetrievalPlayground.tsx is a small client component (useTransition) above GraphView. Proof: docs/features/retrieval-playground/proof.ts (12 assertions green, was red at 'retrievalPreview is not a function'; zero Anthropic calls). PROOF LESSONS BAKED IN: (1) the draft asserted nonsense queries return zero chunks — false, retrieve() max-normalizes the vector signal so a non-empty index always scores something; replaced with a stronger byte-equivalence assertion (preview === retrieve() output, proving no second retrieval path). (2) Deleting VOYAGE/OPENAI keys before imports does NOT pin the local embedder — Prisma re-loads .env on import; delete AFTER imports. (3) To prove a graph-only hit, every seed slot must be filled by marker-bearing chunks AND the graph-hop chunk must be small enough to fit retrieve()'s 6000-char budget after ~5 seeds. tsc + lint clean; GATE: PASS; evaluator PASS.",
-      "next": "indexEmpty:true branch unasserted (needs an empty DB); box not typed into in a browser (admin login required)."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. indexEmpty:true branch unasserted (needs an empty DB); box not typed into in a browser (admin login required).",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "graph-cluster-summaries",
@@ -164,17 +143,20 @@
       "feature_dir": "docs/features/graph-cluster-summaries",
       "proof": "docs/features/graph-cluster-summaries/PROOF.md",
       "priority": 2,
-      "status": "passing",
+      "status": "stale",
       "notes": "GraphRAG-lite in lib/retrieval/clusters.ts. computeClusters (PURE, no model call): remove the top-degree entity when degree >= 4 (Blake glues every neighborhood into one blob otherwise), connected components of the rest, floor 2 members, cap 6, labelled by top-mention member, deterministic ordering. buildClusterOverviews: one injected-or-Claude call per cluster over the chunks mentioning its members (8k-char cap), persisted through indexOrigin as originKind='cluster' chunks (label 'Overview — X') — NO new table, embeddings for free, sweep-on-rebuild like any retracted origin; extraction passed empty so synthetic prose never writes into the graph; a THROWING summarizer keeps the previous overview (asserted — a provider hiccup must not be treated as a vanished cluster). Serving: knowledgeBlock asks broadOverviews(query) first — broad = no distinctive token, where distinctive = df in [1, max(2, 20% of chunks)) and the owner's name NEVER counts ('tell me about Blake' is the flagship broad question); unknown-token queries are broad by design. retrieve() now excludes cluster chunks (they'd compete with the chunks they summarize). Rebuild is explicit: Graph tab 'Rebuild overviews' button + end of scripts/reindex.ts --all; never on ordinary saves (spend). ORIGIN_LABELS gains cluster:'Overviews'. Proof: docs/features/graph-cluster-summaries/proof.ts (24 assertions green, was red at module-not-found; zero Anthropic calls, local embedder pinned after imports). LESSON: the distinctive ceiling needed an absolute floor of 2 — in a 1-doc corpus 20% rounds below one document and a df=1 marker stopped being selective; caught because the LOCAL DEV DB HAS ZERO REAL CHUNKS. All three prior graph proofs re-run green after the retrieve() change; tsc + lint clean; GATE: PASS; evaluator PASS.",
-      "next": "On deploy: run the Graph tab's Rebuild overviews once (or scripts/reindex.ts --all) — prod has real chunks but no overviews until then, and broad questions fall through to normal retrieval meanwhile (safe). Live summary prose quality needs a human read. Button not clicked in a browser (admin login required). README not updated — the concurrent session holds edits to it; worth a line in the architecture tour later."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. On deploy: run the Graph tab's Rebuild overviews once (or scripts/reindex.ts --all) — prod has real chunks but no overviews until then, and broad questions fall through to normal retrieval meanwhile (safe). Live summary prose quality needs a human read. Button not clicked in a browser (admin login required). README not updated — the concurrent session holds edits to it; worth a line in the architecture tour later.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "booking-link",
       "title": "External booking link: admin field, shown on the contact card, plus a booking_link A2UI card",
       "feature_dir": "docs/features/booking-link",
       "proof": "docs/features/booking-link/PROOF.md",
-      "status": "done",
-      "notes": "Profile.bookingLink (admin Profile tab, saved by saveProfile). contact block now carries bookingLink and the form renders a 'Book a time directly' link; new booking_link block + show_booking_link tool, offered only when the link is set (withheld like show_booking), hydration guarded for canned answers, listed in CARD_TOOLS so the Answers dropdown picks it up. Prompt ranks the native live booker above the link when both exist. Proof: docs/features/booking-link/proof.ts (10 assertions green); booking-card proof still green; gate PASS."
+      "status": "unproven",
+      "notes": "Profile.bookingLink (admin Profile tab, saved by saveProfile). contact block now carries bookingLink and the form renders a 'Book a time directly' link; new booking_link block + show_booking_link tool, offered only when the link is set (withheld like show_booking), hydration guarded for canned answers, listed in CARD_TOOLS so the Answers dropdown picks it up. Prompt ranks the native live booker above the link when both exist. Proof: docs/features/booking-link/proof.ts (10 assertions green); booking-card proof still green; gate PASS.",
+      "next": "No proof script exists for this feature (2026-09-25 audit). Write one or retire the feature."
     },
     {
       "id": "admin-content-tabs",
@@ -187,21 +169,29 @@
     {
       "id": "admin-graph-tabs",
       "title": "Graph section reorganized into 5 sub-tabs: Graph / Test / Entities / Relationships / Overviews",
-      "status": "done",
-      "notes": "GraphPanel now mounts SubTabs with five tabs: Graph (stats + origin breakdown + health notices + GraphCanvas), Test (RetrievalPlayground), Entities (EntitiesPane, count + merge-warning badges in the label), Relationships (RelationsPane, count badge), Overviews (overview list + rebuild button). GraphView.tsx lost its own Visual graph/Entities/Relations pill switcher and now just exports EntitiesPane/RelationsPane/Count. SubTabs gained ReactNode labels and a configurable aria-label (Content section unchanged by default). Proof: docs/features/admin-graph-tabs/proof.ts (23 assertions green, red-first); admin-content-tabs proof still green; gate PASS. Not visually clicked through (admin login required). Refined to match the Content section's layout: SubTabs strip sits above the panels and each tab is its own titled panel (Knowledge graph / Test retrieval / Entities / Relationships / Overviews); RetrievalPlayground's inner label reworded so it doesn't duplicate the Test retrieval panel title. Proof extended to 29 assertions, green; gate PASS."
+      "status": "stale",
+      "notes": "GraphPanel now mounts SubTabs with five tabs: Graph (stats + origin breakdown + health notices + GraphCanvas), Test (RetrievalPlayground), Entities (EntitiesPane, count + merge-warning badges in the label), Relationships (RelationsPane, count badge), Overviews (overview list + rebuild button). GraphView.tsx lost its own Visual graph/Entities/Relations pill switcher and now just exports EntitiesPane/RelationsPane/Count. SubTabs gained ReactNode labels and a configurable aria-label (Content section unchanged by default). Proof: docs/features/admin-graph-tabs/proof.ts (23 assertions green, red-first); admin-content-tabs proof still green; gate PASS. Not visually clicked through (admin login required). Refined to match the Content section's layout: SubTabs strip sits above the panels and each tab is its own titled panel (Knowledge graph / Test retrieval / Entities / Relationships / Overviews); RetrievalPlayground's inner label reworded so it doesn't duplicate the Test retrieval panel title. Proof extended to 29 assertions, green; gate PASS.",
+      "last_status": "done",
+      "stale_reason": "assertion no longer holds: FAIL  dashboard mounts GraphPanel under the graph nav entry",
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  dashboard mounts GraphPanel under the graph nav entry. Fix or retire when this area is next touched."
     },
     {
       "id": "embed-missing-chunks",
       "title": "Graph tab: embed only the chunks that have no embedding",
-      "status": "done",
+      "status": "stale",
       "notes": "embedMissingChunks() in lib/retrieval/indexer.ts backfills chunks where embedding IS NULL, in batches of EMBED_BACKFILL_BATCH (32), writing vector + embedModel with the CURRENT model — the same one retrieve() embeds the visitor's question with, so a repaired chunk is comparable to queries even when the rest of the index sits on an older provider. Already-embedded chunks are never touched, whatever model produced them: closing a gap must not become a silent migration. Fails soft like indexing does — a provider returning null vectors leaves those rows null and reports embedded < attempted rather than discarding the batches that worked. The embedder is injectable (opts.embed), matching the existing IndexOpts.extract seam, so the proof is fully offline. Deliberately does NOT re-run indexOrigin: a missing vector is not evidence the graph is wrong, and a full reindex would re-chunk unchanged text, spend a Claude extraction call per origin and rewrite correct edges. Admin: the Graph tab's missing-embedding notice gained an 'Embed N missing chunk(s)' PendingButton wired to the auth-wrapped backfillEmbeddings action, and Notice became a div so it can legally contain the form. Proof: docs/features/embed-missing-chunks/proof.ts (14 assertions green, red at import beforehand); knowledge-graph-admin proof still green; tsc + next lint clean; next build clean.",
-      "next": "Button not clicked in a browser (admin is password-gated, and locally chunksWithoutEmbedding is 0 so the notice does not render). Out of scope by design: re-embedding chunks that sit on an OLDER model (the mixed-index case) — that is a migration, not a repair, and still points at scripts/reindex.ts."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Button not clicked in a browser (admin is password-gated, and locally chunksWithoutEmbedding is 0 so the notice does not render). Out of scope by design: re-embedding chunks that sit on an OLDER model (the mixed-index case) — that is a migration, not a repair, and still points at scripts/reindex.ts.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "agentic-card-builder-search",
       "title": "Agentic card builder: searches the knowledge graph, and room to finish long cards",
-      "status": "done",
-      "notes": "The builder now gets one tool, search_knowledge, backed by the chatbot's own retrieve() (hybrid BM25+cosine with one-hop entity-graph expansion). The model decides when a card needs real facts and searches on its own, up to 4 searches per draft; past the budget the tool tells it to draft with what it has. Retrieval failure degrades to a note, never a dead builder. The fixed REAL SITE DATA summary stays as the always-present floor. max_tokens 4000 -> 16000, fixing the deterministic 'response wasn't valid JSON' truncation on large coded cards. Revision calls keep the tool; parseDraft validation and the theme gate are unchanged. Proof: docs/features/agentic-card-builder-search/proof.ts (22 assertions green); gate PASS; verified live against claude-sonnet-5 — the previously-failing 'face built with numbers' prompt now searches once, drafts a 5KB coded card, and renders."
+      "status": "stale",
+      "notes": "The builder now gets one tool, search_knowledge, backed by the chatbot's own retrieve() (hybrid BM25+cosine with one-hop entity-graph expansion). The model decides when a card needs real facts and searches on its own, up to 4 searches per draft; past the budget the tool tells it to draft with what it has. Retrieval failure degrades to a note, never a dead builder. The fixed REAL SITE DATA summary stays as the always-present floor. max_tokens 4000 -> 16000, fixing the deterministic 'response wasn't valid JSON' truncation on large coded cards. Revision calls keep the tool; parseDraft validation and the theme gate are unchanged. Proof: docs/features/agentic-card-builder-search/proof.ts (22 assertions green); gate PASS; verified live against claude-sonnet-5 — the previously-failing 'face built with numbers' prompt now searches once, drafts a 5KB coded card, and renders.",
+      "last_status": "done",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched."
     },
     {
       "id": "ingestion-sources-table",
@@ -217,43 +207,55 @@
       "feature_dir": "docs/features/ingestion-driven-dashboard",
       "proof": "docs/features/ingestion-driven-dashboard/PROOF.md",
       "priority": 2,
-      "status": "passing",
-      "notes": "Content tab strip renders from IngestionSource rows via pure contentTabsFromSources (enabled rows, row order = display order, panel-less rows dropped); resolveAdminTab takes live keys. Rewrote the stale admin-content-tabs proof to the 7-source world. Proof: 17 assertions; verified live that changing a row's order reorders the rendered strip."
+      "status": "stale",
+      "notes": "Content tab strip renders from IngestionSource rows via pure contentTabsFromSources (enabled rows, row order = display order, panel-less rows dropped); resolveAdminTab takes live keys. Rewrote the stale admin-content-tabs proof to the 7-source world. Proof: 17 assertions; verified live that changing a row's order reorders the rendered strip.",
+      "last_status": "passing",
+      "stale_reason": "assertion no longer holds: FAIL  boot bootstrap seeds the starter sources",
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  boot bootstrap seeds the starter sources. Fix or retire when this area is next touched."
     },
     {
       "id": "unified-ingested-items",
       "feature_dir": "docs/features/unified-ingested-items",
       "proof": "docs/features/unified-ingested-items/PROOF.md",
       "priority": 3,
-      "status": "passing",
-      "notes": "lib/ingestedItems.ts: listIngestedItems(key) returns uniform {kind: text|image} items across Source/Project/Photo/Profile with the invariant kind===image iff imageUrl set; custom sources own kind='ingest:<key>' marked rows. Proof: 9 assertions against local Postgres."
+      "status": "stale",
+      "notes": "lib/ingestedItems.ts: listIngestedItems(key) returns uniform {kind: text|image} items across Source/Project/Photo/Profile with the invariant kind===image iff imageUrl set; custom sources own kind='ingest:<key>' marked rows. Proof: 9 assertions against local Postgres.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched."
     },
     {
       "id": "create-ingestion-source",
       "feature_dir": "docs/features/create-ingestion-source",
       "proof": "docs/features/create-ingestion-source/PROOF.md",
       "priority": 4,
-      "status": "passing",
+      "status": "stale",
       "notes": "/admin/sources/new creates non-builtin rows; GenericIngestPanel renders per-storageKinds text/image ingest forms + uniform item list; lib/customIngest enforces storageKinds at the write with injectable extractor/describer (zero-model proof); ingest:* marks excluded from builtin Text/Photos tabs, public gallery card, prompt photo list, imageGen. Proof: 21 assertions.",
-      "next": "Add delete/retract for individual custom items."
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched. Add delete/retract for individual custom items.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')"
     },
     {
       "id": "edit-ingestion-source",
       "feature_dir": "docs/features/edit-ingestion-source",
       "proof": "docs/features/edit-ingestion-source/PROOF.md",
       "priority": 5,
-      "status": "passing",
+      "status": "stale",
       "notes": "Every Content tab has an Edit ingestion link to /admin/sources/<key>; edit form (label, prompt, kinds, order, enabled) double-gated by INGESTION_EDIT_PASSWORD from local .env (falls back to ADMIN_PASSWORD; both-empty locks), 1h signed cookie with its own HMAC label; update action re-checks server-side. Proof: 15 assertions.",
-      "next": "Consider a delete-source flow with dropOrigin retraction of the source's ingested rows."
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched. Consider a delete-source flow with dropOrigin retraction of the source's ingested rows.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')"
     },
     {
       "id": "deploy-db-bootstrap",
       "feature_dir": "docs/features/deploy-db-bootstrap",
       "proof": "docs/features/deploy-db-bootstrap/PROOF.md",
       "priority": 6,
-      "status": "passing",
+      "status": "stale",
       "notes": "instrumentation.ts runs lib/bootstrap.ts bootstrapDatabase() on every server start, after the start script's prisma db push: seeds starter ingestion sources / A2UI cards / canned answers into empty tables, migrates legacy personaSections (21-section catalogue folds into the single persona field) and Profile.linkedin (moved into socials, column cleared). All idempotent + best-effort. Pruned: LEGACY_CONTENT_TABS shim, persona foldLegacy/LEGACY_SECTIONS, dashboard linkedin shim and lazy seedStarter* calls, actions/knowledge/seed linkedin references, unused deprecated extractPdf. Kept deliberately: A2A LEGACY_METHODS + /.well-known/agent.json (protocol back-compat for external clients), indexer empty-originId defensive deletion. Proof: 16 assertions; boot log verified 'db bootstrap: complete'; three older proofs repointed and green.",
-      "next": "Drop the cleared Profile.linkedin column next release — but only after confirming production Profile.linkedin is '' (i.e. the bootstrap migration actually ran there), since the start script's `prisma db push --accept-data-loss` applies column drops before instrumentation runs."
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: Error: No PersonaConfig row — seed the dev DB first.. Fix or retire when this area is next touched. Drop the cleared Profile.linkedin column next release — but only after confirming production Profile.linkedin is '' (i.e. the bootstrap migration actually ran there), since the start script's `prisma db push --accept-data-loss` applies column drops before instrumentation runs.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: Error: No PersonaConfig row — seed the dev DB first."
     },
     {
       "id": "source-builder-chat",
@@ -268,31 +270,42 @@
       "feature_dir": "docs/features/custom-upload-methods",
       "proof": "docs/features/custom-upload-methods/PROOF.md",
       "priority": 8,
-      "status": "passing",
-      "notes": "Found live in the builder: uploadMethod changed nothing about the rendered form. Now ingestFormsFor(uploadMethod, storageKinds) in lib/ingestionSources.ts is the single mapping (url→URL scan, file/resume→document upload, textarea/form→paste, image→image, github→url, generic/unknown→paste+image; storage kinds gate everything; contradictions render an explanatory note). Real write paths ingestCustomUrl (upsert by unique URL, ownership mark survives extraction) and ingestCustomFile (extractDocument) with injectable extractors; new actions wired through the dashboard; built-in Links/PDFs readers and dashboard filters exclude ingest:* rows so custom link/pdf rows can't leak. SourceBuilder's test pane uses the same mapping; builder prompt teaches per-method choice. Proof: 27 assertions red-first; UI-verified live: a chat-built 'Documents' (file) draft renders the document-upload test control."
+      "status": "stale",
+      "notes": "Found live in the builder: uploadMethod changed nothing about the rendered form. Now ingestFormsFor(uploadMethod, storageKinds) in lib/ingestionSources.ts is the single mapping (url→URL scan, file/resume→document upload, textarea/form→paste, image→image, github→url, generic/unknown→paste+image; storage kinds gate everything; contradictions render an explanatory note). Real write paths ingestCustomUrl (upsert by unique URL, ownership mark survives extraction) and ingestCustomFile (extractDocument) with injectable extractors; new actions wired through the dashboard; built-in Links/PDFs readers and dashboard filters exclude ingest:* rows so custom link/pdf rows can't leak. SourceBuilder's test pane uses the same mapping; builder prompt teaches per-method choice. Proof: 27 assertions red-first; UI-verified live: a chat-built 'Documents' (file) draft renders the document-upload test control.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')",
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched."
     },
     {
       "id": "ingestion-source-classification",
       "title": "Ingestion source classification (Public / Contact / Close friends / Personal)",
-      "status": "passing",
+      "status": "stale",
       "notes": "IngestionSource.classification (default 'public'); catalog + labels + ENABLED_CLASSIFICATIONS in lib/ingestionSources.ts; shared ClassificationSelect rendered next to Save on the manual create form, the builder save pane, and the edit page; all three actions forward it and saveIngestionSource rejects unknown or not-yet-enabled statuses server-side. Frontend still shows everything as public. Proof: docs/features/ingestion-source-classification/proof.ts (16 assertions green); gate PASS. Also fixed pre-existing 'import type React' in app/admin/ui.tsx + PendingButton.tsx that had broken the create-ingestion-source and custom-upload-methods proofs under tsx (both green again).",
-      "next": "Enable contact/close-friends/personal by widening ENABLED_CLASSIFICATIONS and adding frontend visibility rules."
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched. Enable contact/close-friends/personal by widening ENABLED_CLASSIFICATIONS and adding frontend visibility rules.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
     },
     {
       "id": "split-ingest-items",
       "feature_dir": "docs/features/split-ingest-items",
       "proof": "docs/features/split-ingest-items/PROOF.md",
       "priority": 9,
-      "status": "passing",
-      "notes": "Splitting is pipeline behavior, not prompt behavior: every custom-source text ingest (file/url/paste) runs one split model call (claudeModel) that turns raw text into [{title,text}] items — the source's systemPrompt is only the LENS (default lens when empty). MAX_SPLIT_ITEMS=20, 24k input window; any failure or 0-1 items falls back to the single summarized row. Items are ingest:<key> rows tagged doc:<parent>, indexed individually; URL re-scans replace their items via exact JSON-quoted tag match with dropOrigin retraction (evaluator caught a prefix-match deletion bug + missing graph retraction; both repaired, sibling-URL regression assertion added). Builder prompt teaches describing ONE ITEM. Proof: 18 assertions red-first; live real-model check split a 3-initiative brief into 3 titled rows; evaluator FAIL→repair→PASS. POST-SHIP FIX (user-reported: 16-page docx fell back to one blob): replies truncated by the token budget now SALVAGE their complete items (depth-counter array walk); the split budget is the model's full 64K ceiling via a streaming adapter (SDK requires streaming at that size; model stays Haiku); split failures are logged instead of silent. Proof grew to 19 assertions incl. truncated-array salvage; live dense-doc check splits into 6 items; evaluator PASS."
+      "status": "stale",
+      "notes": "Splitting is pipeline behavior, not prompt behavior: every custom-source text ingest (file/url/paste) runs one split model call (claudeModel) that turns raw text into [{title,text}] items — the source's systemPrompt is only the LENS (default lens when empty). MAX_SPLIT_ITEMS=20, 24k input window; any failure or 0-1 items falls back to the single summarized row. Items are ingest:<key> rows tagged doc:<parent>, indexed individually; URL re-scans replace their items via exact JSON-quoted tag match with dropOrigin retraction (evaluator caught a prefix-match deletion bug + missing graph retraction; both repaired, sibling-URL regression assertion added). Builder prompt teaches describing ONE ITEM. Proof: 18 assertions red-first; live real-model check split a 3-initiative brief into 3 titled rows; evaluator FAIL→repair→PASS. POST-SHIP FIX (user-reported: 16-page docx fell back to one blob): replies truncated by the token budget now SALVAGE their complete items (depth-counter array walk); the split budget is the model's full 64K ceiling via a streaming adapter (SDK requires streaming at that size; model stays Haiku); split failures are logged instead of silent. Proof grew to 19 assertions incl. truncated-array salvage; live dense-doc check splits into 6 items; evaluator PASS.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')",
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched."
     },
     {
       "id": "per-source-split-mode",
       "feature_dir": "docs/features/per-source-split-mode",
       "proof": "docs/features/per-source-split-mode/PROOF.md",
       "priority": 10,
-      "status": "passing",
-      "notes": "Splitting became a per-source choice: IngestionSource.splitMode ('split' default | 'single'), validated in saveIngestionSource, starters omit it so the DB default rules. All three text ingest paths skip the split pass entirely for 'single' sources (proof asserts the splitter client is never called — zero model spend). Exposed in the edit page and manual create form ('Items per upload' select), forwarded by all four save/update actions, carried in the builder draft (junk coerces to 'split') with the builder prompt teaching to set 'single' only when the admin asks ('keep each upload as one entry'); the test pane shows the mode. Proof: 13 assertions red-first; evaluator PASS (re-ran proof itself). Non-blocking edge recorded: flipping split→single then re-scanning a URL leaves the old scan's split items alongside the new blob row."
+      "status": "stale",
+      "notes": "Splitting became a per-source choice: IngestionSource.splitMode ('split' default | 'single'), validated in saveIngestionSource, starters omit it so the DB default rules. All three text ingest paths skip the split pass entirely for 'single' sources (proof asserts the splitter client is never called — zero model spend). Exposed in the edit page and manual create form ('Items per upload' select), forwarded by all four save/update actions, carried in the builder draft (junk coerces to 'split') with the builder prompt teaching to set 'single' only when the admin asks ('keep each upload as one entry'); the test pane shows the mode. Proof: 13 assertions red-first; evaluator PASS (re-ran proof itself). Non-blocking edge recorded: flipping split→single then re-scanning a URL leaves the old scan's split items alongside the new blob row.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')",
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched."
     },
     {
       "id": "delete-hide-ingestion-sources",
@@ -303,16 +316,22 @@
     {
       "id": "agent-goals-rules",
       "title": "Agent Behavior: Goals and Rules pages feed the chatbot system prompt",
-      "status": "done",
-      "notes": "AgentDirective table (kind goal|rule), lib/directives.ts CRUD + prompt renderers, shared DirectivesPanel on the Goals/Rules tabs, GOALS section + RULES bullets in buildSystemPrompt. Proof: docs/features/agent-goals-rules/proof.ts (green). Verified live in browser."
+      "status": "stale",
+      "notes": "AgentDirective table (kind goal|rule), lib/directives.ts CRUD + prompt renderers, shared DirectivesPanel on the Goals/Rules tabs, GOALS section + RULES bullets in buildSystemPrompt. Proof: docs/features/agent-goals-rules/proof.ts (green). Verified live in browser.",
+      "last_status": "done",
+      "stale_reason": "runtime error: TypeError: Cannot read properties of undefined (reading 'text')",
+      "next": "STALE (2026-09-25 audit): runtime error: TypeError: Cannot read properties of undefined (reading 'text'). Fix or retire when this area is next touched."
     },
     {
       "id": "delete-ingested-items",
       "feature_dir": "docs/features/delete-ingested-items",
       "proof": "docs/features/delete-ingested-items/PROOF.md",
       "priority": 11,
-      "status": "passing",
-      "notes": "Every item on a custom source's tab has a Delete button. deleteIngestedItem enforces ownership (id must name a row marked ingest:<sourceKey> — forged/cross-source/builtin/unknown ids refused), deletes the Source/Photo row (chunks cascade) and retracts graph claims via dropOrigin, matching deleteSource/deletePhoto semantics. Admin-auth action; panel prop keeps proofs offline. Proof: 16 assertions red-first; evaluator PASS (re-ran proof)."
+      "status": "stale",
+      "notes": "Every item on a custom source's tab has a Delete button. deleteIngestedItem enforces ownership (id must name a row marked ingest:<sourceKey> — forged/cross-source/builtin/unknown ids refused), deletes the Source/Photo row (chunks cascade) and retracts graph claims via dropOrigin, matching deleteSource/deletePhoto semantics. Admin-auth action; panel prop keeps proofs offline. Proof: 16 assertions red-first; evaluator PASS (re-ran proof).",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')",
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched."
     },
     {
       "id": "ingested-items-pagination",
@@ -327,22 +346,33 @@
       "feature_dir": "docs/features/custom-panel-code",
       "proof": "docs/features/custom-panel-code/PROOF.md",
       "priority": 13,
-      "status": "passing",
-      "notes": "Ingestion pages are vibe-codeable: IngestionSource.panelHtml holds custom HTML+inline-CSS for the tab, validated by the cards' safeCardHtml at every save (script/form/iframe/on*=/40KB rejected) and rendered in the same sealed sandbox as coded cards (CSP default-src 'none', no scripts, theme vars injected). {{items}} is substituted server-side with fully escaped item content (quotes incl.; images only from /api/uploads/; function-replacement so $-patterns in content can't splice the template). Empty = default page, byte-identical. Builder chat generates/refines it (only when asked; unsafe model output drops to ''; 8K-token budget), test pane previews live, edit-mode carries existing code, manual textareas on create/edit. Native ingest forms stay; item management folds into a drawer. Proof: 21 assertions red-first; live board-style page verified; evaluator PASS (re-ran proof), its two hardening suggestions applied."
+      "status": "stale",
+      "notes": "Ingestion pages are vibe-codeable: IngestionSource.panelHtml holds custom HTML+inline-CSS for the tab, validated by the cards' safeCardHtml at every save (script/form/iframe/on*=/40KB rejected) and rendered in the same sealed sandbox as coded cards (CSP default-src 'none', no scripts, theme vars injected). {{items}} is substituted server-side with fully escaped item content (quotes incl.; images only from /api/uploads/; function-replacement so $-patterns in content can't splice the template). Empty = default page, byte-identical. Builder chat generates/refines it (only when asked; unsafe model output drops to ''; 8K-token budget), test pane previews live, edit-mode carries existing code, manual textareas on create/edit. Native ingest forms stay; item management folds into a drawer. Proof: 21 assertions red-first; live board-style page verified; evaluator PASS (re-ran proof), its two hardening suggestions applied.",
+      "last_status": "passing",
+      "stale_reason": "runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label')",
+      "next": "STALE (2026-09-25 audit): runtime error: Proof crashed: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched."
     },
     {
       "id": "business-profile-restructure",
       "title": "Split Profile into business-identity Profile / PersonaConfig / ThemeConfig; drop Booking and native booking feature",
       "feature_dir": "docs/features/business-profile-restructure",
       "proof": "docs/features/business-profile-restructure/PROOF.md",
-      "status": "passing",
-      "notes": "DONE 2026-08-28. Profile -> six business fields; PersonaConfig (company_logo/tagline/personaSections); ThemeConfig (theme*+aesthetic); Booking table + native booking feature removed end-to-end (api routes, lib/booking, lib/google, cards, admin). Migration squashed into 0_init (prod deploys via db push; history was already stale). Primary proof proof/run.sh GREEN (15/15) against fresh dockerized Postgres; gate PASS; evaluator PASS. Post-deploy: delete stale show_booking/show_timeline A2UI rows in admin; run reindex."
+      "status": "stale",
+      "notes": "DONE 2026-08-28. Profile -> six business fields; PersonaConfig (company_logo/tagline/personaSections); ThemeConfig (theme*+aesthetic); Booking table + native booking feature removed end-to-end (api routes, lib/booking, lib/google, cards, admin). Migration squashed into 0_init (prod deploys via db push; history was already stale). Primary proof proof/run.sh GREEN (15/15) against fresh dockerized Postgres; gate PASS; evaluator PASS. Post-deploy: delete stale show_booking/show_timeline A2UI rows in admin; run reindex.",
+      "last_status": "passing",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched."
     },
     {
       "id": "multi-tenant-conversion",
       "title": "Multi-tenant conversion: per-user auth, data ownership, /a/[slug] agent pages, public directory",
       "status": "done",
-      "notes": "User model with scrypt passwords + HMAC session cookie; required userId on every tenant model with compound per-user uniques; zero-data-loss backfill migration (founder account claimed at boot from ADMIN_EMAIL/ADMIN_PASSWORD); npm start moved from db push --accept-data-loss to baseline-aware prisma migrate deploy; per-user public page at /a/[slug] with per-tenant theme; directory at /. Proof: scripts/proof-multi-tenant.ts (PROOF PASS). Legacy A2A surface binds to the founding user."
+      "notes": "User model with scrypt passwords + HMAC session cookie; required userId on every tenant model with compound per-user uniques; zero-data-loss backfill migration (founder account claimed at boot from ADMIN_EMAIL/ADMIN_PASSWORD); npm start moved from db push --accept-data-loss to baseline-aware prisma migrate deploy; per-user public page at /a/[slug] with per-tenant theme; directory at /. Proof: scripts/proof-multi-tenant.ts (PROOF PASS). Legacy A2A surface binds to the founding user.",
+      "proof_needs": [
+        "db",
+        "http"
+      ],
+      "proof_script": "scripts/proof-multi-tenant.ts"
     },
     {
       "id": "guided-onboarding",
@@ -394,9 +424,11 @@
       "feature_dir": "docs/features/brand-identity-fields",
       "proof": "docs/features/brand-identity-fields/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "Delivers the brand-voice slice of business-dna-onboarding early, inside the CURRENT staged flow. lib/onboarding/brand.ts (BRAND_SYSTEM_PROMPT + extractBrandIdentity, injectable extract fn, honesty rule: a non-empty tagline whose source the model didn't explicitly mark 'extracted' coerces to 'suggested', empty tagline clears the flag) runs fail-soft inside the theme stage into job.stepBrand. lib/brand.ts savePersonaBrand shared by the onboarding save route (body.brand) and the dashboard saveTheme action. PersonaConfig gains taglineSource/brandValues(JSON)/toneOfVoice via migration brand_identity_fields. UI: Brand voice block on the onboarding theme review card and the dashboard Theme tab, suggested taglines wear a 'suggested — not from your site' chip; editing the tagline text anywhere (Theme tab, Persona tab, onboarding card) drops the provenance flag so a user's wording is never labeled. buildSystemPrompt injects BRAND VALUES + TONE OF VOICE blocks when set. Proof: docs/features/brand-identity-fields/proof.ts (23 assertions green, red-first at module-not-found; zero Anthropic calls — extract injected; local Postgres throwaway user). tsc + lint + build clean; GATE: PASS.",
-      "next": "Not clicked through in a browser (admin login required — Claude does not enter passwords). Live extraction quality of the brand prompt unverified against a real site; worth one onboarding run. The Persona tab still has its own tagline input — two writers to the same column is deliberate but worth revisiting."
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  dashboard Theme tab renders the brand fields. Fix or retire when this area is next touched. Not clicked through in a browser (admin login required — Claude does not enter passwords). Live extraction quality of the brand prompt unverified against a real site; worth one onboarding run. The Persona tab still has its own tagline input — two writers to the same column is deliberate but worth revisiting.",
+      "last_status": "passing",
+      "stale_reason": "assertion no longer holds: FAIL  dashboard Theme tab renders the brand fields"
     },
     {
       "id": "admin-user-management",
@@ -427,8 +459,11 @@
       "feature_dir": "docs/features/admin-chat-a2ui",
       "proof": "docs/features/admin-chat-a2ui/PROOF.md",
       "priority": 1,
-      "status": "passing",
-      "notes": "Chat-first admin at /admin/chat: login lands on chat; lib/adminBrain.ts tool loop (show_panel/save_goal/propose_ingestion) reveals the real dashboard panels inline (shared builder app/admin/panels.tsx), saves goals directly, and drafts pre-filled one-click ingestion approvals (approveIngestion routes builtin links/pdfs/text vs custom sources). Menu reveals panels inline (no classic-dashboard switch; the route survives for internal redirects); starter questions re-showable mid-chat via a composer toggle. Proof: npx tsx docs/features/admin-chat-a2ui/proof.ts (29 green, red-verified first); gate PASS; evaluator PASS; browser click-through done (goal + ingestion verified in DB)."
+      "status": "stale",
+      "notes": "Chat-first admin at /admin/chat: login lands on chat; lib/adminBrain.ts tool loop (show_panel/save_goal/propose_ingestion) reveals the real dashboard panels inline (shared builder app/admin/panels.tsx), saves goals directly, and drafts pre-filled one-click ingestion approvals (approveIngestion routes builtin links/pdfs/text vs custom sources). Menu reveals panels inline (no classic-dashboard switch; the route survives for internal redirects); starter questions re-showable mid-chat via a composer toggle. Proof: npx tsx docs/features/admin-chat-a2ui/proof.ts (29 green, red-verified first); gate PASS; evaluator PASS; browser click-through done (goal + ingestion verified in DB).",
+      "last_status": "passing",
+      "stale_reason": "assertion no longer holds: FAIL  plan: builtin links source refuses text",
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  plan: builtin links source refuses text. Fix or retire when this area is next touched."
     },
     {
       "id": "chat-history-sidebar",
@@ -447,16 +482,6 @@
       "status": "passing",
       "notes": "Internal rebuild of booking after 466b00e removed the Google-Calendar booker: no external calendar, Postgres only. Profile.bookingEnabled gates everything; AppointmentField is the per-tenant question catalog (IngestionSource idiom, seeded name/email/reason on first enable); Appointment's unique (userId, startsAt) is the race guard — the row claims the slot before anything else happens. Visitor side: show_booking tool gated by the toggle (not the card catalog), booking UiBlock carries the live fields, Cards.tsx renders a one-question-per-step wizard posting once to /api/booking; every validation lives server-side in lib/appointments.createAppointment, fail closed. Admin: BookingPanel (settings, always present) + CalendarPanel (month grid + cancel), built once in panels.tsx for both dashboard and admin chat; adminPanelKeys adds 'calendar' only while enabled. Knowledge: new 'appointment' origin kind indexed on book, dropped on cancel, visitor answers framed as quoted visitor-submitted data (the activity-approval precedent). Proof: 27 assertions green over the real DB, model doubled only at the ModelClient boundary; red run recorded. Gate PASS. Manual gap: wizard click-through and calendar visuals.",
       "next": "SUPERSEDED 2026-09-26 (custom-booking-form): the one-question-per-step wizard and lib/appointments.createAppointment described above are gone — booking is a conversation of cards down the chat (docs/features/booking-in-chat) backed by lib/booking/store.ts createBooking; the question catalog is filled by copying the business's own form (docs/features/custom-booking-form) instead of a fixed name/email/reason seed. The admin calendar and knowledge-indexing pieces above are unchanged in substance."
-    },
-    {
-      "id": "onboarding-booking-extraction",
-      "title": "Onboarding extracts services (as knowledge) and booking requirements (pre-seeded appointment questions, booking left off)",
-      "feature_dir": "docs/features/onboarding-booking-extraction",
-      "proof": "docs/features/onboarding-booking-extraction/PROOF.md",
-      "priority": 1,
-      "status": "retired",
-      "superseded_by": "custom-booking-form",
-      "notes": "RETIRED 2026-09-26, superseded by custom-booking-form: the services extractor no longer reports booking requirements at all (SERVICES_SYSTEM_PROMPT now reports only services/menu/takesAppointments/channels) — the booking form is copied verbatim from the business's own booking page instead of pre-seeded from extracted requirements. The feature_dir is deleted; kept here for history. Original notes: Onboarding's knowledge stage gains a 'services' extractor (lib/onboarding/services.ts): discoverServicePages reads services/pricing/menu/booking pages, one llmExtract call with its own never-invent prompt, sanitizeServices enforces caps and the appointment field-type whitelist (unknown types degrade to short_text). Services persist through the sibling saveKnowledgeRecord path (Source kind 'services', chunks replaced on re-run, keyed on the services page URL). Booking requirements pre-seed AppointmentField rows — name/email defaults first, then extracted questions — ONLY when the tenant has zero questions; bookingEnabled is never written, and enabling later keeps the seeded catalog (setBookingEnabled only default-seeds an empty one). The llm call is the single injectable seam (customIngest precedent) so the proof runs offline. Wired into jobs.ts (Extractor union, phase, log lines, report.services) and the onboarding UI category list; sweep's label no longer claims services. Proof: 27 assertions green over the real DB with cheerio fixture Pages; red run recorded. Gate PASS. Manual gaps: live-model quality, real crawling discovery, UI visual."
     },
     {
       "id": "onboarding-goal-extraction",
@@ -534,9 +559,11 @@
       "feature_dir": "docs/features/onboarding-a2ui-cards",
       "proof": "docs/features/onboarding-a2ui-cards/PROOF.md",
       "priority": 1,
-      "status": "passing",
+      "status": "stale",
       "notes": "No defaults: STARTER_CARDS/seedStarterUiCards deleted from lib/uiCards.ts, the 'ui cards' step dropped from provisionUserDefaults, cardCatalog returns the tenant's rows or [] (an empty catalog is an agent with no card tools and no USING RICH CARDS section - brain/knowledge already handled that). lib/uiCards.ts gains writeUiCard returning the stored key; saveUiCard wraps it. New lib/onboarding/cards.ts in the sibling-extractor shape (CARDS_SYSTEM_PROMPT, sanitizeCardPlan, cardsCorpus, generateOnboardingCards with deps.llm = planner and deps.draft = card builder as the two seams): one planning call over the pages + BUSINESS + SIGNALS (photos, projects, booking on, contact channels, categories) + the numbered starter questions proposes at most 5 cards (gallery/contact/projects/booking/designed, at most 3 designed), signal-gated so no card names data the tenant lacks. Live cards are written through writeUiCard with the tenant's own data as the preview; designed cards go through the real draftUiCard (knowledge-search loop) concurrently, each best-effort; booking writes no row. Every card the plan ties to a starter question is attached (cardTool/cardInput) with cardTool IS NULL in the WHERE, so an owner attachment is never overwritten. Seeds only into an empty catalog (goals rule). Wired at the end of runKnowledge after the starter questions (job.cards + honest log lines) and on the manual /complete path with no pages; OnboardingFlow's All done names the cards. Proof: npx tsx docs/features/onboarding-a2ui-cards/proof.ts (84 green, red-verified first via module-not-found); gate PASS; tsc + lint clean; evaluator PASS. Sibling proofs starter-questions-a2ui-cards, onboarding-goal-extraction and remove-default-starter-questions green (the last had its one 'UI cards still provisioned' assertion aligned to the new contract). agentic-card-builder-search/proof.ts is pre-broken independently (its fixture creates a Source without userId).",
-      "next": "Follow-ups: rename CardsReport.designedFailed (it also counts a live row write failure); app/admin/actions.ts restartOnboarding comment still says cards are re-provisioned; live-model plan quality and the wall-clock cost of up to three concurrent builder drafts at the end of a run are unmeasured; the All done sentence is a visual spot-check."
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  brain offers no card tool on an empty catalog — show_booking,search_knowledge. Fix or retire when this area is next touched. Follow-ups: rename CardsReport.designedFailed (it also counts a live row write failure); app/admin/actions.ts restartOnboarding comment still says cards are re-provisioned; live-model plan quality and the wall-clock cost of up to three concurrent builder drafts at the end of a run are unmeasured; the All done sentence is a visual spot-check.",
+      "last_status": "passing",
+      "stale_reason": "assertion no longer holds: FAIL  brain offers no card tool on an empty catalog — show_booking,search_knowledge"
     },
     {
       "id": "onboarding-filing-eta",
@@ -545,7 +572,11 @@
       "proof": "docs/features/onboarding-filing-eta/PROOF.md",
       "priority": 1,
       "status": "passing",
-      "notes": "Requested 2026-09-10: the 'Filing everything into your agent's memory' step sat static for minutes. lib/onboarding/graphIndex.ts estimateFilingWork counts the pass's own inputs (2 + projects + photos + approved answers + appointments origins, scanned sources with chunks, computeClusters count) and filingSeconds turns them into a whole-ten-second estimate from EMBED_PACE_MS pacing plus CALL_MS per call and TAIL_CALLS for the starter-question/card stages. jobs.ts records job.filing {startedAt, seconds} and the log line reads '... — about 4 minutes 10 seconds to go'; jobPayload emits eta {totalSeconds, remainingSeconds} as of the poll (etaFor), absent before filing and once done/failed. OnboardingFlow anchors each poll's remainingSeconds to Date.now() and ActivityStream's Countdown ticks from elapsed wall-clock ('About 3:05 left', 'Taking a little longer than estimated — still working' past zero). Proof: npx tsx docs/features/onboarding-filing-eta/proof/filing-eta.ts (no server; red before at 'filingSeconds is not a function'). Not yet eyeballed against a live extraction run."
+      "notes": "Requested 2026-09-10: the 'Filing everything into your agent's memory' step sat static for minutes. lib/onboarding/graphIndex.ts estimateFilingWork counts the pass's own inputs (2 + projects + photos + approved answers + appointments origins, scanned sources with chunks, computeClusters count) and filingSeconds turns them into a whole-ten-second estimate from EMBED_PACE_MS pacing plus CALL_MS per call and TAIL_CALLS for the starter-question/card stages. jobs.ts records job.filing {startedAt, seconds} and the log line reads '... — about 4 minutes 10 seconds to go'; jobPayload emits eta {totalSeconds, remainingSeconds} as of the poll (etaFor), absent before filing and once done/failed. OnboardingFlow anchors each poll's remainingSeconds to Date.now() and ActivityStream's Countdown ticks from elapsed wall-clock ('About 3:05 left', 'Taking a little longer than estimated — still working' past zero). Proof: npx tsx docs/features/onboarding-filing-eta/proof/filing-eta.ts (no server; red before at 'filingSeconds is not a function'). Not yet eyeballed against a live extraction run.",
+      "proof_needs": [
+        "db"
+      ],
+      "proof_script": "docs/features/onboarding-filing-eta/proof/filing-eta.ts"
     },
     {
       "id": "home-screen-refresh",
@@ -606,17 +637,6 @@
       "next": "A tenant onboarded before prices were extracted per service sees 'Varies' until they press Refresh from my site or type a price; the refresh needs ANTHROPIC_API_KEY, like onboarding. Payments for deposits, calendar sync and reminders remain out of scope. Onboarding's image matching and staff seeding are proven offline with an injected downloader; run a real onboarding against a services site to see the photos land. Pre-existing red proofs unrelated to this feature: appointment-booking and onboarding-booking-extraction (assume booking defaults off), a2a-agent-interface and canned-answers-and-brain (seed a Project without a user). SUPERSEDED 2026-09-26 (custom-booking-form, booking-in-chat): the single-card wizard and its 'old picker' bridge described above are gone — show_booking now draws a conversation of cards down the chat thread, and every business's service catalog comes from Service rows or from its own booking form, copied verbatim. The engines, the store, the admin Booking panels and the API below are unchanged."
     },
     {
-      "id": "booking-form-planner",
-      "title": "The booking form each business would have built itself: read the real booking page, plan per kind, rebuild untouched forms",
-      "feature_dir": "docs/features/booking-form-planner",
-      "proof": "docs/features/booking-form-planner/PROOF.md",
-      "priority": 1,
-      "status": "retired",
-      "superseded_by": "custom-booking-form",
-      "notes": "RETIRED 2026-09-26, superseded by custom-booking-form: planning a form per business kind (personal_service/table/home_service/class/consultation/other, lib/bookingFormPlan.ts) is gone — the business's own booking page is now driven in a real browser and transcribed verbatim, no norms, no kinds. The feature_dir is deleted; kept here for history. Original notes: Reported 2026-09-21 with a screen recording: MoonLight's card asked name / email / 'What would you like to talk about?' with no service menu. Causes: seedBookingForm only wrote into an EMPTY catalog, but booking-on-by-default writes the three defaults first, so onboarding never seeded (and re-onboarding hit the same gate); the read-time upgrade only converted the legacy picker; and the origin-pinned crawler never read the offsite booking page (booking.gocheckin.net) where the real menu and questions are. Now: lib/onboarding/bookingPage.ts finds the homepage's booking link (known platform hosts, or book/appointment/schedule/reserve) and Crawler.loadExternal reads that one offsite page (public https hostnames only, re-checked after redirects), labelled '=== BOOKING PAGE' with repeated widget boilerplate dropped; the extractor also reports kind, staff (kept only if named in the text), phone/email need and notes, up to 60 services. lib/bookingFormPlan.ts (pure) plans the questions per kind - personal_service / table / home_service / class / consultation / other - site evidence beating the norm, requirements that repeat a planned question or ask the date/time dropped, 8 questions max; 'other' is the old form unchanged. Questions onboarding writes carry config.generated; rebuildUntouchedForm rewrites only a form nobody has edited (bare defaults, defaults + legacy picker, or all generated); any admin save / delete / reorder clears the marks (claimForm). Existing tenants: the first read of bare defaults with services on file writes the menu down in place of 'reason' (adoptServicesMenu) - written, not presented, because the evaluator's first pass FAILED a presented menu: its key 'service' was not the stored row's key 'reason', so an admin delete removed nothing. Proof: npx tsx docs/features/booking-form-planner/proof.ts (green). Live cross-check (crosscheck.ts: real crawl of moonlightnailsspabrighton.com + its GoCheckIn page, real model) matched MoonLight's own booking page on every point: 53-option sectioned menu, 8/8 sampled prices, name + phone required, email optional, optional technician preference, notes, nothing extra; it also caught the model reporting 'Date and time' as a question, now dropped. Card walked in the browser preview on a kept throwaway tenant. booking-on-by-default and services-card proof fixtures adjusted to the new rules (a 'which treatment' requirement is now a duplicate of the menu; bare defaults now get the menu); both green, as are booking-menu-fields and parallel-onboarding-extraction. Gate PASS, evaluator PASS after one repair.",
-      "next": "Not deployed. Not built (FEATURE.md Non-Goals): staff names from a widget that only lists them after a click (falls back to an optional 'Preferred technician' text question), time slots inside opening hours (the date step is still a free date box; the real page offers 15-minute slots), and asking service first / contact last as booking platforms do. onboarding-booking-extraction (already stale since booking-on-by-default) now fails 4 checks instead of 6 - retire it. The offsite host check is by hostname, not resolved address."
-    },
-    {
       "id": "copilot-focused-edits",
       "title": "Copilot focused edits: the copilot works out a theme color change and shows only that color's editor, saved by a click",
       "feature_dir": "docs/features/copilot-focused-edits",
@@ -659,8 +679,11 @@
       "feature_dir": "docs/features/admin-nav-groups",
       "proof": "docs/features/admin-nav-groups/PROOF.md",
       "priority": 1,
-      "status": "passing",
-      "notes": "Requested 2026-09-23: the dashboard had grown messy (7 tabs, Contacts and A2UI under Agent Behavior, Calendar bundling appointments+orders+booking settings). NAV_GROUPS in app/admin/contentTabs.ts is the single source for the dashboard strips, resolveAdminTab deep links (TAB_ALIASES keeps calendar/content/me working) and the copilot's show_panel enum (fixedPanelEntries). CalendarPanel split into AppointmentsPanel + OrdersPanel; BookingSettings lives under Settings › Booking and stays present when booking is off. HomePanel renders attentionItems/checklistItems (app/admin/homeItems.ts) from data buildAdminPanels already loads, each row a ?tab= link; Tabs/SubTabs are keyed on the resolved tab so same-route links switch sections. Six sibling proofs updated (booking-on-by-default C17-C20 now assert Settings › Booking). Proof green, gate PASS. Pre-existing unrelated failures remain in appointment-booking ('booking defaults off') and admin-chat-a2ui (ingestPlanFor links checks)."
+      "status": "stale",
+      "notes": "Requested 2026-09-23: the dashboard had grown messy (7 tabs, Contacts and A2UI under Agent Behavior, Calendar bundling appointments+orders+booking settings). NAV_GROUPS in app/admin/contentTabs.ts is the single source for the dashboard strips, resolveAdminTab deep links (TAB_ALIASES keeps calendar/content/me working) and the copilot's show_panel enum (fixedPanelEntries). CalendarPanel split into AppointmentsPanel + OrdersPanel; BookingSettings lives under Settings › Booking and stays present when booking is off. HomePanel renders attentionItems/checklistItems (app/admin/homeItems.ts) from data buildAdminPanels already loads, each row a ?tab= link; Tabs/SubTabs are keyed on the resolved tab so same-route links switch sections. Six sibling proofs updated (booking-on-by-default C17-C20 now assert Settings › Booking). Proof green, gate PASS. Pre-existing unrelated failures remain in appointment-booking ('booking defaults off') and admin-chat-a2ui (ingestPlanFor links checks).",
+      "last_status": "passing",
+      "stale_reason": "assertion no longer holds: FAIL  fixed panels cover the booking section — activity,appointments,orders,new-source,graph,answers,goals,rules,a2ui,booking,booking-servic",
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  fixed panels cover the booking section — activity,appointments,orders,new-source,graph,answers,goals,rules,a2ui,booking,booking-servic. Fix or retire when this area is next touched."
     },
     {
       "id": "bulk-site-builder",
@@ -708,7 +731,7 @@
       "proof": "docs/features/full-account-wipe/PROOF.md",
       "priority": 1,
       "status": "passing",
-      "notes": "Landed 2026-09-25: lib/accountWipe.ts wipeAccountContent(userId) replaces the inline transaction in restartOnboarding; covers the booking domain, MenuItem, Order and removes referenced files from UPLOAD_DIR. Primary proof: npx tsx --tsconfig docs/features/full-account-wipe/tsconfig.json docs/features/full-account-wipe/proof.ts -> PROOF PASS.",
+      "notes": "Landed 2026-09-25: lib/accountWipe.ts wipeAccountContent(userId) replaces the inline transaction in restartOnboarding; covers the booking domain, MenuItem, Order and removes referenced files from UPLOAD_DIR. Primary proof: npx tsx --tsconfig tsconfig.proofs.json docs/features/full-account-wipe/proof.ts -> PROOF PASS.",
       "next": "Table list is hand-maintained; a DMMF-driven coverage test is planned in the cleanup (Phase 7)."
     },
     {
@@ -740,6 +763,106 @@
       "status": "done",
       "notes": "Requested 2026-09-26: onboarding no longer fits a business's booking form into a fixed set of kinds and norms (booking-form-planner) — it copies the business's own form. lib/onboarding/formReader.ts drives the booking page in the job's Playwright browser (Crawler.drive), screen by screen: every input's label, type, required mark and options read exactly as a customer meets them (caps on screens/time; never clicks a book/submit-like button; a static cheerio fallback, snapshotStatic, when the browser can't). One model call transcribes that snapshot verbatim (lib/onboarding/formTranscribe.ts, FORM_SYSTEM_PROMPT: never add, rename, merge, reorder or drop; sanitizeFormSpec caps for safety only) and lib/booking/formSpec.ts writeFormSpec writes the fields (role, screen, placeholder/help, generated) and the step order into the tenant, only over a form nobody has edited (isUntouchedForm) — the one coercion is a choice question with no options, which becomes a text box. No form found → nothing written, and the onboarding booking-form step opens empty and asks the owner. Fields carry role (none/name/first_name/last_name/email/phone/notes/policy) and screen (lib/appointmentTypes.ts); the calendar, the .ics file and the knowledge index read the customer via customerFromAnswers. Step order is BookingSettings.flow (FlowStep), resolved by sanitizeFlow; review is the only fixed element — a business's own form can ask for a time before a service, and the server re-checks the slot and every id on submit regardless of order. lib/onboarding/services.ts SERVICES_SYSTEM_PROMPT now reports only services/menu/takesAppointments/channels, not booking kind or requirements. Migration 20260926120000_custom_booking_form turned every tenant's locked details step into ordinary rows on screen 1, so existing tenants' cards ask exactly what they asked before. lib/bookingFormPlan.ts, lib/bookingMenu.ts, the picker bridge, createAppointment, the one-card LegacyWizard, the locked customer-details step and the Customer admin panel are gone; the admin Booking group's Form tab (app/admin/booking/FormPanel.tsx) shows the form as the visitor meets it, order and screens editable in place, and the onboarding chat (lib/onboarding/bookingFormChat.ts) edits it with add/edit/remove/reorder/move_question, set_screen_title, set_step_order, set_staff_selection, set_confirmation, add/edit/remove_service. Proof: npx tsx docs/features/custom-booking-form/proof.ts and docs/features/custom-booking-form/reader-proof.ts (offline: a fake widget in headless Chromium, the static fallback, the sanitizer, a scripted transcription); gate PASS; tsc + next lint clean. Supersedes booking-form-planner and onboarding-booking-extraction (both marked retired below).",
       "next": "crosscheck.ts (a real crawl + real model against a live booking page) needs outbound HTTPS this container doesn't have — run it where that's available before trusting the transcriber against a business the reader has never seen. Not yet clicked through live in a browser (admin login required)."
+    },
+    {
+      "id": "booking-on-by-default",
+      "title": "Booking on by default, seeded from services extraction, living on Calendar",
+      "feature_dir": "docs/features/booking-on-by-default",
+      "proof": "docs/features/booking-on-by-default/PROOF.md",
+      "priority": 2,
+      "status": "passing",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck. Proof green in the 2026-09-25 audit run.",
+      "next": ""
+    },
+    {
+      "id": "dynamic-knowledge-answers",
+      "title": "Dynamic knowledge answers",
+      "feature_dir": "docs/features/dynamic-knowledge-answers",
+      "proof": "docs/features/dynamic-knowledge-answers/PROOF.md",
+      "priority": 2,
+      "status": "unverified",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": ""
+    },
+    {
+      "id": "gmail-sent-contacts",
+      "title": "Contacts from sent mail",
+      "feature_dir": "docs/features/gmail-sent-contacts",
+      "proof": "docs/features/gmail-sent-contacts/PROOF.md",
+      "priority": 2,
+      "status": "stale",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched.",
+      "last_status": "unverified",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
+    },
+    {
+      "id": "known-entities-in-extraction",
+      "title": "Feed known entity names into the extraction prompt",
+      "feature_dir": "docs/features/known-entities-in-extraction",
+      "proof": "docs/features/known-entities-in-extraction/PROOF.md",
+      "priority": 2,
+      "status": "stale",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched.",
+      "last_status": "unverified",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
+    },
+    {
+      "id": "merge-dismissals",
+      "title": "'Don't merge' on suggested merges",
+      "feature_dir": "docs/features/merge-dismissals",
+      "proof": "docs/features/merge-dismissals/PROOF.md",
+      "priority": 2,
+      "status": "stale",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched.",
+      "last_status": "unverified",
+      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
+    },
+    {
+      "id": "onboarding-graph-indexing",
+      "title": "Onboarding indexes into the knowledge graph",
+      "feature_dir": "docs/features/onboarding-graph-indexing",
+      "proof": "docs/features/onboarding-graph-indexing/PROOF.md",
+      "priority": 2,
+      "status": "stale",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": "STALE (2026-09-25 audit): assertion no longer holds: FAIL  10 retrieval reaches a graph-only chunk — got: Larkmoor Nail Studio offers a gel manicu | Customer testimonial from Perrin Vale (r. Fix or retire when this area is next touched.",
+      "last_status": "unverified",
+      "stale_reason": "assertion no longer holds: FAIL  10 retrieval reaches a graph-only chunk — got: Larkmoor Nail Studio offers a gel manicu | Customer testimonial from Perrin Vale (r"
+    },
+    {
+      "id": "onboarding-tags-starter-sources",
+      "title": "Onboarding tags its rows with starter source keys",
+      "feature_dir": "docs/features/onboarding-tags-starter-sources",
+      "proof": "docs/features/onboarding-tags-starter-sources/PROOF.md",
+      "priority": 2,
+      "status": "passing",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck. Proof green in the 2026-09-25 audit run.",
+      "next": ""
+    },
+    {
+      "id": "per-item-classification",
+      "title": "Per-item classification override",
+      "feature_dir": "docs/features/per-item-classification",
+      "proof": "docs/features/per-item-classification/PROOF.md",
+      "priority": 2,
+      "status": "stale",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
+      "next": "STALE (2026-09-25 audit): runtime error: TypeError: Cannot read properties of undefined (reading 'label'). Fix or retire when this area is next touched.",
+      "last_status": "unverified",
+      "stale_reason": "runtime error: TypeError: Cannot read properties of undefined (reading 'label')"
+    },
+    {
+      "id": "social-media-extraction",
+      "title": "Social media as its own onboarding extraction step",
+      "feature_dir": "docs/features/social-media-extraction",
+      "proof": "docs/features/social-media-extraction/PROOF.md",
+      "priority": 2,
+      "status": "passing",
+      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck. Proof green in the 2026-09-25 audit run.",
+      "next": ""
     }
   ]
 }

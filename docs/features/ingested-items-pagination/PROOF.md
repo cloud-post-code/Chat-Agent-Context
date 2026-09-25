@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/ingested-items-pagination/tsconfig.json docs/features/ingested-items-pagination/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/ingested-items-pagination/proof.ts
 ```
 
 Fully offline: server-renders the components with synthetic items. No DB,

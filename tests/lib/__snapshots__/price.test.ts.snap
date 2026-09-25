@@ -1,0 +1,690 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`duration parsers (pinned) > record their current outputs 1`] = `
+[
+  {
+    "durationFromText": "",
+    "durationMinutes": null,
+    "input": "",
+  },
+  {
+    "durationFromText": "",
+    "durationMinutes": null,
+    "input": "30",
+  },
+  {
+    "durationFromText": "30 min",
+    "durationMinutes": 30,
+    "input": "30 min",
+  },
+  {
+    "durationFromText": "30 minutes",
+    "durationMinutes": 30,
+    "input": "30 minutes",
+  },
+  {
+    "durationFromText": "1 hr",
+    "durationMinutes": 60,
+    "input": "1 hr",
+  },
+  {
+    "durationFromText": "1 hour",
+    "durationMinutes": 60,
+    "input": "1 hour",
+  },
+  {
+    "durationFromText": "1.5 hours",
+    "durationMinutes": 90,
+    "input": "1.5 hours",
+  },
+  {
+    "durationFromText": "1 hr 30 min",
+    "durationMinutes": 90,
+    "input": "1 hr 30 min",
+  },
+  {
+    "durationFromText": "",
+    "durationMinutes": 90,
+    "input": "90m",
+  },
+  {
+    "durationFromText": "",
+    "durationMinutes": 120,
+    "input": "2h",
+  },
+  {
+    "durationFromText": "60 min",
+    "durationMinutes": 60,
+    "input": "45-60 min",
+  },
+  {
+    "durationFromText": "",
+    "durationMinutes": null,
+    "input": "about an hour",
+  },
+  {
+    "durationFromText": "60 min",
+    "durationMinutes": 60,
+    "input": "Gel manicure $45 (60 min)",
+  },
+]
+`;
+
+exports[`money formatters (pinned) > record their current outputs 1`] = `
+{
+  "booking": [
+    [
+      0,
+      "$0",
+      "£0",
+      "€0",
+    ],
+    [
+      5,
+      "$5",
+      "£5",
+      "€5",
+    ],
+    [
+      5.5,
+      "$5.50",
+      "£5.50",
+      "€5.50",
+    ],
+    [
+      12.345,
+      "$12.35",
+      "£12.35",
+      "€12.35",
+    ],
+    [
+      1200,
+      "$1,200",
+      "£1,200",
+      "€1,200",
+    ],
+    [
+      -3,
+      "-$3",
+      "-£3",
+      "-€3",
+    ],
+  ],
+  "menu": [
+    [
+      0,
+      "$0",
+      "£0",
+    ],
+    [
+      5,
+      "$5",
+      "£5",
+    ],
+    [
+      5.5,
+      "$5.50",
+      "£5.50",
+    ],
+    [
+      12.345,
+      "$12.35",
+      "£12.35",
+    ],
+    [
+      1200,
+      "$1200",
+      "£1200",
+    ],
+    [
+      -3,
+      "$-3",
+      "£-3",
+    ],
+  ],
+}
+`;
+
+exports[`price parsers (pinned) > agree or disagree per input, as recorded 1`] = `
+[
+  {
+    "input": "",
+    "parsePrice": null,
+    "priceAmount": null,
+    "priceAmountFromLabel": null,
+    "priceFromText": "",
+    "pricingFromText": {
+      "kind": "variable",
+    },
+  },
+  {
+    "input": "35",
+    "parsePrice": {
+      "amount": 35,
+      "exact": true,
+      "symbol": "",
+    },
+    "priceAmount": {
+      "amount": 35,
+      "exact": true,
+      "symbol": "",
+    },
+    "priceAmountFromLabel": 35,
+    "priceFromText": "",
+    "pricingFromText": {
+      "amount": 35,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$35",
+    "parsePrice": {
+      "amount": 35,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 35,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 35,
+    "priceFromText": "$35",
+    "pricingFromText": {
+      "amount": 35,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$35.50",
+    "parsePrice": {
+      "amount": 35.5,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 35.5,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 35.5,
+    "priceFromText": "$35.50",
+    "pricingFromText": {
+      "amount": 35.5,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$40+",
+    "parsePrice": {
+      "amount": 40,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 40,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 40,
+    "priceFromText": "$40+",
+    "pricingFromText": {
+      "amount": 40,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "+$40",
+    "parsePrice": {
+      "amount": 40,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 40,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 40,
+    "priceFromText": "$40",
+    "pricingFromText": {
+      "amount": 40,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "from $25",
+    "parsePrice": {
+      "amount": 25,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 25,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 25,
+    "priceFromText": "$25+",
+    "pricingFromText": {
+      "amount": 25,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "From $25",
+    "parsePrice": {
+      "amount": 25,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 25,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 25,
+    "priceFromText": "$25+",
+    "pricingFromText": {
+      "amount": 25,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "starting at $30",
+    "parsePrice": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 30,
+    "priceFromText": "$30+",
+    "pricingFromText": {
+      "amount": 30,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "$30-$45",
+    "parsePrice": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 30,
+    "priceFromText": "$30+",
+    "pricingFromText": {
+      "amount": 30,
+      "kind": "range",
+      "maxAmount": 45,
+    },
+  },
+  {
+    "input": "$30–$45",
+    "parsePrice": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 30,
+    "priceFromText": "$30+",
+    "pricingFromText": {
+      "amount": 30,
+      "kind": "range",
+      "maxAmount": 45,
+    },
+  },
+  {
+    "input": "$30 to $45",
+    "parsePrice": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 30,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 30,
+    "priceFromText": "$30+",
+    "pricingFromText": {
+      "amount": 30,
+      "kind": "range",
+      "maxAmount": 45,
+    },
+  },
+  {
+    "input": "$60/hr",
+    "parsePrice": {
+      "amount": 60,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 60,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 60,
+    "priceFromText": "$60",
+    "pricingFromText": {
+      "amount": 60,
+      "kind": "hourly",
+    },
+  },
+  {
+    "input": "$60 per hour",
+    "parsePrice": {
+      "amount": 60,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 60,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 60,
+    "priceFromText": "$60",
+    "pricingFromText": {
+      "amount": 60,
+      "kind": "hourly",
+    },
+  },
+  {
+    "input": "$12 per person",
+    "parsePrice": {
+      "amount": 12,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 12,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 12,
+    "priceFromText": "$12",
+    "pricingFromText": {
+      "amount": 12,
+      "kind": "per_person",
+    },
+  },
+  {
+    "input": "$12/person",
+    "parsePrice": {
+      "amount": 12,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 12,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 12,
+    "priceFromText": "$12",
+    "pricingFromText": {
+      "amount": 12,
+      "kind": "per_person",
+    },
+  },
+  {
+    "input": "£25",
+    "parsePrice": {
+      "amount": 25,
+      "exact": true,
+      "symbol": "£",
+    },
+    "priceAmount": {
+      "amount": 25,
+      "exact": true,
+      "symbol": "£",
+    },
+    "priceAmountFromLabel": 25,
+    "priceFromText": "£25",
+    "pricingFromText": {
+      "amount": 25,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "€18",
+    "parsePrice": {
+      "amount": 18,
+      "exact": true,
+      "symbol": "€",
+    },
+    "priceAmount": {
+      "amount": 18,
+      "exact": true,
+      "symbol": "€",
+    },
+    "priceAmountFromLabel": 18,
+    "priceFromText": "€18",
+    "pricingFromText": {
+      "amount": 18,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "Free",
+    "parsePrice": {
+      "amount": 0,
+      "exact": true,
+      "symbol": "",
+    },
+    "priceAmount": {
+      "amount": 0,
+      "exact": true,
+      "symbol": "",
+    },
+    "priceAmountFromLabel": null,
+    "priceFromText": "",
+    "pricingFromText": {
+      "kind": "free",
+    },
+  },
+  {
+    "input": "free!",
+    "parsePrice": null,
+    "priceAmount": null,
+    "priceAmountFromLabel": null,
+    "priceFromText": "",
+    "pricingFromText": {
+      "kind": "variable",
+      "note": "free!",
+    },
+  },
+  {
+    "input": "Call for a quote",
+    "parsePrice": null,
+    "priceAmount": null,
+    "priceAmountFromLabel": null,
+    "priceFromText": "",
+    "pricingFromText": {
+      "kind": "quote",
+      "note": "Call for a quote",
+    },
+  },
+  {
+    "input": "Varies",
+    "parsePrice": null,
+    "priceAmount": null,
+    "priceAmountFromLabel": null,
+    "priceFromText": "",
+    "pricingFromText": {
+      "kind": "variable",
+      "note": "Varies",
+    },
+  },
+  {
+    "input": "Price: $99",
+    "parsePrice": {
+      "amount": 99,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 99,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 99,
+    "priceFromText": "$99",
+    "pricingFromText": {
+      "amount": 99,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$1,200",
+    "parsePrice": {
+      "amount": 1200,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 1200,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 1,
+    "priceFromText": "$1,200",
+    "pricingFromText": {
+      "amount": 1200,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "USD 50",
+    "parsePrice": {
+      "amount": 50,
+      "exact": false,
+      "symbol": "",
+    },
+    "priceAmount": {
+      "amount": 50,
+      "exact": false,
+      "symbol": "",
+    },
+    "priceAmountFromLabel": 50,
+    "priceFromText": "",
+    "pricingFromText": {
+      "amount": 50,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "50 USD",
+    "parsePrice": {
+      "amount": 50,
+      "exact": false,
+      "symbol": "",
+    },
+    "priceAmount": {
+      "amount": 50,
+      "exact": false,
+      "symbol": "",
+    },
+    "priceAmountFromLabel": 50,
+    "priceFromText": "",
+    "pricingFromText": {
+      "amount": 50,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$0",
+    "parsePrice": {
+      "amount": 0,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 0,
+      "exact": true,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 0,
+    "priceFromText": "$0",
+    "pricingFromText": {
+      "amount": 0,
+      "kind": "fixed",
+    },
+  },
+  {
+    "input": "$5 and up",
+    "parsePrice": {
+      "amount": 5,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 5,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 5,
+    "priceFromText": "$5+",
+    "pricingFromText": {
+      "amount": 5,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "Gel manicure $45 (60 min)",
+    "parsePrice": {
+      "amount": 45,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 45,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 45,
+    "priceFromText": "$45",
+    "pricingFromText": {
+      "amount": 45,
+      "kind": "starting_at",
+    },
+  },
+  {
+    "input": "two for $20",
+    "parsePrice": {
+      "amount": 20,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmount": {
+      "amount": 20,
+      "exact": false,
+      "symbol": "$",
+    },
+    "priceAmountFromLabel": 20,
+    "priceFromText": "$20",
+    "pricingFromText": {
+      "amount": 20,
+      "kind": "fixed",
+    },
+  },
+]
+`;

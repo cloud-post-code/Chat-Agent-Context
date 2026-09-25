@@ -1,6 +1,6 @@
 /**
  * Primary proof for menu-cart (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/menu-cart/tsconfig.proof.json docs/features/menu-cart/proof.ts
+ * Run: npx tsx --tsconfig tsconfig.proofs.json docs/features/menu-cart/proof.ts
  *
  * Section A drives the pure rules. B–F run the real extractor (its llm seam
  * doubled), the real hydration, the real brain (its model client scripted),

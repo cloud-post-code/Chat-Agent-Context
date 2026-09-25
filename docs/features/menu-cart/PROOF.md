@@ -27,7 +27,7 @@ the injectable seams — the onboarding `llm` and the brain's `ModelClient`)
 
 Command:
 ```bash
-npx tsx --tsconfig docs/features/menu-cart/tsconfig.proof.json docs/features/menu-cart/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/menu-cart/proof.ts
 ```
 
 Expected evidence: 81 `PASS` lines, `All checks passed.`, exit code 0.

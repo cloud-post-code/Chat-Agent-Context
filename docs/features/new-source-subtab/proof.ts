@@ -1,6 +1,6 @@
 /**
  * Primary proof for new-source-subtab (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/new-source-subtab/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/new-source-subtab/proof.ts
  *
  * Offline: pure tab resolution, server-rendered SubTabs markup, and

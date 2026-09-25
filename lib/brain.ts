@@ -445,19 +445,19 @@ function parseCardInput(raw: string | null): Record<string, unknown> {
 }
 
 /** The model tier: stream text, run any tools, let Claude close. */
-async function* runModel(
+/**
+ * Everything runModel needs to open the model loop: the system prompt (with
+ * the scripted-answer wrapper when a canned row supplies one) and the tool
+ * list gated by the card catalog plus the data-only gates (booking, social).
+ * Pulled out of runModel so that function stays under the line-count limit;
+ * behaviour is unchanged, just named and testable on its own.
+ */
+async function assembleTools(
   userId: string,
   message: string,
-  history: Msg[],
-  client: ModelClient,
-  /**
-   * An owner-approved answer for this exact question (a canned/starter row with
-   * no card attached). The model must speak it as written — it is here only so
-   * the turn can still carry an A2UI card the prose alone couldn't show.
-   */
-  script?: string,
-  cart?: CartLineSummary[],
-): AsyncGenerator<BrainEvent> {
+  script: string | undefined,
+  cart: CartLineSummary[] | undefined,
+): Promise<{ system: string; tools: Anthropic.Tool[] }> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
   const [corePrompt, catalog, booking, searchSection, socialEnabled] = await Promise.all([
@@ -490,6 +490,23 @@ async function* runModel(
   if (booking?.enabled) tools.push(BOOKING_TOOL);
   if (socialEnabled) tools.push(SHOW_SOCIAL_TOOL);
   if (!script) tools.push(SEARCH_TOOL);
+  return { system, tools };
+}
+
+async function* runModel(
+  userId: string,
+  message: string,
+  history: Msg[],
+  client: ModelClient,
+  /**
+   * An owner-approved answer for this exact question (a canned/starter row with
+   * no card attached). The model must speak it as written — it is here only so
+   * the turn can still carry an A2UI card the prose alone couldn't show.
+   */
+  script?: string,
+  cart?: CartLineSummary[],
+): AsyncGenerator<BrainEvent> {
+  const { system, tools } = await assembleTools(userId, message, script, cart);
   const convo: Anthropic.MessageParam[] = history.map((m) => ({
     role: m.role,
     // Fold what a past assistant turn's cards showed into its content, so

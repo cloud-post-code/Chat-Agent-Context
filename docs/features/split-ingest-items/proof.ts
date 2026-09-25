@@ -1,6 +1,6 @@
 /**
  * Primary proof for split-ingest-items (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/split-ingest-items/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/split-ingest-items/proof.ts
  *
  * Local dev Postgres; zero model calls. `proof-sii-` markers, finally cleanup.

@@ -1,6 +1,6 @@
 /**
  * Primary proof for per-item-classification (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/per-item-classification/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/per-item-classification/proof.ts
  */
 import { createElement as h } from "react";

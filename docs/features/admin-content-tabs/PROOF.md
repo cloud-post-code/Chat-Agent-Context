@@ -28,7 +28,7 @@ exercises the deep-link mapping rather than standing up auth + Postgres)
 Command:
 
 ```bash
-npx tsx --tsconfig docs/features/admin-content-tabs/tsconfig.json docs/features/admin-content-tabs/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/admin-content-tabs/proof.ts
 ```
 
 (The local tsconfig switches `jsx` to `react-jsx` so tsx can compile the

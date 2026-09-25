@@ -1,6 +1,6 @@
 /**
  * Primary proof for delete-hide-ingestion-sources (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/delete-hide-ingestion-sources/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/delete-hide-ingestion-sources/proof.ts
  *
  * Local dev Postgres; zero model calls (injected extractor, splitMode

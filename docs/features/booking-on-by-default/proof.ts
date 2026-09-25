@@ -1,6 +1,6 @@
 /**
  * Primary proof for booking-on-by-default (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/booking-on-by-default/tsconfig.proof.json docs/features/booking-on-by-default/proof.ts
+ * Run: npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-on-by-default/proof.ts
  *
  * Three sections, one command:
  *   A. bookingEnabled defaults on, without flipping existing tenants.

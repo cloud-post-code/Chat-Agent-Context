@@ -1,6 +1,6 @@
 /**
  * Primary proof for booking-menu-fields (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/booking-menu-fields/tsconfig.proof.json docs/features/booking-menu-fields/proof.ts
+ * Run: npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-menu-fields/proof.ts
  *
  * Section A exercises the pure rules. Sections B–D run the real store, the
  * real card hydration, the real booking transaction and the real onboarding

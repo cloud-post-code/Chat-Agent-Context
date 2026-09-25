@@ -1,6 +1,6 @@
 /**
  * Primary proof for admin-nav-groups (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/admin-nav-groups/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/admin-nav-groups/proof.ts
  *
  * Offline: pure nav config + resolver + Home item computation, server-rendered

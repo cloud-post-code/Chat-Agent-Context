@@ -2,7 +2,7 @@
 
 ## Primary proof command
 ```
-npx tsx --tsconfig docs/features/booking-on-by-default/tsconfig.proof.json docs/features/booking-on-by-default/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/booking-on-by-default/proof.ts
 ```
 (The `--tsconfig` override sets `jsx: react-jsx` for this run only. The repo
 builds with `jsx: preserve` for Next, under which tsx renders no component —

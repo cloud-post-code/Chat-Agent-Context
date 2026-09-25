@@ -18,7 +18,7 @@ Type: integration (Postgres + a temp upload dir; no model or network calls)
 
 Command:
 ```bash
-npx tsx --tsconfig docs/features/full-account-wipe/tsconfig.json docs/features/full-account-wipe/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/full-account-wipe/proof.ts
 ```
 
 The script creates two throwaway users, seeds one row in every per-user

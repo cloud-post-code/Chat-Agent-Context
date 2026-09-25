@@ -1,4 +1,4 @@
-import { getProfile } from "@/lib/db";
+import { prisma } from "@/lib/db";
 import { parseSocialLinks, type SocialLink } from "@/lib/socialLinks";
 
 /**
@@ -64,6 +64,20 @@ function defaultTitle(platforms: string[] | undefined, items: SocialLink[]): str
 const str = (v: unknown, max: number): string => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
 /**
+ * Load just the social_links column, never upserting: hasSocialLinks and
+ * socialBlock both run concurrently with buildSystemPrompt's own getProfile
+ * call (lib/brain.ts's runModel Promise.all), and getProfile is an upsert —
+ * two concurrent upserts on a tenant with no Profile row yet race on the
+ * unique userId constraint and one throws. A profile that doesn't exist yet
+ * simply has no links (null -> []); the upsert elsewhere is what creates the
+ * row, this read never needs to.
+ */
+async function socialLinksColumn(userId: string): Promise<string> {
+  const profile = await prisma.profile.findUnique({ where: { userId }, select: { social_links: true } });
+  return profile?.social_links ?? "";
+}
+
+/**
  * Build the social card from this tenant's stored links, filtered by the
  * tool's input. `input.platforms` is a string array; anything else is
  * ignored (empty filter). `input.title` overrides the derived default, capped
@@ -75,8 +89,7 @@ export async function socialBlock(
   userId: string,
   input: Record<string, unknown>,
 ): Promise<SocialBlock | null> {
-  const profile = await getProfile(userId);
-  const links = parseSocialLinks(profile.social_links);
+  const links = parseSocialLinks(await socialLinksColumn(userId));
   const platforms = Array.isArray(input.platforms)
     ? input.platforms.filter((p): p is string => typeof p === "string")
     : undefined;
@@ -88,6 +101,5 @@ export async function socialBlock(
 
 /** Whether this tenant has any social links at all — gates show_social on data, not the catalog. */
 export async function hasSocialLinks(userId: string): Promise<boolean> {
-  const profile = await getProfile(userId);
-  return parseSocialLinks(profile.social_links).length > 0;
+  return parseSocialLinks(await socialLinksColumn(userId)).length > 0;
 }

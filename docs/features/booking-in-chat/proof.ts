@@ -91,11 +91,19 @@ async function main() {
   // ══ B. The thread, in a real Chat under jsdom ════════════════════════════
   console.log("B. The conversation of cards (proof/chat-thread.ts, jsdom, the real Chat)");
   const dir = __dirname;
-  const child = spawnSync("npx", ["tsx", "--tsconfig", path.join(dir, "tsconfig.proof.json"), path.join(dir, "proof", "chat-thread.ts")], {
-    cwd: path.resolve(dir, "../../.."),
-    stdio: "inherit",
-    env: { ...process.env, TZ: "UTC" },
-  });
+  const repoRoot = path.resolve(dir, "../../..");
+  // The shared root tsconfig.proofs.json (jsx: react-jsx for every proof that
+  // mounts real .tsx components) replaced each feature's own
+  // tsconfig.proof.json — matches the command PROOF.md documents.
+  const child = spawnSync(
+    "npx",
+    ["tsx", "--tsconfig", path.join(repoRoot, "tsconfig.proofs.json"), path.join(dir, "proof", "chat-thread.ts")],
+    {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: { ...process.env, TZ: "UTC" },
+    },
+  );
   check("B the chat-thread proof is green", child.status === 0, `exit ${child.status ?? child.signal}`);
 
   console.log(failures ? `\n${failures} check(s) failed (${passes} passed).` : `\nAll checks passed.`);

@@ -1,6 +1,6 @@
 /**
  * Primary proof for custom-panel-code (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/custom-panel-code/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/custom-panel-code/proof.ts
  */
 import { createElement as h } from "react";

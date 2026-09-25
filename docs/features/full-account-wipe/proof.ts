@@ -1,6 +1,6 @@
 /**
  * Primary proof for full-account-wipe (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/full-account-wipe/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/full-account-wipe/proof.ts
  *
  * Postgres plus a temp upload dir; no model or network calls. Seeds two

@@ -1,7 +1,17 @@
 "use client";
 
-import type { ReactElement } from "react";
+// Explicit default import, not just the ReactElement type: the ICONS map
+// below builds its JSX at module load time, and some proof harnesses (e.g.
+// docs/features/services-card/proof.ts, docs/features/menu-cart/proof.ts)
+// import this file — via app/cards/Cards.tsx's social dispatch — under a
+// tsx transform that does not reliably apply the automatic JSX runtime to a
+// nested .tsx module, falling back to bare `React.createElement` calls that
+// need `React` as an actual binding rather than only a global one proof
+// happens to set. Importing it here removes the dependency on any global.
+import React, { type ReactElement } from "react";
 import { card, linkBtn } from "./styles";
+
+void React;
 
 /**
  * The social-links A2UI element: one button per profile the visitor asked

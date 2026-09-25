@@ -3,7 +3,7 @@
 ## Primary proof command
 
 ```
-npx tsx --tsconfig docs/features/delete-ingested-items/tsconfig.json docs/features/delete-ingested-items/proof.ts
+npx tsx --tsconfig tsconfig.proofs.json docs/features/delete-ingested-items/proof.ts
 ```
 
 Local dev Postgres via `.env`; zero model calls (fakes injected, embedding

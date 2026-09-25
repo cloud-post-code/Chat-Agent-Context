@@ -1,6 +1,6 @@
 /**
  * Primary proof for per-source-split-mode (see PROOF.md).
- * Run: npx tsx --tsconfig docs/features/per-source-split-mode/tsconfig.json \
+ * Run: npx tsx --tsconfig tsconfig.proofs.json \
  *        docs/features/per-source-split-mode/proof.ts
  *
  * Local dev Postgres; zero model calls. `proof-psm-` markers, finally cleanup.
