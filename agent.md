@@ -77,6 +77,28 @@ and `rebuildUntouchedForm` writes them only over a form nobody has edited.
 Checked live against a real booking page by
 `docs/features/booking-form-planner/crosscheck.ts`.
 
+## Onboarding: the booking-form step
+
+Second to last in the onboarding chat (before the knowledge pick; last on the
+manual path). The services read runs as its own `booking` stage
+(`lib/onboarding/jobs.ts` `runBooking`, fail-soft) so the form it built can be
+shown before extraction: `BookingFormStep` lists the steps a customer meets
+(`lib/booking/steps.ts`, pure, from the same `BookingFlow` the card draws),
+opens the real `BookingFlowCard` in `preview` (real availability and quote,
+nothing booked), and takes plain-words requests. Each request is one round of
+`lib/onboarding/bookingFormChat.ts` (`POST /api/admin/onboarding/booking-form`):
+the model is told the form as it stands — services with ids, providers,
+customer fields' state, questions with keys, the step order — and changes it
+with `add_question` / `edit_question` / `remove_question` /
+`reorder_questions`, `set_customer_field`, `set_staff_selection`,
+`set_confirmation`, `add_service` / `edit_service` / `remove_service`, then
+answers in a sentence; the form is re-read and shown again with new, changed
+and removed steps marked. Name, email and phone are customer details, never
+questions; prices only as stated. Every write goes through the store the
+Booking panels use, so a chat edit claims the form (no longer `generated`).
+The knowledge stage skips `services` once the booking stage ran. Proof:
+`docs/features/onboarding-booking-form-step/proof.ts`.
+
 ## Site-cards agent: A2UI cards from the imported site
 
 The A2UI tab's "Build cards from my site" button runs `buildCardsFromSite`

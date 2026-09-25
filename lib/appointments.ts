@@ -287,6 +287,24 @@ export async function moveAppointmentField(
   await claimForm(userId);
 }
 
+/**
+ * Put the questions in the given order. Keys left out keep their relative
+ * order after the named ones; unknown keys are ignored. Like any reorder, this
+ * makes the form the tenant's own.
+ */
+export async function reorderAppointmentFields(userId: string, keys: string[]): Promise<void> {
+  const fields = await prisma.appointmentField.findMany({ where: { userId }, orderBy: { order: "asc" } });
+  const wanted = keys.filter((k, i) => keys.indexOf(k) === i && fields.some((f) => f.key === k));
+  const rest = fields.filter((f) => !wanted.includes(f.key)).map((f) => f.key);
+  const order = [...wanted, ...rest];
+  await prisma.$transaction(
+    order.map((key, i) =>
+      prisma.appointmentField.update({ where: { userId_key: { userId, key } }, data: { order: i } }),
+    ),
+  );
+  await claimForm(userId);
+}
+
 export type CreateAppointmentResult = { ok: true; id: string } | { ok: false; error: string };
 
 /** The tenant's default appointment length — the one BookingSettings field

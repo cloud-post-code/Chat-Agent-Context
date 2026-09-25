@@ -14,7 +14,7 @@ import { ProviderStep, providerCandidates } from "./ProviderStep";
 import { ReviewStep } from "./ReviewStep";
 import { OptionsStep, ServiceStep } from "./ServiceStep";
 import { TimeStep } from "./TimeStep";
-import { card, headingStyle, inputStyle, linkBtn, liveBtn, progressStyle } from "./ui";
+import { card, headingStyle, inputStyle, linkBtn, liveBtn, progressStyle, textBtn } from "./ui";
 
 /**
  * The visitor-facing booking card: a state machine over one `BookingSelection`
@@ -113,6 +113,7 @@ export function BookingFlowCard({
   flow: flowProp,
   preselectServiceId,
   prefill,
+  preview = false,
 }: {
   slug: string;
   fields: BookingField[];
@@ -122,6 +123,12 @@ export function BookingFlowCard({
   preselectServiceId?: string | null;
   /** Legacy-mode prefill (no flow): an intake answer the visitor already gave elsewhere. */
   prefill?: Record<string, string>;
+  /**
+   * The owner trying their own form (the onboarding booking-form step): every
+   * step is the real one — live availability, the real quote — but confirming
+   * books nothing, and the card can be started over.
+   */
+  preview?: boolean;
 }) {
   const [remote, setRemote] = useState<{ flow: BookingFlow | null; fields: BookingField[] } | null>(
     flowProp ? { flow: flowProp, fields } : null,
@@ -147,11 +154,11 @@ export function BookingFlowCard({
   const intake = remote?.fields ?? fields;
 
   if (!flow) {
-    return <LegacyWizard slug={slug} fields={intake} prefill={prefill} />;
+    return <LegacyWizard slug={slug} fields={intake} prefill={prefill} preview={preview} />;
   }
 
   return (
-    <FlowWizard slug={slug} flow={flow} intake={intake} preselectServiceId={preselectServiceId ?? flow.preselect.serviceId} />
+    <FlowWizard slug={slug} flow={flow} intake={intake} preselectServiceId={preselectServiceId ?? flow.preselect.serviceId} preview={preview} />
   );
 }
 
@@ -160,11 +167,13 @@ function FlowWizard({
   flow,
   intake,
   preselectServiceId,
+  preview,
 }: {
   slug: string;
   flow: BookingFlow;
   intake: BookingField[];
   preselectServiceId: string | null;
+  preview: boolean;
 }) {
   const [selection, setSelection] = useState<BookingSelection>(() => emptySelection(preselectServiceId));
   const [stepIndex, setStepIndex] = useState(0);
@@ -202,23 +211,45 @@ function FlowWizard({
   function setAnswer(key: string, value: Answer) {
     setSelection((sel) => ({ ...sel, answers: { ...sel.answers, [key]: value } }));
   }
+  function startOver() {
+    setSelection(emptySelection(preselectServiceId));
+    setStepIndex(0);
+    setReturnToReview(false);
+    setConfirmed(null);
+  }
+
+  // The owner's preview says so on every screen, and can always be restarted.
+  const previewNote = preview && (
+    <p style={{ ...progressStyle, display: "flex", justifyContent: "space-between", gap: 10 }}>
+      <span>Preview — nothing gets booked.</span>
+      {(confirmed || index > 0) && (
+        <button type="button" onClick={startOver} style={textBtn}>
+          Start over
+        </button>
+      )}
+    </p>
+  );
 
   if (confirmed) {
     return (
-      <Confirmed
-        flow={flow}
-        result={confirmed.result}
-        waitlisted={confirmed.waitlisted}
-        service={service}
-        provider={provider}
-        location={location}
-        selection={selection}
-      />
+      <div>
+        {previewNote}
+        <Confirmed
+          flow={flow}
+          result={confirmed.result}
+          waitlisted={confirmed.waitlisted}
+          service={service}
+          provider={provider}
+          location={location}
+          selection={selection}
+        />
+      </div>
     );
   }
 
   return (
     <div data-fill="bg-soft" style={{ ...card, maxWidth: 560 }}>
+      {previewNote}
       <p style={progressStyle}>
         Step {index + 1} of {steps.length}
       </p>
@@ -262,6 +293,7 @@ function FlowWizard({
           onEdit={editTarget}
           onBack={goBack}
           onConfirmed={(result, waitlisted) => setConfirmed({ result, waitlisted })}
+          preview={preview}
         />
       )}
     </div>
@@ -273,7 +305,17 @@ function FlowWizard({
  * one intake question per screen, then a plain datetime picker, then confirm,
  * POSTing the legacy `{ slug, startsAt, answers }` body.
  */
-function LegacyWizard({ slug, fields, prefill }: { slug: string; fields: BookingField[]; prefill?: Record<string, string> }) {
+function LegacyWizard({
+  slug,
+  fields,
+  prefill,
+  preview = false,
+}: {
+  slug: string;
+  fields: BookingField[];
+  prefill?: Record<string, string>;
+  preview?: boolean;
+}) {
   const asked = fields.filter((f) => f.type === "multi_select" || !(prefill?.[f.key] ?? "").trim());
   const [step, setStep] = useState(0);
   const [answers, setAnswers] = useState<Answers>(prefill ?? {});
@@ -288,6 +330,10 @@ function LegacyWizard({ slug, fields, prefill }: { slug: string; fields: Booking
 
   async function submit() {
     if (state === "sending" || !startsAt) return;
+    if (preview) {
+      setState("done");
+      return;
+    }
     setState("sending");
     setError("");
     const res = await createLegacyBooking(slug, startsAt.toISOString(), answers);

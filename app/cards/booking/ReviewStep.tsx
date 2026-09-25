@@ -50,6 +50,7 @@ export function ReviewStep({
   onEdit,
   onBack,
   onConfirmed,
+  preview = false,
 }: {
   flow: BookingFlow;
   service: ServiceRow | null;
@@ -63,6 +64,8 @@ export function ReviewStep({
   onEdit: (target: EditTarget) => void;
   onBack: () => void;
   onConfirmed: (result: CreateBookingResult, waitlisted: boolean) => void;
+  /** The owner trying their own form: confirm draws the confirmation without booking anything. */
+  preview?: boolean;
 }) {
   const [breakdown, setBreakdown] = useState<PriceBreakdown | null>(null);
   const [promoInput, setPromoInput] = useState(selection.promoCode);
@@ -135,6 +138,24 @@ export function ReviewStep({
 
   async function submit(waitlist: boolean) {
     if (sending) return;
+    if (preview) {
+      const start = new Date(selection.startsAt || Date.now());
+      onConfirmed(
+        {
+          id: "preview",
+          status: waitlist ? "waitlisted" : "confirmed",
+          startsAt: start.toISOString(),
+          endsAt: new Date(start.getTime() + b.durationMinutes * 60000).toISOString(),
+          breakdown: b,
+          staffName: provider?.name ?? "",
+          locationName: location?.name ?? "",
+          serviceName: service?.name ?? "",
+          ids: [],
+        },
+        waitlist,
+      );
+      return;
+    }
     setSending(true);
     setError("");
     setFull(false);

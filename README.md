@@ -409,6 +409,16 @@ with the services menu straight away, no re-onboarding needed. The rules and the
 real booking page they were checked against are in
 `docs/features/booking-form-planner/`.
 
+**The booking-form step.** The services read runs as its own onboarding stage,
+second to last, so the chat can show the form it built before extraction: the
+steps a customer meets, the real booking card in a preview that books nothing,
+and a text box to say what is missing or wrong — "ask how many guests", "make
+the phone optional", "add a $20 beard trim". Each message is applied for real
+through the same store the Booking panels use
+(`lib/onboarding/bookingFormChat.ts`) and the form is shown again with what
+changed marked. A chat edit makes the form the tenant's, like any admin edit.
+`docs/features/onboarding-booking-form-step/`.
+
 `hydrate()` turns a tool call into a concrete payload
 ([`lib/cards.ts`](lib/cards.ts)); [`app/cards/Cards.tsx`](app/cards/Cards.tsx)
 renders it. The prompt instructs Claude to always speak a sentence *alongside* a
