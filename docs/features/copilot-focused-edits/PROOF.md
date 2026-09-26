@@ -30,7 +30,7 @@ Expected evidence:
 - Persisted rows observed and then cleaned up: throwaway user and its `ThemeConfig`.
 
 Secondary guards:
-- `npx tsx docs/features/admin-chat-a2ui/proof.ts` still green.
+- `npx tsx docs/features/admin-chat-panels/proof.ts` still green.
 - `npx tsc --noEmit` and `npm run lint` clean.
 - Red run recorded before implementation: `applyThemeColor` is not exported and no
   `edit` event is emitted.

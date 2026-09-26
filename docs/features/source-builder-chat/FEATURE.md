@@ -29,8 +29,8 @@ default to `generic` + `text`), the model answers as JSON
 `{reply, draft|null}`, and parsing is defensive — non-JSON becomes a plain
 reply with no draft, out-of-vocabulary fields coerce to safe defaults, a
 draft without a label is no draft. The client is injectable so the proof
-runs with zero model calls. Model: `cardBuilderModel()` (same env knob as
-the card builder).
+runs with zero model calls. Model: `builderModel()` (the `BUILDER_MODEL` env
+knob).
 
 ## Why
 

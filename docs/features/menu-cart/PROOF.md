@@ -1,7 +1,7 @@
 # Proof Plan — Menu and cart
 
 ## Definition Of Done
-- `menu` and `cart` A2UI blocks with `show_menu` / `show_cart` tools, typed in
+- `menu` and `cart` card blocks with `show_menu` / `show_cart` tools, typed in
   `lib/cards.ts` and mirrored in the renderer, hydrated through `hydrate()`,
   `CARD_TOOLS` entries, storable sample types, renderer branches.
 - The extractor writes `MenuItem` rows from the model's report through the

@@ -13,13 +13,13 @@ wiring reads. No DB, no model calls.
 ## Assertions (all must pass)
 
 1. **Nav config**: `NAV_GROUPS` keys are exactly
-   `home, inbox, knowledge, agent, cards, settings`; every sub key is unique;
+   `home, inbox, knowledge, agent, booking, settings`; every sub key is unique;
    `fixedPanelEntries(false)` excludes `home` and `users`;
    `fixedPanelEntries(true)` includes `users`; `labelsFromNav()` maps
-   `graph` → "Health", `a2ui` → "Cards", `booking` → "Booking".
+   `graph` → "Health", `booking` → "Booking".
 2. **Deep links**: `resolveAdminTab` yields `activity`→inbox,
    `calendar`→inbox/appointments, `orders`→inbox, `booking`→settings,
-   `graph`→knowledge, `a2ui`→cards, `contacts`→settings, `answers`→agent,
+   `graph`→knowledge, `contacts`→settings, `answers`→agent,
    `goals`→agent, `profile`→settings, `theme`→settings, `me`→settings/profile,
    `users`→settings, `new-source`→knowledge, a live source key→knowledge,
    `content`→knowledge on the first live key (sub undefined with none),
@@ -51,7 +51,7 @@ and `homeItems` do not exist — the imports fail and the proof exits non-zero.
 
 - Updated sibling proofs: `admin-content-tabs`, `ingestion-driven-dashboard`,
   `new-source-subtab` (offline); `booking-on-by-default`,
-  `appointment-booking`, `admin-chat-a2ui` (need Postgres).
+  `appointment-booking`, `admin-chat-panels` (need Postgres).
 - `npx tsc --noEmit`, `npm run lint`, gate PASS.
 - Browser: open `/admin/dashboard`, click each Home link and see the section
   switch; ask the copilot to show appointments.

@@ -15,7 +15,7 @@ import {
 import { uploadBookingFile } from "./booking/api";
 
 /**
- * The booking wizard's question controls: one A2UI element per question type,
+ * The booking wizard's question controls: one card control per question type,
  * chosen by the field's `type` and shaped by its `config` — the card is handed
  * data, never markup. Text questions get an input; a choice question gets its
  * options as tappable rows (a menu, when they carry prices: name, price,

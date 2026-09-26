@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/db";
-import { safeCardHtml } from "@/lib/uiCards";
+import { safeHtml } from "@/lib/util/html";
 import {
   CLASSIFICATIONS,
   ENABLED_CLASSIFICATIONS,
@@ -22,12 +22,11 @@ import {
  * classification its ingests DEFAULT to (overridable per document — see
  * lib/itemClassification.ts).
  *
- * Which ingestion sources exist is data, not code — the same principle the
- * A2UI card catalog (lib/uiCards.ts) follows. The dashboard renders the
+ * Which ingestion sources exist is data, not code. The dashboard renders the
  * Content tab strip from these rows in `order`; built-in rows dispatch to
  * their bespoke panels by key, custom rows render the generic panel.
  *
- * Data only, like lib/uiCards.ts — rendering belongs to the admin pages.
+ * Data only — rendering belongs to the admin pages.
  */
 
 export * from "./ingestionSources.shared";
@@ -77,7 +76,7 @@ export async function saveIngestionSource(userId: string, input: {
     return `Unknown split mode "${splitMode}". One of: ${SPLIT_MODES.join(", ")}.`;
   }
   const panelHtml = (input.panelHtml ?? "").trim();
-  if (panelHtml && !safeCardHtml(panelHtml)) {
+  if (panelHtml && !safeHtml(panelHtml)) {
     return (
       "Page code must be plain HTML with inline CSS — no scripts, forms, " +
       "iframes, or event handlers, and at most 40KB."

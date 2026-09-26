@@ -1,6 +1,6 @@
 /**
- * Live cross-check for composable-a2ui-elements — NOT the primary proof.
- * Run: npx tsx docs/features/composable-a2ui-elements/live.ts [slug]
+ * Live cross-check for composable-card-elements — NOT the primary proof.
+ * Run: npx tsx docs/features/composable-card-elements/live.ts [slug]
  *
  * Runs the five visitor messages from FEATURE.md's Scenarios in sequence
  * against the REAL model on an existing tenant (default slug "blake"),
@@ -63,7 +63,7 @@ async function main() {
     const events: { t: string; v: unknown }[] = [];
     let text = "";
     for await (const e of answer(
-      { userId: user.id, message, sessionId: `live-composable-a2ui-${Date.now()}`, history: history as never },
+      { userId: user.id, message, sessionId: `live-composable-cards-${Date.now()}`, history: history as never },
       {},
     )) {
       events.push(e as { t: string; v: unknown });

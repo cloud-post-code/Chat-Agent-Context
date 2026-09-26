@@ -70,7 +70,6 @@ export type ChecklistInput = {
     company_hours: string;
   };
   taglineSource: string;
-  cardCount: number;
   bookingEnabled: boolean;
   /** Enabled knowledge sources with how many items each holds. */
   sources: ReadonlyArray<{ key: string; label: string; count: number }>;
@@ -89,7 +88,6 @@ export function checklistItems(input: ChecklistInput): ChecklistItem[] {
   return [
     { label: "Fill in your business profile", done: profileDone, tab: "profile" },
     { label: "Confirm your tagline", done: input.taglineSource !== "suggested", tab: "theme" },
-    { label: "Build at least one card", done: input.cardCount > 0, tab: "a2ui" },
     { label: "Turn on appointment booking", done: input.bookingEnabled, tab: "booking" },
     ...input.sources.map((s) => ({
       label: `Add something to ${s.label}`,

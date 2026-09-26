@@ -62,7 +62,7 @@ AgentDirective {
   tabs.
 - No AI drafting, no reordering UI, no import/export — smallest change that
   makes the two placeholder tabs real.
-- No changes to canned answers, A2UI, retrieval, or persona.
+- No changes to canned answers, cards, retrieval, or persona.
 
 ## Out of scope
 - Per-goal analytics (did the chat achieve the goal).

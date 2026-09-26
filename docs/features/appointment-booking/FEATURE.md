@@ -1,4 +1,4 @@
-# Feature — Appointment booking: an A2UI multi-question flow, an admin calendar, and appointments as knowledge
+# Feature — Appointment booking: a multi-question card flow, an admin calendar, and appointments as knowledge
 
 > **Superseded / what changed (2026-09-26, custom-booking-form):** the
 > one-question-at-a-time wizard and `createAppointment`, the write path this
@@ -14,7 +14,7 @@
 
 ## Summary
 
-Visitors can book an appointment through the chat agent via a multi-step A2UI
+Visitors can book an appointment through the chat agent via a multi-step card
 flow that asks one question at a time — the questions being the operator's own
 configured fields plus a date and time — and the tenant can see and manage those
 appointments on a calendar, both by asking the admin chat agent and on a
@@ -44,7 +44,7 @@ else.
   redeploy, no re-enable.
 
 ### Booking (visitor chat)
-- When booking is enabled, the visitor-chat agent can draw a `booking` A2UI
+- When booking is enabled, the visitor-chat agent can draw a `booking`
   card (a `show_booking` tool, gated exactly like other cards: withheld from
   the model when disabled, guarded in hydration so stale canned answers draw
   nothing).
@@ -83,7 +83,7 @@ else.
 ## Scope
 - Prisma models for appointments and per-tenant booking fields; an enable flag
   in per-tenant config.
-- A `booking` A2UI block + `show_booking` tool in the visitor chat pipeline
+- A `booking` card block + `show_booking` tool in the visitor chat pipeline
   (schema in `lib/cards.ts`, renderer in `app/cards/Cards.tsx`, tool gating in
   `lib/brain.ts`, prompt guidance in `lib/knowledge.ts`).
 - Booking API routes (fetch flow config, submit a booking).
@@ -124,7 +124,7 @@ else.
 ## Constraints
 - Postgres via Prisma is the only store; migrations via `prisma migrate`, never
   `db push`. No new external services or dependencies.
-- Follow the existing A2UI patterns exactly: data-block cards for visitor chat,
+- Follow the existing card patterns exactly: data-block cards for visitor chat,
   pre-rendered panel-reveal for admin chat. No new streaming mechanism.
 - Fail closed: any error path (disabled, malformed config, DB failure) yields
   no booking tool / no slots, never an open booker.

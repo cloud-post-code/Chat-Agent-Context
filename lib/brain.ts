@@ -14,7 +14,7 @@ import {
 import { getBookingConfig } from "@/lib/appointments";
 import { recordTurn } from "@/lib/activity";
 import { findServableCanned, recordCannedHit } from "@/lib/canned";
-import { cardCatalog, customCardBlock } from "@/lib/uiCards";
+import { availableCardTools } from "@/lib/cardTools";
 import { cartBlock, cartPromptSection, findMenuItem, menuBlock, menuPromptSection } from "@/lib/menu";
 import type { MenuItemData } from "@/lib/menuTypes";
 import { prisma } from "@/lib/db";
@@ -23,7 +23,7 @@ import { hasSocialLinks, socialBlock } from "@/lib/social";
 
 /**
  * The chatbot, independent of how it was reached. `answer()` is the one entry
- * point: it decides between a canned answer and the model, runs the A2UI tool
+ * point: it decides between a canned answer and the model, runs the card tool
  * loop, and logs the turn. Transports (the /api/chat route today, another
  * channel later) only translate its events onto the wire.
  *
@@ -230,9 +230,9 @@ const ADD_TO_CART_TOOL: Anthropic.Tool = {
 };
 
 /**
- * The booking wizard's tool. Unlike TOOLS above it is not gated by the card
- * catalog: the Appointments toggle is its whole existence, so it is offered
- * exactly when booking is enabled and withheld otherwise.
+ * The booking wizard's tool. Unlike TOOLS above it is not gated on what
+ * lib/cardTools.ts counts: the Appointments toggle is its whole existence, so
+ * it is offered exactly when booking is enabled and withheld otherwise.
  */
 const BOOKING_TOOL: Anthropic.Tool = {
   name: "show_booking",
@@ -250,10 +250,9 @@ const BOOKING_TOOL: Anthropic.Tool = {
 };
 
 /**
- * The gated `show_social` tool: offered on the tenant's OWN data (whether
- * they have any social links at all), not on the card catalog — mirroring
- * BOOKING_TOOL, since no existing tenant has a show_social UiCard row and
- * bootstrap never seeds one.
+ * The gated `show_social` tool: offered on whether the tenant has any social
+ * links on file at all — its own gate beside BOOKING_TOOL's, read from the
+ * profile rather than counted with the other cards' data.
  */
 const SHOW_SOCIAL_TOOL: Anthropic.Tool = {
   name: "show_social",
@@ -286,25 +285,6 @@ function resolveOneService(services: { id: string; name: string }[], wanted: str
     services.find((s) => s.name.toLowerCase().includes(w))?.id ??
     null
   );
-}
-
-/**
- * The tool for cards designed in the admin card builder. One tool for all of
- * them, keyed: the key enum makes the model's choice a closed set, and the
- * per-card "when to show it" guidance lives in the system prompt beside it.
- */
-function customCardTool(keys: string[]): Anthropic.Tool {
-  return {
-    name: "show_card",
-    description:
-      "Render one of the owner's custom-designed cards. Pass the card's key exactly as given " +
-      "in the USING RICH CARDS instructions.",
-    input_schema: {
-      type: "object",
-      properties: { key: { type: "string", enum: keys, description: "The card's key" } },
-      required: ["key"],
-    },
-  };
 }
 
 /**
@@ -425,10 +405,6 @@ export async function hydrate(userId: string, name: string, input: Record<string
       }
       return ok(block, `Rendered ${block.items.length} social links: ${block.items.map((i) => i.platform).join(", ")}.`);
     }
-    case "show_card":
-      // Null when the key doesn't name a custom card any more — a canned
-      // answer can outlive the card it pointed at.
-      return ok(await customCardBlock(userId, String(input.key ?? "")), "Card rendered to the user.");
     default:
       return ok(null, "No data available.");
   }
@@ -448,9 +424,9 @@ function parseCardInput(raw: string | null): Record<string, unknown> {
 /**
  * Everything runModel needs to open the model loop: the system prompt (with
  * the scripted-answer wrapper when a canned row supplies one) and the tool
- * list gated by the card catalog plus the data-only gates (booking, social).
- * Pulled out of runModel so that function stays under the line-count limit;
- * behaviour is unchanged, just named and testable on its own.
+ * list, every card gated on the tenant's own data (lib/cardTools.ts for the
+ * catalog-free cards, the booking toggle and the social links for the rest).
+ * Pulled out of runModel so that function stays under the line-count limit.
  */
 async function assembleTools(
   userId: string,
@@ -460,18 +436,19 @@ async function assembleTools(
 ): Promise<{ system: string; tools: Anthropic.Tool[] }> {
   // The visitor's latest question drives retrieval: the prompt carries only the
   // knowledge relevant to it, not the whole source library.
-  const [corePrompt, catalog, booking, searchSection, socialEnabled] = await Promise.all([
+  const [corePrompt, cardTools, booking, searchSection, socialEnabled] = await Promise.all([
     buildSystemPrompt(userId, message),
-    cardCatalog(userId),
+    availableCardTools(userId),
     getBookingConfig(userId),
     searchPromptSection(userId),
     hasSocialLinks(userId),
   ]);
-  // A tool is offered only when a catalog card names it — the catalog (the
-  // admin's A2UI tab) decides what exists.
-  const catalogTools = new Set(catalog.map((c) => c.tool));
-  // The cart comes with the menu: a menu nobody can order from is a price list.
-  const menuOn = catalogTools.has("show_menu") || catalogTools.has("show_cart");
+  // A card tool is offered only when the tenant has the data it draws from
+  // (lib/cardTools.ts decides, and lib/knowledge.ts writes guidance for the
+  // same set). The cart comes with the menu: a menu nobody can order from is
+  // a price list.
+  const offered: ReadonlySet<string> = cardTools;
+  const menuOn = offered.has("show_menu");
   const menuSection = menuOn ? await menuPromptSection(userId) : "";
   // A scripted turn has its words already; it gets no search tool to wander with.
   const basePrompt = (script ? corePrompt : corePrompt + searchSection) + menuSection + cartPromptSection(cart);
@@ -480,13 +457,10 @@ async function assembleTools(
       `Reply with it as written — do not reword, shorten, extend or add to it:\n\n${script}\n\n` +
       `Your only remaining job is to show a card alongside it when one of the cards above genuinely fits.`
     : basePrompt;
-  const tools = TOOLS.filter((t) => catalogTools.has(t.name) || (menuOn && (t.name === "show_menu" || t.name === "show_cart")));
+  const tools = TOOLS.filter((t) => offered.has(t.name));
   if (menuOn && !script) tools.push(ADD_TO_CART_TOOL);
-  // Custom-designed cards share one keyed tool, built from the catalog.
-  const customKeys = catalog.filter((c) => c.tool === "show_card").map((c) => c.key);
-  if (customKeys.length) tools.push(customCardTool(customKeys));
   // Booking is gated by its own toggle, social by the tenant having links on
-  // file — neither by the catalog.
+  // file.
   if (booking?.enabled) tools.push(BOOKING_TOOL);
   if (socialEnabled) tools.push(SHOW_SOCIAL_TOOL);
   if (!script) tools.push(SEARCH_TOOL);
@@ -501,7 +475,7 @@ async function* runModel(
   /**
    * An owner-approved answer for this exact question (a canned/starter row with
    * no card attached). The model must speak it as written — it is here only so
-   * the turn can still carry an A2UI card the prose alone couldn't show.
+   * the turn can still carry a card the prose alone couldn't show.
    */
   script?: string,
   cart?: CartLineSummary[],
@@ -597,8 +571,8 @@ export async function* answer(
     // either the channel takes no cards, or the owner attached the card this
     // answer should come with. Starter questions are canned rows, so without
     // this a visitor clicking "What nail services do you offer?" got flat prose
-    // and never a card, no matter what the A2UI catalog held. When no card is
-    // attached, the row's answer becomes the model's script and the model
+    // and never a card, however well one fit. When no card is attached, the
+    // row's answer becomes the model's script and the model
     // decides which card (if any) belongs with it.
     if (canned && (!cards || canned.cardTool)) {
       spoken = canned.answer;

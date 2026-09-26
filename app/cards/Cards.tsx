@@ -17,16 +17,15 @@ import { MenuCard, type MenuBlockView } from "./MenuCard";
 import { CartCard } from "./CartCard";
 import type { CartCheckout } from "@/lib/menu";
 import { SocialCard } from "./SocialCard";
-import { HtmlFrame } from "./HtmlFrame";
-import type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "@/lib/cards.types";
-export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem };
+import type { ProjectCard, PhotoCard, ServiceCard, SocialItem } from "@/lib/cards.types";
+export type { ProjectCard, PhotoCard, ServiceCard, SocialItem };
 import { card, cf, linkBtn, liveBtn, textBtn, clamp2 } from "./styles";
 
 export type { BookingField } from "./BookingQuestion";
 // The card idiom lives in styles.ts; re-exported so existing imports still work.
 export { card, cf } from "./styles";
 
-/** Shared A2UI block types (mirrors lib/cards.ts). */
+/** Shared card block types (mirrors lib/cards.ts). */
 export type ServiceBooking = { fields: BookingField[]; flow?: BookingFlow | null };
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
@@ -40,8 +39,6 @@ export type UiBlock =
       items: ServiceCard[];
       booking: ServiceBooking | null;
     }
-  | { type: "custom"; title?: string; elements: CustomElement[] }
-  | { type: "html"; html: string; height?: number }
   // The server's booking block is the START of a booking conversation: the
   // chat gives it a sessionId the moment it arrives (or on load, for older
   // chats), then lays the steps out below it one card at a time.
@@ -112,12 +109,6 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
   if (block.type === "cart") {
     return <CartCard checkout={block.checkout} slug={slug} />;
   }
-  if (block.type === "custom") {
-    return <CustomCard title={block.title} elements={block.elements} />;
-  }
-  if (block.type === "html") {
-    return <HtmlCard html={block.html} height={block.height} />;
-  }
   if (block.type === "social") {
     return <SocialCard title={block.title} items={block.items} />;
   }
@@ -140,131 +131,6 @@ function TitleHeading({ title }: { title: string }) {
       {title}
     </strong>
   );
-}
-
-/**
- * A card the builder CODED — model-written HTML with inline CSS, rendered in a
- * sealed sandbox. Two independent walls stand between that code and the
- * visitor: the iframe sandbox (no scripts, no same-origin — popups only, so
- * target="_blank" links still work), and a CSP baked into the document that
- * allows inline styles and data: images and nothing else, so it cannot phone
- * out to any external host. Validation upstream also refuses to store markup
- * that even looks executable; this is the belt to that suspender.
- *
- * The site's theme variables are resolved here and injected into the document,
- * because a sandboxed iframe inherits nothing — without this, coded cards
- * would go off-palette the moment the admin changes the theme.
- */
-function HtmlCard({ html, height }: { html: string; height?: number }) {
-  const h = typeof height === "number" && height >= 40 && height <= 1200 ? height : 300;
-  return <HtmlFrame html={html} height={h} title="Custom card" tone="bg-soft" style={{ maxWidth: 480, background: "var(--bg-soft)" }} />;
-}
-
-/**
- * A card composed in the admin card builder from the CustomElement vocabulary.
- * Rendered defensively: the elements come from stored model output, so an
- * unknown kind or a malformed entry is skipped, never a crash in a visitor's
- * chat. External links open in a new tab like every other card link here.
- */
-function CustomCard({ title, elements }: { title?: string; elements: CustomElement[] }) {
-  if (!Array.isArray(elements)) return null;
-  return (
-    <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
-      {title && (
-        <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)", display: "block", marginBottom: 8 }}>
-          {title}
-        </strong>
-      )}
-      {elements.map((el, i) => (
-        <CustomEl key={i} el={el} />
-      ))}
-    </div>
-  );
-}
-
-function CustomEl({ el }: { el: CustomElement }) {
-  if (!el || typeof el !== "object") return null;
-  switch (el.kind) {
-    case "heading":
-      return (
-        <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-heading)", margin: "10px 0 4px" }}>
-          {el.text}
-        </div>
-      );
-    case "text":
-      return (
-        <p style={{ fontSize: 14, color: "var(--on-bg-soft)", lineHeight: 1.55, margin: "4px 0" }}>{el.text}</p>
-      );
-    case "list":
-      if (!Array.isArray(el.items)) return null;
-      return (
-        <ul style={{ margin: "4px 0", paddingLeft: 18 }}>
-          {el.items.map((it, i) => (
-            <li key={i} style={{ fontSize: 14, color: "var(--on-bg-soft)", lineHeight: 1.55 }}>
-              {it}
-            </li>
-          ))}
-        </ul>
-      );
-    case "badges":
-      if (!Array.isArray(el.items)) return null;
-      return (
-        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", margin: "6px 0" }}>
-          {el.items.map((it, i) => (
-            <span key={i} style={{ fontSize: 11, color: "var(--accent-on-bg-soft)" }}>
-              #{it}
-            </span>
-          ))}
-        </div>
-      );
-    case "stats":
-      if (!Array.isArray(el.items)) return null;
-      return (
-        <div style={{ display: "flex", gap: 18, flexWrap: "wrap", margin: "8px 0" }}>
-          {el.items.map((s, i) => (
-            <div key={i}>
-              <div style={{ fontSize: 16, fontWeight: 700, color: "var(--on-bg-soft)" }}>{s?.value}</div>
-              <div style={{ fontSize: 11, color: "var(--on-bg-soft)", opacity: 0.75 }}>{s?.label}</div>
-            </div>
-          ))}
-        </div>
-      );
-    case "buttons":
-      if (!Array.isArray(el.items)) return null;
-      return (
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0 2px" }}>
-          {el.items.map((b, i) => (
-            <a key={i} href={b?.url} target="_blank" rel="noreferrer" style={{ ...linkBtn, ...(i === 0 ? liveBtn : {}) }}>
-              {b?.label}
-            </a>
-          ))}
-        </div>
-      );
-    case "image":
-      if (!el.src) return null;
-      // eslint-disable-next-line @next/next/no-img-element
-      return <img src={el.src} alt={el.alt ?? ""} style={{ width: "100%", borderRadius: "var(--radius-sm)", margin: "6px 0" }} />;
-    case "quote":
-      return (
-        <blockquote
-          style={{
-            margin: "8px 0",
-            paddingLeft: 12,
-            borderLeft: "2px solid var(--accent-on-bg-soft)",
-            fontStyle: "italic",
-            fontSize: 14,
-            color: "var(--on-bg-soft)",
-          }}
-        >
-          {el.text}
-          {el.by && <div style={{ fontSize: 12, marginTop: 4, fontStyle: "normal", opacity: 0.75 }}>— {el.by}</div>}
-        </blockquote>
-      );
-    case "divider":
-      return <hr style={{ border: "none", borderTop: "1px solid var(--border)", margin: "10px 0" }} />;
-    default:
-      return null;
-  }
 }
 
 /**

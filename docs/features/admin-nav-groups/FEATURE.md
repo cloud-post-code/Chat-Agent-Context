@@ -17,7 +17,6 @@ panel that resolves it.
   - **Knowledge** — live ingestion-source tabs, then "+ New source"
     `new-source`, then Health `graph` (the graph diagnostics).
   - **Agent** — Presets `answers`, Goals `goals`, Rules `rules`.
-  - **Cards** — `a2ui`. No strip.
   - **Settings** — Profile `profile`, Theme `theme`, Booking `booking`,
     Contacts `contacts`, Users `users` (operators only).
 - The old Calendar panel splits: `AppointmentsPanel` (month grid + cancel),

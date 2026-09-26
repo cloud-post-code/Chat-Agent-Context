@@ -14,7 +14,7 @@ The contact form stays — a lot of visitors have a question, not a meeting.
 
 ## What gets built
 
-1. **A `booking` A2UI block** and a `show_booking` tool alongside
+1. **A `booking` card block** and a `show_booking` tool alongside
    `show_contact_form`, hydrated through the same `hydrate()` path, so canned
    answers and the A2A channel get it for free.
 2. **A Google Calendar boundary** (`lib/google.ts`): OAuth refresh-token → access

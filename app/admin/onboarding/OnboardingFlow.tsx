@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { panel, btn, btnGhost } from "../ui";
-import { card as a2uiCard, cf as a2uiField } from "@/app/cards/Cards";
+import { card as cardStyle, cf as fieldStyle } from "@/app/cards/Cards";
 import { FONT_OPTIONS, BODY_FONT_OPTIONS } from "@/lib/fonts";
 import { RADIUS_OPTIONS, type ThemeColors } from "@/lib/theme";
 import { ThemePicker } from "../ThemePicker";
@@ -51,7 +51,6 @@ type Status = {
     sweep?: { pages: string[] };
   };
   graph?: { entities: number; relations: number };
-  cards?: { written: number; attached: number; cards: { label: string }[] };
   /** Seconds left in the run as of this poll, once the filing pass has begun. */
   eta?: { totalSeconds: number; remainingSeconds: number };
 };
@@ -205,7 +204,7 @@ function UserEntry({ children, maxWidth = 560 }: { children: React.ReactNode; ma
     <div style={{ display: "flex", justifyContent: "flex-end" }}>
       <div
         className="onboard-phase-in"
-        style={{ ...panel, ...a2uiCard, width: "100%", maxWidth, marginBottom: 14 }}
+        style={{ ...panel, ...cardStyle, width: "100%", maxWidth, marginBottom: 14 }}
       >
         {children}
       </div>
@@ -692,8 +691,8 @@ export function OnboardingFlow() {
       </Bubble>
 
       {step === "ask-url" && greetingDone && (
-        // The link entry is an A2UI card element on the user's side of the
-        // chat — it appears only once the greeting has finished typing.
+        // The link entry is a card element on the user's side of the chat —
+        // it appears only once the greeting has finished typing.
         <UserEntry maxWidth={460}>
           <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>
             Add your website
@@ -702,7 +701,7 @@ export function OnboardingFlow() {
             Paste the link to your existing site and I&apos;ll read it for you.
           </p>
           <input
-            style={a2uiField}
+            style={fieldStyle}
             placeholder="https://your-current-site.com"
             value={url}
             onChange={(e) => setUrl(e.target.value)}
@@ -802,7 +801,7 @@ export function OnboardingFlow() {
                 <div
                   key={i}
                   className="onboard-phase-in"
-                  style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
+                  style={{ ...cardStyle, background: "transparent", color: "inherit", marginBottom: 12 }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
@@ -873,7 +872,7 @@ export function OnboardingFlow() {
                 <div
                   key={i}
                   className="onboard-phase-in"
-                  style={{ ...a2uiCard, background: "transparent", color: "inherit", marginBottom: 12 }}
+                  style={{ ...cardStyle, background: "transparent", color: "inherit", marginBottom: 12 }}
                 >
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
                     <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
@@ -1006,7 +1005,7 @@ export function OnboardingFlow() {
                     )}
                   </label>
                   <input
-                    style={a2uiField}
+                    style={fieldStyle}
                     value={tagline}
                     placeholder="A one-line motto for your business"
                     onChange={(e) => setTagline(e.target.value)}
@@ -1017,7 +1016,7 @@ export function OnboardingFlow() {
                     Brand values (one per line)
                   </label>
                   <textarea
-                    style={{ ...a2uiField, resize: "vertical" }}
+                    style={{ ...fieldStyle, resize: "vertical" }}
                     rows={3}
                     value={brandValues}
                     placeholder={"Local first\nHonest craftsmanship"}
@@ -1029,7 +1028,7 @@ export function OnboardingFlow() {
                     Tone of voice (how your agent should write)
                   </label>
                   <textarea
-                    style={{ ...a2uiField, resize: "vertical" }}
+                    style={{ ...fieldStyle, resize: "vertical" }}
                     rows={2}
                     value={tone}
                     placeholder="Warm and conversational; short sentences; no jargon."
@@ -1146,9 +1145,6 @@ export function OnboardingFlow() {
                     : "."}
                   {status.graph?.entities
                     ? ` I also connected ${status.graph.entities} thing${status.graph.entities === 1 ? "" : "s"} across ${status.graph.relations} relationship${status.graph.relations === 1 ? "" : "s"}.`
-                    : ""}
-                  {status.cards?.written
-                    ? ` And I designed ${status.cards.written} card${status.cards.written === 1 ? "" : "s"} your agent can show (${status.cards.cards.map((c) => c.label).join(", ")})${status.cards.attached ? `, attached to ${status.cards.attached} of your starter question${status.cards.attached === 1 ? "" : "s"}` : ""}.`
                     : ""}
                 </p>
                 {summarizeAbsent(status).length > 0 && (

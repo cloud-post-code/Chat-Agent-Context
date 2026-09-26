@@ -65,7 +65,7 @@ website URL with Playwright, or manually via the same forms left empty.
   so the review previews `/api/uploads/...` URLs. Gallery photos render at
   their natural aspect ratio everywhere (review card, filmstrip thumbnails,
   carousel, lightbox) — never cover-cropped.
-- The review's A2UI element shows THREE photos at a time with a
+- The review's card element shows THREE photos at a time with a
   "page / pages" counter and prev/next arrows; captions are editable in
   place and any photo can be removed. Saving creates `Photo` rows
   (kind "gallery", replace semantics) that the public gallery card renders.

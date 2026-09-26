@@ -9,7 +9,7 @@
  *   npx tsx scripts/tagPhotos.ts --dry-run           -> list, no writes, no calls
  *
  * Never run automatically — the owner runs this explicitly (see
- * docs/features/composable-a2ui-elements). New uploads and onboarding tag
+ * docs/features/composable-card-elements). New uploads and onboarding tag
  * automatically; this only catches photos that predate that.
  */
 import { readFileSync } from "node:fs";

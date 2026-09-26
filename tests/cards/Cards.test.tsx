@@ -30,12 +30,8 @@ describe("Cards", () => {
     expect(html.indexOf("Gel manicure")).toBeLessThan(html.indexOf("Acrylic set"));
     expect(html).toContain("Similar");
   });
-  it("contact, custom, html and social", () => {
+  it("contact and social", () => {
     expect(render({ type: "contact" })).toContain("Leave your details");
-    const custom = render({ type: "custom", title: "Hours", elements: [{ kind: "heading", text: "Open late" }, { kind: "list", items: ["Mon 9-5"] }, { kind: "buttons", items: [{ label: "Call", url: "tel:1" }] }] });
-    expect(custom).toContain("Open late");
-    expect(custom).toContain("Mon 9-5");
-    expect(render({ type: "html", html: "<b>hi</b>" })).toMatch(/<iframe/);
     expect(render({ type: "social", items: [{ platform: "instagram", url: "https://instagram.com/x" }] })).toContain("https://instagram.com/x");
   });
 });

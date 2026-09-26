@@ -59,7 +59,7 @@ export default async function Dashboard({
   const groupContent = (g: NavGroup) => {
     const tabs = sub(keysFor(g));
     if (tabs.length === 0) return null;
-    // A single panel needs no strip (Home, Cards).
+    // A single panel needs no strip (Home).
     if (tabs.length === 1) return tabs[0].content;
     // Keyed on the resolved sub so a same-route ?tab= link (Home's rows)
     // remounts the strip on the new tab; useState never re-syncs otherwise.

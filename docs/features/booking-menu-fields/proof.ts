@@ -231,7 +231,7 @@ async function main() {
     const block = await bookingBlock(owner.id);
     const blockMenu = block?.type === "booking" ? block.fields.find((f) => f.key === "service") : undefined;
     check(
-      "B3 the A2UI block hands the card the type and the menu",
+      "B3 the card block hands the card the type and the menu",
       blockMenu?.type === "multi_select" && blockMenu.config.options?.[0]?.price === "$35",
       JSON.stringify(blockMenu),
     );

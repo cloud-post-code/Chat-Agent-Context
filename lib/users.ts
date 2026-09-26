@@ -38,11 +38,11 @@ export async function uniqueSlug(base: string): Promise<string> {
  * tabs. Idempotent — the seed fills only when that user has zero rows of the
  * kind, so it never resurrects deliberate deletions.
  *
- * Starter questions and A2UI cards are deliberately NOT seeded: both are
- * written for the business when onboarding completes (lib/starterQuestions.ts,
- * lib/onboarding/cards.ts), and generic placeholders standing in until then —
- * five interview questions, a portfolio's project cards — were worse than
- * nothing at all.
+ * Starter questions are deliberately NOT seeded: they are written for the
+ * business when onboarding completes (lib/starterQuestions.ts), and generic
+ * placeholders standing in until then — five interview questions — were
+ * worse than nothing at all. Cards need no seeding: the chat offers one
+ * whenever the tenant has the data behind it (lib/cardTools.ts).
  */
 export async function provisionUserDefaults(userId: string): Promise<void> {
   const steps: Array<[string, () => Promise<unknown>]> = [

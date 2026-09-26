@@ -1,6 +1,6 @@
 # prisma — schema and migrations
 
-Postgres only. `schema.prisma` has 32 models, every tenant-scoped one carrying
+Postgres only. `schema.prisma` has 31 models, every tenant-scoped one carrying
 `userId` with `onDelete: Cascade` from `User`.
 
 ## Rules

@@ -5,7 +5,7 @@ Give every `User` two Inkbox agent identities so their agent is reachable outsid
 browser: an **external** identity anyone may contact (email, SMS, iMessage, A2A) that
 answers from the same public brain as `/a/<slug>`, and an **internal** identity only the
 account owner may contact, which answers from the admin copilot brain (`lib/adminBrain.ts`)
-and can take admin actions. Web A2UI is unchanged; non-web channels render the same
+and can take admin actions. Web cards is unchanged; non-web channels render the same
 `UiBlock` events to text instead of dropping them.
 
 ## Context: what already exists
@@ -55,7 +55,7 @@ So this feature is a channel plus an inbound transport, not a rewrite.
 - Changing the owner's account email updates the whitelist rule; until the new address
   is verified, the old rule stands.
 
-### A2UI coexistence (the hard requirement)
+### Card coexistence (the hard requirement)
 - Web is untouched: `/api/chat` still streams `{"t":"text"}` / `{"t":"card"}` NDJSON and
   `app/cards/Cards.tsx` still paints real cards. No change to the web wire format.
 - A new renderer turns a `UiBlock` into text for channels that cannot paint it, replacing

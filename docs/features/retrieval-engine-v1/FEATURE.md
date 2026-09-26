@@ -39,7 +39,7 @@ chunk text, not just 2–5 sentence summaries).
    - returns top chunks under a character budget plus entity relation lines.
 5. **Prompt swap** — `buildSystemPrompt(query?)` becomes persona-core
    (identity, persona/tone, bio, experience, contact, project list, photos
-   note, A2UI instructions, corrections) + a RETRIEVED CONTEXT block for the
+   note, card instructions, corrections) + a RETRIEVED CONTEXT block for the
    query. The 60-source summary dump is kept ONLY as a fallback when the chunk
    table is empty (pre-backfill) or no query is given. The chat route passes
    the visitor's latest user message as the query.

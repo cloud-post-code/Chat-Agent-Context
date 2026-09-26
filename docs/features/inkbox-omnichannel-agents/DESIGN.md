@@ -17,7 +17,7 @@ Everything below was verified against the running code and the Inkbox docs
 | Agent-to-agent | Inkbox A2A (proprietary v1.0), card at `/a2a/{handle}/card` | Google-style A2A at `/api/a2a`, single-tenant | Two different A2A protocols — see §4 |
 | Replay safety | Envelope `event_id` stable across replays | — | Dedup table |
 
-## 2. The A2UI question
+## 2. The cards question
 
 **Web does not change.** `/api/chat` keeps its NDJSON contract
 (`app/api/chat/route.ts:44-63`) and `app/cards/Cards.tsx` keeps painting cards.
@@ -152,7 +152,7 @@ Inkbox → POST /api/inkbox/webhook
 
 ## 7. Build order
 
-1. `renderBlockAsText()` + brain change (pure, unit-testable, zero infra) — the A2UI
+1. `renderBlockAsText()` + brain change (pure, unit-testable, zero infra) — the card
    coexistence guarantee lands first and independently.
 2. Schema + provisioning (idempotent, reconciling).
 3. Webhook route: verify → dedup → route → reply.

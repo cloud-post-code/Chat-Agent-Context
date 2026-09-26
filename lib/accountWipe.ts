@@ -6,7 +6,7 @@ import { deleteUpload, UPLOAD_FILENAME } from "@/lib/uploads";
  *
  * Everything onboarding or the dashboard populated goes: knowledge (sources,
  * chunks and the entity graph hanging off them), photos, projects, chat
- * history, canned answers, directives, UI cards, ingestion sources and their
+ * history, canned answers, directives, ingestion sources and their
  * item classifications, address book, contacts, A2A tasks, persona, theme,
  * the whole booking domain (services, staff, locations, settings, form fields,
  * appointments), menu items and orders. The profile is blanked rather than
@@ -31,7 +31,6 @@ export async function wipeAccountContent(userId: string): Promise<{ filesDeleted
     prisma.chatSession.deleteMany(where), // messages cascade
     prisma.cannedAnswer.deleteMany(where),
     prisma.agentDirective.deleteMany(where),
-    prisma.uiCard.deleteMany(where),
     prisma.itemClassification.deleteMany(where),
     prisma.ingestionSource.deleteMany(where),
     prisma.addressBookEntry.deleteMany(where),
@@ -71,8 +70,8 @@ const UPLOAD_URL = /\/api\/uploads\/([a-f0-9-]+\.(?:jpg|png|webp|gif|pdf))/gi;
 /**
  * Every stored upload this account's rows point at. Three columns hold a bare
  * filename (Photo, Service image, StaffMember photo); everything else — logo,
- * project image, card samples, menu item data, chat messages, canned-answer
- * card input, booking configs — carries a `/api/uploads/<name>` URL inside a
+ * project image, menu item data, chat messages, canned-answer card input,
+ * booking configs — carries a `/api/uploads/<name>` URL inside a
  * string or JSON blob. Scanning each row's serialized form for that URL means
  * a new column that stores an upload the same way is covered without an edit
  * here. Filenames are per-upload UUIDs, so nothing found is shared with
@@ -87,7 +86,6 @@ async function collectUploadFilenames(userId: string): Promise<Set<string>> {
     Promise.all([
       prisma.personaConfig.findMany(where),
       prisma.project.findMany(where),
-      prisma.uiCard.findMany(where),
       prisma.menuItem.findMany(where),
       prisma.cannedAnswer.findMany(where),
       prisma.agentDirective.findMany(where),

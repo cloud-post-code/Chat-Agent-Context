@@ -354,7 +354,7 @@ async function main() {
     } catch {
       // next/headers has no request scope under tsx: currentUser() throwing
       // here is the route treating "no session" as unauthenticated, same
-      // pattern as docs/features/site-driven-a2ui-cards/proof.ts.
+      // pattern the other admin-route proofs use.
       unauthedStatus = 401;
     }
     check("POST refuses signed-out caller with 401", unauthedStatus === 401, `${unauthedStatus}`);

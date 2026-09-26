@@ -31,7 +31,7 @@ async function main() {
   check(
     "seven nav groups in order",
     JSON.stringify(NAV_GROUPS.map((g) => g.key)) ===
-      JSON.stringify(["home", "inbox", "knowledge", "agent", "cards", "booking", "settings"]),
+      JSON.stringify(["home", "inbox", "knowledge", "agent", "booking", "settings"]),
     NAV_GROUPS.map((g) => g.key).join(","),
   );
   const subKeys = NAV_GROUPS.flatMap((g) => g.subs.map((s) => s.key));
@@ -43,7 +43,7 @@ async function main() {
   check("fixed panels include users for operators", fixedOp.includes("users"));
   check(
     "fixed panels cover the split calendar",
-    ["appointments", "orders", "booking", "activity", "graph", "a2ui"].every((k) => fixedOwner.includes(k)),
+    ["appointments", "orders", "booking", "activity", "graph"].every((k) => fixedOwner.includes(k)),
     fixedOwner.join(","),
   );
   check(
@@ -61,7 +61,6 @@ async function main() {
   );
   const labels = labelsFromNav();
   check("graph is labelled Health", labels.graph === "Health");
-  check("a2ui is labelled Cards", labels.a2ui === "Cards");
   check("booking is labelled Settings", labels.booking === "Settings");
   check("booking-services is labelled Services", labels["booking-services"] === "Services");
 
@@ -74,7 +73,6 @@ async function main() {
     ["booking-services", "booking", "booking-services"],
     ["booking-pricing", "booking", "booking-pricing"],
     ["graph", "knowledge", "graph"],
-    ["a2ui", "cards", "a2ui"],
     ["contacts", "settings", "contacts"],
     ["answers", "agent", "answers"],
     ["goals", "agent", "goals"],
@@ -139,7 +137,6 @@ async function main() {
   const todo = checklistItems({
     profile: { company_name: "Salon", owner_name: "", company_phone_number: "", company_email: "x@y", company_hours: "" },
     taglineSource: "suggested",
-    cardCount: 0,
     bookingEnabled: false,
     sources: [
       { key: "blog", label: "Blog", count: 0 },
@@ -149,7 +146,6 @@ async function main() {
   const todoByTab = Object.fromEntries(todo.map((c) => [c.tab, c]));
   check("profile incomplete → profile not done", todoByTab.profile?.done === false);
   check("suggested tagline → theme not done", todoByTab.theme?.done === false);
-  check("no cards → a2ui not done", todoByTab.a2ui?.done === false);
   check("booking off → booking not done", todoByTab.booking?.done === false);
   check("empty source → its tab not done", todoByTab.blog?.done === false);
   check("filled source → done", todoByTab.services?.done === true);
@@ -157,7 +153,6 @@ async function main() {
   const allDone = checklistItems({
     profile: { company_name: "S", owner_name: "O", company_phone_number: "1", company_email: "e", company_hours: "h" },
     taglineSource: "extracted",
-    cardCount: 2,
     bookingEnabled: true,
     sources: [{ key: "blog", label: "Blog", count: 1 }],
   });

@@ -1,9 +1,9 @@
-# Chat-first admin: the dashboard as A2UI elements
+# Chat-first admin: the dashboard as inline panels
 
 ## Summary
 Replace the click-driven (WIMP) admin experience as the primary surface with a chat
-interface at `/admin/chat`. The assistant renders the existing admin dashboard panels as
-A2UI elements inline in the conversation, takes real actions from chat, and turns
+interface at `/admin/chat`. The assistant renders the existing admin dashboard panels
+inline in the conversation, takes real actions from chat, and turns
 document-ingestion requests into a pre-filled one-click approval card. The classic
 dashboard page stays reachable from a menu button at the top of the chat.
 
@@ -11,7 +11,7 @@ dashboard page stays reachable from a menu button at the top of the chat.
 - Logging in at `/admin` lands the user on the chat-first surface (`/admin/chat`)
   instead of the classic dashboard; onboarding still runs first for new accounts.
 - Typing "show me my goals" (or any request naming an admin surface) renders that
-  surface's full existing panel inline in the chat as an A2UI element — the same
+  surface's full existing panel inline in the chat — the same
   interactive panel the dashboard shows, with its real forms and server actions working.
 - Typing "add a goal …" with the goal text creates the goal directly (real
   `AgentDirective` row) and shows the updated Goals panel as confirmation; asking to add
@@ -46,7 +46,7 @@ dashboard page stays reachable from a menu button at the top of the chat.
 ## Non-Goals
 - No rebuilding or restyling of any existing panel; panels render as-is.
 - No removal of the classic dashboard, its routes, or its deep links.
-- No changes to the public visitor chat, the A2UI card catalog, or the A2A interface.
+- No changes to the public visitor chat or the A2A interface.
 - No persistence/replay of admin chat transcripts (ChatSession stays visitor-only).
 - No chat-driven edits behind the ingestion edit password (`isEditAuthed()` surfaces);
   those keep their existing gate and pages.
@@ -69,7 +69,7 @@ dashboard page stays reachable from a menu button at the top of the chat.
 
 ## Constraints
 - Reuse the existing panels exactly (`DirectivesPanel`, `GenericIngestPanel`,
-  `KnowledgePanel`, `GraphPanel`, `AnswersPanel`, `A2uiPanel`, `ContactsPanel`, …) — the
+  `KnowledgePanel`, `GraphPanel`, `AnswersPanel`, `ContactsPanel`, …) — the
   chat reveals pre-rendered server nodes; it must not fork panel markup.
 - Panel keys must be derived from the live data (`IngestionSource` rows +
   `contentTabs.ts` constants), not hardcoded, so custom sources work in chat.

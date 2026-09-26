@@ -114,8 +114,6 @@ async function main() {
   const { listServices } = await import("../../../lib/cards");
   const { answer } = await import("../../../lib/brain");
   const { CARD_TOOLS, normalizeQuestion } = await import("../../../lib/canned");
-  const { writeUiCard, parseSampleBlock } = await import("../../../lib/uiCards");
-  const { sanitizeCardPlan } = await import("../../../lib/onboarding/cards");
   const { saveAppointmentField } = await import("../../../lib/appointments");
   const { listBookings, saveBookingSettings } = await import("../../../lib/booking/store");
   const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
@@ -237,16 +235,13 @@ async function main() {
     // ══ D. The brain ═══════════════════════════════════════════════════════
     {
       check("D1 show_menu and show_cart are canned-answer tools", CARD_TOOLS.includes("show_menu") && CARD_TOOLS.includes("show_cart"));
-      const before = await run(u.id, [{ text: "hi" }]);
-      check("D2 without a catalog row nothing menu-shaped is offered", !before.offered.includes("show_menu") && !before.offered.includes("add_to_cart") && !before.system.includes("MENU INDEX"));
-      const sample = JSON.stringify(await M.menuBlock(u.id, {}));
-      const row = await writeUiCard(u.id, { key: "menu", label: "Menu", tool: "show_menu", description: "", reason: "When a visitor asks what's on the menu.", note: "", sampleBlock: sample });
-      check("D3 a show_menu row with a live sample is accepted; the sample parses", row.ok && parseSampleBlock(sample)?.type === "menu");
-      const bad = await writeUiCard(u.id, { key: "menu-bad", label: "Menu bad", tool: "show_menu", description: "", reason: "", note: "", sampleBlock: JSON.stringify({ type: "menu", items: "no" }) });
-      check("D3 …the sample must still be a known block type", bad.ok, "a menu-typed sample is storable; the renderer guards its items");
-      if (bad.ok) await prisma.uiCard.deleteMany({ where: { userId: u.id, key: bad.key } });
+      // The menu is offered on MenuItem rows alone: the legacy tenant's
+      // services fallback (B6) hydrates a canned answer but puts no menu on
+      // offer, so a services business is not handed a menu it never had.
+      const before = await run(old.id, [{ text: "hi" }]);
+      check("D2 with no menu rows nothing menu-shaped is offered", !before.offered.includes("show_menu") && !before.offered.includes("add_to_cart") && !before.system.includes("MENU INDEX"), before.offered.join(","));
       const turn = await run(u.id, [{ text: "Here's the menu.", tools: [{ name: "show_menu", input: { tags: ["vegan"], title: "Vegan picks" } }] }, { text: "Enjoy." }], "anything vegan?", [{ name: BREAD, quantity: 2 }]);
-      check("D4 with the row, the menu trio is offered", turn.offered.includes("show_menu") && turn.offered.includes("show_cart") && turn.offered.includes("add_to_cart"));
+      check("D4 with menu rows on file, the menu trio is offered", turn.offered.includes("show_menu") && turn.offered.includes("show_cart") && turn.offered.includes("add_to_cart"));
       check("D4 the prompt carries the index and the visitor's cart", turn.system.includes("MENU INDEX") && turn.system.includes(`2 × ${BREAD}`));
       const cardEvents = turn.events.filter((e) => e.t === "card") as { v: MenuBlock }[];
       check("D5 show_menu draws one curated menu card", cardEvents.length === 1 && cardEvents[0].v.type === "menu" && cardEvents[0].v.items.length === 1 && cardEvents[0].v.title === "Vegan picks");
@@ -319,26 +314,6 @@ async function main() {
       check("E3 orders list newest first", count.length === 2 && count[0].startsAt !== null);
       await O.deleteOrder(u.id, count[1].id);
       check("E4 deleteOrder removes one", (await O.listOrders(u.id)).length === 1);
-    }
-
-    // ══ F. The planner ═════════════════════════════════════════════════════
-    {
-      const signals = { photos: 0, projects: 0, services: 4, menuOrderable: true, takesAppointments: true, contactChannels: [], socialLinks: 0, categories: [], hasKnowledge: true };
-      const both = sanitizeCardPlan({ cards: [{ kind: "services", label: "Services" }, { kind: "menu", label: "Menu", reason: "When …" }] }, signals, 0);
-      check("F1 menu is a planned kind and wins over services", both.cards.length === 1 && both.cards[0].kind === "menu");
-      const none = sanitizeCardPlan({ cards: [{ kind: "menu", label: "Menu" }] }, { ...signals, services: 0 }, 0);
-      check("F1 …gated on items on file", none.cards.length === 0);
-      const appointmentOnly = sanitizeCardPlan(
-        { cards: [{ kind: "menu", label: "Menu", reason: "When …" }, { kind: "services", label: "Services", reason: "When …" }] },
-        { ...signals, menuOrderable: false },
-        0,
-      );
-      check("F1 …a menu with nothing orderable outside booking falls back to services",
-        appointmentOnly.cards.length === 1 && appointmentOnly.cards[0].kind === "services", JSON.stringify(appointmentOnly));
-      const { placeCard, businessBlock } = await import("../../../lib/onboarding/cards");
-      const placed = await placeCard(u.id, { kind: "menu", label: "Our menu", description: "", reason: "When …", layout: "carousel", brief: "", questions: [] }, 9, await businessBlock(u.id), [], async () => { throw new Error("no draft"); }, quiet);
-      const rowNow = placed.ok ? await prisma.uiCard.findUnique({ where: { userId_key: { userId: u.id, key: placed.key } } }) : null;
-      check("F2 placing a menu card writes a show_menu row whose sample is the live menu", placed.ok && placed.tool === "show_menu" && !!rowNow && (parseSampleBlock(rowNow.sampleBlock) as MenuBlock | null)?.items.length === 4);
     }
 
     // ══ G. What the visitor is handed ══════════════════════════════════════

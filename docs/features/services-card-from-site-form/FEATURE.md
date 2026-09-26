@@ -114,7 +114,7 @@ README, agent.md.
 - An extractor-named image on one item never spreads to its neighbours.
 
 ## Constraints
-- A2UI: the block carries data, never markup; the renderer skips what it
+- Cards: the block carries data, never markup; the renderer skips what it
   doesn't know.
 - Never invent: an unstated fact is absent, not defaulted. The only fallback
   allowed is internal to slot math (a default length for the calendar), which

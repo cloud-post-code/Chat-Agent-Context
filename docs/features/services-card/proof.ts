@@ -107,9 +107,6 @@ async function main() {
   const { listServices, servicesBlock } = await import("../../../lib/cards");
   const { answer } = await import("../../../lib/brain");
   const { CARD_TOOLS, normalizeQuestion } = await import("../../../lib/canned");
-  const { writeUiCard, parseSampleBlock, listUiCards } = await import("../../../lib/uiCards");
-  const { parseDraft } = await import("../../../lib/cardBuilder");
-  const { sanitizeCardPlan, generateOnboardingCards } = await import("../../../lib/onboarding/cards");
   const { setBookingEnabled, saveAppointmentField } = await import("../../../lib/appointments");
   const { availability, createBooking, listBookings, saveBookingSettings } = await import("../../../lib/booking/store");
   const { sanitizeSelection } = await import("../../../lib/booking/types");
@@ -255,27 +252,17 @@ async function main() {
     const userEmpty = await mkUser("empty");
     check("no services on file → servicesBlock is null", (await servicesBlock(userEmpty.id)) === null);
 
-    // ── 4. The brain: catalog-gated tool, card event, canned path ──
+    // ── 4. The brain: data-gated tool, card event, canned path ──
     check("show_services is a canned card tool", CARD_TOOLS.includes("show_services"));
     {
-      const { offered, cards } = await run(userA.id, [
-        { tools: [{ name: "show_services", input: {} }] }, { text: "done" },
-      ]);
-      check("with no catalog row, show_services is not offered", !offered.includes("show_services"), offered.join(","));
-      check("…but a call still hydrates (the canned path relies on it)", cards.length === 1);
+      const { offered } = await run(userEmpty.id, [{ text: "hi" }]);
+      check("with no services on file, show_services is not offered", !offered.includes("show_services"), offered.join(","));
     }
-    const sample = JSON.stringify(await servicesBlock(userA.id));
-    const wrote = await writeUiCard(userA.id, {
-      key: "", label: "Our services", tool: "show_services", description: "The services list",
-      reason: "When a visitor asks what we offer", note: "", sampleBlock: sample,
-    });
-    check("a show_services catalog row with a services sample is accepted", wrote.ok, JSON.stringify(wrote));
-    check("the stored sample parses back as a services block", parseSampleBlock(sample)?.type === "services");
     {
       const { offered, cards, seenParams } = await run(userA.id, [
         { text: "Here's what we offer.", tools: [{ name: "show_services", input: {} }] }, { text: " Tap Book." },
       ]);
-      check("with the row, show_services is offered to the model", offered.includes("show_services"), offered.join(","));
+      check("with services on file, show_services is offered to the model", offered.includes("show_services"), offered.join(","));
       check("a show_services call yields one services card event", cards.length === 1);
       check("the card carries the real services and booking",
         cards[0]?.items[1]?.name === "St. Harrowgate signature pedicure" && !!cards[0]?.booking?.flow,
@@ -307,55 +294,9 @@ async function main() {
         cards.length === 1 && spoke === "Here is everything we do.", spoke);
     }
 
-    // ── 5. The card builder accepts the live-data route ──
-    const draft = parseDraft(JSON.stringify({
-      label: "Services", tool: "show_services", description: "Services list", reason: "When asked what we offer", note: "",
-      sampleBlock: { type: "services", items: [{ id: "1", name: "Sample service", description: "What it includes" }], booking: null },
-    }));
-    check("parseDraft accepts show_services with a services sample", draft.tool === "show_services");
-    let mismatched = false;
-    try {
-      parseDraft(JSON.stringify({
-        label: "Services", tool: "show_services", description: "", reason: "", note: "",
-        sampleBlock: { type: "custom", elements: [] },
-      }));
-    } catch {
-      mismatched = true;
-    }
-    check("parseDraft rejects show_services drawing a non-services block", mismatched);
-
-    // ── 6. Onboarding plans it automatically, gated on services being on file ──
-    const signals = { photos: 0, projects: 0, services: 3, menuOrderable: false, takesAppointments: true, contactChannels: [], socialLinks: 0, categories: ["services"], hasKnowledge: true };
-    const plan = { cards: [{ kind: "services", label: "What we offer", description: "Services", reason: "When asked what we offer", questions: [1] }] };
-    check("the planner keeps a services card when services are on file",
-      sanitizeCardPlan(plan, signals, 1).cards[0]?.kind === "services");
-    check("…and drops it when none are",
-      sanitizeCardPlan(plan, { ...signals, services: 0 }, 1).cards.length === 0);
-
+    // ── 5. The booking the card leads to: the tapped service is the booking's service ──
     const userP = await mkUser("p");
     await extractServicesAndBooking(PAGES as never, userP.id, quiet, { llm: llmOf(EXTRACTION) as never });
-    const starter = await prisma.cannedAnswer.create({
-      data: { userId: userP.id, question: "What do you offer?", matchKey: normalizeQuestion("What do you offer?"), answer: "Lots.", enabled: true },
-    });
-    let corpusSeen = "";
-    const report = await generateOnboardingCards([], userP.id, { categories: ["services"] }, quiet, {
-      llm: (async (_sys: string, corpus: string) => {
-        corpusSeen = corpus;
-        return plan as unknown as Record<string, unknown>;
-      }) as never,
-      draft: (async () => { throw new Error("no designed card expected"); }) as never,
-    });
-    check("the planner is told how many services are on file", corpusSeen.includes("Services on file: 3"), corpusSeen.slice(-400));
-    check("onboarding writes the services card row", report.written === 1 && report.cards[0]?.tool === "show_services", JSON.stringify(report));
-    const rowP = (await listUiCards(userP.id))[0];
-    const sampleP = parseSampleBlock(rowP?.sampleBlock ?? "") as ServicesBlock | null;
-    check("its preview is the tenant's own services, bookable",
-      sampleP?.type === "services" && sampleP.items.length === 3 && !!sampleP.booking, rowP?.sampleBlock?.slice(0, 200));
-    const attached = await prisma.cannedAnswer.findUnique({ where: { id: starter.id } });
-    check("the starter question now carries show_services",
-      attached?.cardTool === "show_services" && attached.cardInput === null, JSON.stringify(attached));
-
-    // ── 7. The booking the card leads to: the tapped service is the booking's service ──
     // No hours stated means no bookable slots (lib/booking/types.ts no longer
     // invents a Mon–Fri default), so this tenant needs its own.
     await saveBookingSettings(userP.id, {

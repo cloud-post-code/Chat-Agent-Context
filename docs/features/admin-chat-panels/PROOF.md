@@ -1,4 +1,4 @@
-# Proof Plan — Chat-first admin: the dashboard as A2UI elements
+# Proof Plan — Chat-first admin: the dashboard as inline panels
 
 ## Definition Of Done
 - `lib/adminBrain.ts` exists and exports the admin tool loop (`adminAnswer`), the live
@@ -26,7 +26,7 @@ Anthropic client boundary)
 
 Command:
 ```bash
-npx tsx docs/features/admin-chat-a2ui/proof.ts
+npx tsx docs/features/admin-chat-panels/proof.ts
 ```
 
 Expected evidence:
@@ -45,7 +45,7 @@ Secondary guards:
 - No network: the model client is a scripted double implementing `ModelClient`;
   ingestion extraction is injected as a fake extractor through the existing
   `lib/customIngest.ts` injection points.
-- All rows are created under a throwaway user (`proof-admin-chat-a2ui@example.invalid`)
+- All rows are created under a throwaway user (`proof-admin-chat-panels@example.invalid`)
   and deleted in a `finally` block.
 
 ## Anti-Gaming Constraints

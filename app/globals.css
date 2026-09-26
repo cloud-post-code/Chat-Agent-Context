@@ -292,7 +292,7 @@ select {
   }
 }
 
-/* Onboarding chat: bubbles and A2UI card elements phase in — the same
+/* Onboarding chat: bubbles and card elements phase in — the same
    arrive-as-you-watch feel as the typed letters. */
 @keyframes onboard-phase-in {
   from { opacity: 0; transform: translateY(8px); }
@@ -316,7 +316,7 @@ select {
   }
 }
 
-/* A2UI photo carousel: hide the WebKit scrollbar on the snap track. */
+/* Photo carousel card: hide the WebKit scrollbar on the snap track. */
 .carousel-track::-webkit-scrollbar {
   display: none;
 }

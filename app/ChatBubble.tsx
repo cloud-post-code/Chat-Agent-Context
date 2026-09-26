@@ -8,7 +8,7 @@ import { Markdown } from "./Markdown";
 /**
  * One message of the visitor chat. Two layouts:
  *
- *  - Streamed (the model's answer): its A2UI cards lead and the words follow,
+ *  - Streamed (the model's answer): its cards lead and the words follow,
  *    as the thread has always drawn them.
  *  - Typed (`typed`: a line the page itself says — a booking step's intro):
  *    the words type in letter by letter ABOVE the card, and the card mounts
@@ -74,7 +74,7 @@ export function Bubble({
 
   return (
     <div data-message-id={id} style={{ ...styles.row, flexDirection: "column", alignItems: isUser ? "flex-end" : "flex-start" }}>
-      {/* A2UI cards always lead; the agent's words follow. */}
+      {/* Cards always lead; the agent's words follow. */}
       {hasCards && <div style={{ width: "100%", marginBottom: content ? 8 : 0 }}>{cardList}</div>}
       {(content || !hasCards) && (
         <div data-fill="surface" data-who={isUser ? "user" : "assistant"} style={isUser ? styles.userBubble : styles.botBubble}>

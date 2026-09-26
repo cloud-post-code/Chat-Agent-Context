@@ -1,7 +1,7 @@
-# Composable A2UI elements: small, filtered cards instead of fixed whole ones
+# Composable card elements: small, filtered cards instead of fixed whole ones
 
 ## Summary
-The visitor chat (`lib/brain.ts`) answers with A2UI cards, but almost every card tool draws a
+The visitor chat (`lib/brain.ts`) answers with cards, but almost every card tool draws a
 fixed, whole element: `show_gallery` returns every curated photo, `show_services` every
 service, `show_projects` every project, `show_booking` the whole wizard, and social links
 never become a card at all (only prose in HOW TO CONNECT). Only `show_menu` is filtered
@@ -121,7 +121,7 @@ show_gallery  { layout (required, enum), ids?: string[], tags?: string[], query?
 show_services { ids?: string[], category?: string, query?: string, similar?: integer(0-4), limit?: integer, title?: string }
 show_projects { ids?: string[], tags?: string[], query?: string, limit?: integer, title?: string }
 show_booking  { service?: string, services?: string[], query?: string }
-show_social   { platforms?: string[], title?: string }   // gated on hasSocialLinks(userId), NOT on the UiCard catalog
+show_social   { platforms?: string[], title?: string }   // gated on hasSocialLinks(userId)
 ```
 `hydrate()` returns `{ block: UiBlock | null; summary: string }`. Tool-result strings:
 `"Rendered N photos: <id> (<caption>), …"` | `"No photos match. Tags on file: a, b, c"` |
@@ -144,10 +144,9 @@ content + "\n\n[shown: gallery ids=p1,p2 tags=red,gel · services ids=s1]"   (on
 Never displayed or logged.
 
 ### Prompt sections (`lib/knowledge.ts`)
-- `"PHOTO INDEX (id | caption | tags):"` only when `show_gallery` is in the catalog (replaces
-  the count-only PHOTOS block).
-- `"SERVICE INDEX (id | name | category | price | terms):"` whenever `show_services` is in
-  the catalog or booking is enabled.
+- `"PHOTO INDEX (id | caption | tags):"` whenever curated photos exist — exactly when
+  `show_gallery` is offered (replaces the count-only PHOTOS block).
+- `"SERVICE INDEX (id | name | category | price | terms):"` whenever services are on file.
 - `"COMPOSING CARDS:"` paragraph appended by `cardRulesSection` (present even when only
   booking/social tools exist).
 
@@ -168,8 +167,8 @@ Never displayed or logged.
    `items` is the gel manicure plus two other "nails"-category services, none from other
    categories.
 5. **Instagram only.** Visitor: "do you have instagram?". Model calls
-   `show_social {platforms:["instagram"]}` (offered even though no `show_social` UiCard row
-   exists, gated only on the profile having links). The social card has exactly one item, the
+   `show_social {platforms:["instagram"]}` (offered because the profile has
+   links). The social card has exactly one item, the
    Instagram link.
 
 ## Constraints
@@ -184,8 +183,8 @@ Never displayed or logged.
 - `similarServices` is never empty when other services exist and `n > 0`, even if no service
   shares a category or term — it falls back to the next `n` in catalog order with
   `close: false`.
-- Every new field on every block/tool type is optional so existing `UiCard.sampleBlock` rows
-  and admin previews keep rendering without changes.
+- Every new field on every block/tool type is optional so stored canned-answer card inputs
+  keep working without changes.
 - Follows `lib/brain.ts` conventions: injectable model client, bounded loop, NDJSON events.
 
 ## Implementation Routing

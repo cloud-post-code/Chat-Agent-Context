@@ -2,7 +2,7 @@
 
 A multi-tenant Next.js 15 / React 19 app on Postgres (Prisma) and the Claude API.
 Each tenant's public page (`/a/<slug>`) is a chat: an agent that answers only from
-the content the owner curated in the password-gated admin (`/admin`), drawing A2UI
+the content the owner curated in the password-gated admin (`/admin`), drawing rich
 cards (photos, services, booking, menu, social) inline. The same brain is exposed
 to other agents over A2A (`/.well-known/agent-card.json`, `/api/a2a`) and to LLM
 crawlers as `llms.txt`. Hosted on Railway. `agent.md` documents how the agent
@@ -27,11 +27,12 @@ Details: `docs/TESTING.md`.
 - `app/` — routes. `app/a/[slug]` public chat; `app/admin` the owner's control room
   (server actions in `app/admin/actions.ts`, panels composed in `app/admin/panels.tsx`,
   nav registry `app/admin/contentTabs.ts`); `app/api` HTTP/streaming endpoints;
-  `app/cards` the A2UI card renderer (`Cards.tsx`) and the booking cards.
+  `app/cards` the card renderer (`Cards.tsx`) and the booking cards.
 - `lib/` — everything server-side. `lib/brain.ts` answers visitors; `lib/adminBrain.ts`
   is the admin copilot; `lib/knowledge.ts` builds the prompt; `lib/retrieval/` indexes
   and searches; `lib/onboarding/` reads a business's site into the account;
-  `lib/booking/` is the booking model; `lib/cards.ts` hydrates card data;
+  `lib/booking/` is the booking model; `lib/cardTools.ts` decides which cards the
+  tenant's data allows and `lib/cards.ts` hydrates them;
   `lib/claude/` is the only Anthropic client (plus the retry gate); `lib/db.ts` the only Prisma client.
 - `prisma/` schema and Postgres migrations (applied on start by `scripts/migrate.mjs`).
 - `docs/features/<id>/` one folder per feature: `FEATURE.md`, `PROOF.md`, `proof.ts`;
@@ -60,7 +61,7 @@ Details: `docs/TESTING.md`.
 | onboarding pipeline | `lib/onboarding/CLAUDE.md` |
 | retrieval index and search | `lib/retrieval/CLAUDE.md` |
 | admin actions, panels, copilot | `app/admin/CLAUDE.md` |
-| A2UI cards and streaming | `app/cards/CLAUDE.md` |
+| chat cards and streaming | `app/cards/CLAUDE.md` |
 | HTTP endpoints and their auth | `app/api/CLAUDE.md` |
 | schema and migrations | `prisma/CLAUDE.md` |
 | feature queue and proofs | `docs/features/CLAUDE.md` |

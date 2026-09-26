@@ -86,7 +86,6 @@ async function main() {
     const u = await prisma.user.findUnique({ where: { email } });
     if (!u) return;
     await prisma.chatSession.deleteMany({ where: { userId: u.id } });
-    await prisma.uiCard.deleteMany({ where: { userId: u.id } });
     await prisma.chunk.deleteMany({ where: { userId: u.id } });
     await prisma.source.deleteMany({ where: { userId: u.id } });
     await prisma.personaConfig.deleteMany({ where: { userId: u.id } });

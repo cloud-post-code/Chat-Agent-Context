@@ -1,5 +1,5 @@
 /**
- * The A2UI card idiom, stated once: every card in Cards.tsx, MenuCard.tsx and
+ * The card idiom, stated once: every card in Cards.tsx, MenuCard.tsx and
  * CartCard.tsx draws from these, and the onboarding chat and admin forms
  * import the same objects so their controls match the cards.
  */

@@ -2,8 +2,8 @@
 
 ## Definition of done
 Every `User` can be reached at two Inkbox addresses. The external one answers anyone from
-the public brain; the internal one answers only the owner from the admin brain. Web A2UI
-is byte-for-byte unchanged, and cards that cannot be painted are rendered as text instead
+the public brain; the internal one answers only the owner from the admin brain. Web cards
+are byte-for-byte unchanged, and cards that cannot be painted are rendered as text instead
 of vanishing.
 
 ## Primary proof
@@ -15,7 +15,7 @@ the model client is injected via `BrainDeps.client` the way the existing proofs 
 
 ## What the proof asserts
 
-### A2UI coexistence (the load-bearing requirement)
+### Card coexistence (the load-bearing requirement)
 1. `answer({channel: "web"})` still yields `{t:"card"}` events — the web contract is
    untouched.
 2. `answer({channel: "a2a"})` still yields `{t:"card"}` — the A2A artifact path survives.

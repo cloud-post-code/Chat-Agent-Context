@@ -19,8 +19,8 @@ describe("nav registry", () => {
     expect([...CONTENT_TAB_KEYS]).toEqual(["blog", "testimonials", "about-team", "services"]);
   });
 
-  it("has seven nav groups in order with unique sub keys", () => {
-    expect(NAV_GROUPS.map((g) => g.key)).toEqual(["home", "inbox", "knowledge", "agent", "cards", "booking", "settings"]);
+  it("has six nav groups in order with unique sub keys", () => {
+    expect(NAV_GROUPS.map((g) => g.key)).toEqual(["home", "inbox", "knowledge", "agent", "booking", "settings"]);
     const subKeys = NAV_GROUPS.flatMap((g) => g.subs.map((s) => s.key));
     expect(new Set(subKeys).size).toBe(subKeys.length);
   });
@@ -31,7 +31,7 @@ describe("nav registry", () => {
     expect(owner).not.toContain("home");
     expect(owner).not.toContain("users");
     expect(operator).toContain("users");
-    for (const k of ["appointments", "orders", "booking", "activity", "graph", "a2ui", "booking-services"]) {
+    for (const k of ["appointments", "orders", "booking", "activity", "graph", "booking-services"]) {
       expect(owner).toContain(k);
     }
   });
@@ -39,7 +39,6 @@ describe("nav registry", () => {
   it("labels come from the nav config", () => {
     const labels = labelsFromNav();
     expect(labels.graph).toBe("Health");
-    expect(labels.a2ui).toBe("Cards");
     expect(labels["booking-services"]).toBe("Services");
   });
 });
@@ -52,7 +51,6 @@ describe("resolveAdminTab", () => {
     ["booking", "booking", "booking"],
     ["booking-services", "booking", "booking-services"],
     ["graph", "knowledge", "graph"],
-    ["a2ui", "cards", "a2ui"],
     ["contacts", "settings", "contacts"],
     ["answers", "agent", "answers"],
     ["goals", "agent", "goals"],

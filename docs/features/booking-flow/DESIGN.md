@@ -1,4 +1,4 @@
-# Design — The full booking flow as an A2UI card
+# Design — The full booking flow as a card
 
 This is the contract every part of the feature is built against. The shapes
 are in [`lib/booking/types.ts`](../../../lib/booking/types.ts) (import-free) and

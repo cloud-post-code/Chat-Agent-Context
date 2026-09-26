@@ -1,6 +1,6 @@
 /**
- * Primary proof for admin-chat-a2ui (see PROOF.md).
- * Run: npx tsx docs/features/admin-chat-a2ui/proof.ts
+ * Primary proof for admin-chat-panels (see PROOF.md).
+ * Run: npx tsx docs/features/admin-chat-panels/proof.ts
  *
  * Drives the admin brain's tool loop with a scripted model client (the only
  * doubled boundary, per lib/brain.ts's ModelClient seam), asserts the events
@@ -79,7 +79,7 @@ async function main() {
 
   const user = await prisma.user.create({
     data: {
-      email: "proof-admin-chat-a2ui@example.invalid",
+      email: "proof-admin-chat-panels@example.invalid",
       name: "Proof Admin Chat",
       slug: `proof-admin-chat-${Date.now()}`,
       passwordHash: "",

@@ -9,7 +9,6 @@ import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { listDirectives } from "@/lib/directives";
 import { listAddressBook } from "@/lib/addressBook";
 import { gmailStatus } from "@/lib/gmail/client";
-import { listUiCards } from "@/lib/uiCards";
 import { graphStats, listEntities, listEdges, suggestedMerges } from "@/lib/retrieval/graph";
 import { listCannedAnswers } from "@/lib/canned";
 import { draftBlankAnswers } from "@/lib/answerDrafts";
@@ -36,7 +35,6 @@ export async function loadAdminData(
     gSuggestions,
     gOverviews,
     canned,
-    uiCards,
     ingestionSources,
     goalRows,
     ruleRows,
@@ -79,7 +77,6 @@ export async function loadAdminData(
       draftBlankAnswers(user.id)
         .catch(() => 0)
         .then(() => listCannedAnswers(user.id)),
-      listUiCards(user.id),
       listIngestionSources(user.id),
       listDirectives(user.id, "goal"),
       listDirectives(user.id, "rule"),
@@ -121,7 +118,6 @@ export async function loadAdminData(
     gSuggestions,
     gOverviews,
     canned,
-    uiCards,
     ingestionSources,
     goalRows,
     ruleRows,

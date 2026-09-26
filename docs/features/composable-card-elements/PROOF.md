@@ -1,4 +1,4 @@
-# Proof Plan — Composable A2UI elements
+# Proof Plan — Composable card elements
 
 ## Definition Of Done
 - `lib/photoIndex.ts`, `lib/serviceIndex.ts`, `lib/social.ts`, `lib/terms.ts` exist and are
@@ -15,7 +15,7 @@
   catalog order with `close: false` is exercised, not just the scored path).
 - The system prompt `buildSystemPrompt` builds contains PHOTO INDEX lines with tags and
   SERVICE INDEX lines with prices when `show_gallery`/`show_services` are offered, a COMPOSING
-  CARDS paragraph, and omits PHOTO INDEX when `show_gallery` is not in the catalog.
+  CARDS paragraph, and omits PHOTO INDEX for a tenant with no photos.
 - `show_gallery {layout, tags:["nails","red"]}` against the seeded fixture (8 tagged photos +
   1 caption-only red photo) yields one gallery card whose ids are exactly the four red nail
   photos; `{query:"storefront"}` yields the one storefront photo; `{tags:["blue"]}` yields no
@@ -28,8 +28,7 @@
   `"[shown: gallery ids="`; `show_booking {query:"red gel nails"}` narrows
   `flow.services` to the nails-category ids with `narrowed: true`; `{query:"zzz"}` falls back
   to the full service list.
-- `show_social` is offered though no `show_social` UiCard row exists (gated on
-  `hasSocialLinks`, not the catalog); `{platforms:["instagram"]}` and `{platforms:["ig"]}`
+- `show_social` is offered on the profile's links (`hasSocialLinks`); `{platforms:["instagram"]}` and `{platforms:["ig"]}`
   both yield exactly the Instagram link; `{platforms:["tiktok"]}` yields no card.
 - Canned `show_gallery {"layout":"carousel"}` (no filter) still renders all 8 fixture photos
   with zero model calls — the empty-filter-means-everything guarantee canned rows depend on.
@@ -37,8 +36,6 @@
   controls; a services card with `focusIds` renders the focus item and a "Similar" label; a
   `social` block renders one button with the Instagram URL; a `narrowed` booking block's
   markup contains "See all services".
-- Stored `sampleBlock`s without the new optional fields still render without throwing;
-  `parseSampleBlock` accepts `{type:"social", items:[...]}`.
 
 ## Primary Proof
 Type: integration (repo-native proof script over the real local dev Postgres; the model
@@ -47,16 +44,15 @@ cheerio).
 
 Command:
 ```bash
-npx tsx docs/features/composable-a2ui-elements/proof.ts
+npx tsx docs/features/composable-card-elements/proof.ts
 ```
 
 Expected evidence:
 - All `PASS` lines, `failures: 0`, exit code 0, once the implementation phases land.
 - Persisted rows observed then cleaned up: one throwaway user
-  (`proof-composable-a2ui@example.invalid`), one `Profile` with `social_links`, 9 `Photo`
-  rows (8 tagged + 1 caption-only), 5 `Service` rows across 3 categories, `BookingSettings`,
-  two `UiCard` rows (`show_gallery`, `show_services` only — no social row, matching the
-  scenario that `show_social` is data-gated).
+  (`proof-composable-cards@example.invalid`), one `Profile` with `social_links`, 9 `Photo`
+  rows (8 tagged + 1 caption-only), 5 `Service` rows across 3 categories, `BookingSettings`
+  (the photos and services are what put `show_gallery` and `show_services` on offer).
 - Because `lib/photoIndex.ts`, `lib/serviceIndex.ts`, and `lib/social.ts` do not exist yet
   (Phase 1 has not run), each scenario group that depends on one of them is wrapped in its own
   dynamic `await import()` + `try/catch`: a missing module fails only that group's checks with
@@ -68,26 +64,25 @@ Expected evidence:
   `npx tsx --tsconfig tsconfig.proofs.json docs/features/menu-cart/proof.ts`
   still green after implementation (unrelated surface, must not regress).
 - Live cross-check with the real model (not a proof):
-  `npx tsx docs/features/composable-a2ui-elements/live.ts [slug]`.
+  `npx tsx docs/features/composable-card-elements/live.ts [slug]`.
 - `npx tsc --noEmit` and `npm run lint` clean once implemented.
 - Sibling proofs listed in the plan's Verification section
-  (`services-card`, `services-card-from-site-form`, `starter-questions-a2ui-cards`,
-  `onboarding-a2ui-cards`, `site-driven-a2ui-cards`, `canned-answers-and-brain`) still green.
+  (`services-card`, `services-card-from-site-form`, `starter-questions-cards`,
+  `canned-answers-and-brain`) still green.
 
 ## Environment And Data
 - Local dev Postgres from `.env` (`DATABASE_URL`), same as sibling proofs.
 - No network: the model client is a scripted double implementing `ModelClient` that records
   the `system` string and `messages` array it is called with on every call.
-- All rows live under a throwaway user (`proof-composable-a2ui@example.invalid`), deleted in a
-  `finally` block (cascade deletes `Photo`, `Service`, `BookingSettings`, `UiCard`, `Profile`).
+- All rows live under a throwaway user (`proof-composable-cards@example.invalid`), deleted in a
+  `finally` block (cascade deletes `Photo`, `Service`, `BookingSettings`, `Profile`).
 - Fixture: `Profile.social_links` = `[{platform:"instagram",...},{platform:"facebook",...}]`;
   8 `Photo` rows with a `tags` JSON column (`["nails","red","gel"]` ×3, `["nails","french"]`
   ×2, `["storefront"]`, `["team"]`, `["pedicure"]`) plus a 9th photo with `tags:[]` and caption
   "red gel nails close-up"; booking enabled via the same `lib/booking/store.ts` helpers
   `copilot-element-reveal/proof.ts` uses (`saveBookingSettings`, `saveService`); 5 `Service`
   rows (Gel Manicure $45 / Classic Manicure $30 / French Tips $50, category "nails"; Pedicure
-  $55, category "feet"; Brow Wax $20, category "brows"); two `UiCard` rows via
-  `lib/uiCards.ts` `writeUiCard`, for `show_gallery` and `show_services` only.
+  $55, category "feet"; Brow Wax $20, category "brows").
 
 ## Anti-Gaming Constraints
 - Only the Anthropic client boundary may be doubled; the tool loop, index building, filter
@@ -118,13 +113,13 @@ $HOME/.claude/scripts/gate
   DB rows with `tags` set directly, not the tagging pipeline itself.
 
 ## Red Run
-Recorded before implementation (Phase 0), on `feat/composable-a2ui-elements` at the point
+Recorded before implementation (Phase 0), on `feat/composable-card-elements` at the point
 Phase 1 agents had already landed `lib/photoIndex.ts` / `lib/serviceIndex.ts` / `lib/social.ts`
 / `lib/terms.ts` and the `Photo.tags` column, but before `lib/cards.ts`, `lib/brain.ts`,
 `lib/knowledge.ts` and `app/cards/Cards.tsx` were wired to the new contract:
 
 ```
-npx tsx docs/features/composable-a2ui-elements/proof.ts
+npx tsx docs/features/composable-card-elements/proof.ts
 ```
 
 Result: **29 PASS / 26 FAIL, exit code 1.** The four new pure modules exist and their own unit
@@ -191,7 +186,7 @@ failures: 26
 ## Green Run
 
 ```
-npx tsx docs/features/composable-a2ui-elements/proof.ts
+npx tsx docs/features/composable-card-elements/proof.ts
 ```
 
 Result: **57 PASS / 0 FAIL, exit code 0.** (Was 53 PASS after the initial
@@ -211,7 +206,7 @@ Fixes applied to close the gap from the red run above:
   chained (`flow.preselect?.serviceId ?? null`, `flow.rules?.staffSelection`).
 - `docs/features/services-card/proof.ts` still asserted the old literal
   `hydrate()` tool-result strings ("Card rendered to the user." /
-  "No data available."). Per the composable-a2ui-elements contract,
+  "No data available."). Per the composable-card-elements contract,
   `show_services` now reports what it actually drew ("Rendered N services:
   id (name, price), …") or why nothing matched ("No services match.") — the
   two assertions were updated to match, and a header note explains why.

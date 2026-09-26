@@ -3,11 +3,10 @@
 ## What
 
 An ingestion source can now carry its own **page code** — custom HTML +
-inline CSS that formats its Content tab — exactly the way A2UI cards carry
-theirs. Nothing specified means the default page, unchanged.
+inline CSS that formats its Content tab. Nothing specified means the default page, unchanged.
 
 - **`IngestionSource.panelHtml`** (default `""`). Validated at every save
-  by the cards' `safeCardHtml` rule: no script/iframe/object/embed/link/
+  by the `safeHtml` rule (`lib/util/html.ts`): no script/iframe/object/embed/link/
   meta/base/form tags, no `javascript:`/`on*=`, 40KB cap. Invalid code is
   rejected with an error, never stored.
 - **Rendering** (`app/admin/PanelHtml.tsx` + `GenericIngestPanel`): the

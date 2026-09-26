@@ -3,14 +3,14 @@
 ## What
 
 Each admin Content tab — Experience, Projects, Links, PDFs, Text, Photos,
-Persona — becomes an **ingestion source**: a database row, the same way A2UI
-cards are `UiCard` rows. The row holds everything that defines the source:
+Persona — becomes an **ingestion source**: a database row rather than code.
+The row holds everything that defines the source:
 
 - `key` — the source's stable code (`"experience"`, `"links"`, …), unique,
   slugified, used for deep links and dispatch.
 - `label`, `description` — what the tab is called and what it ingests.
 - `systemPrompt` — the per-source extraction/guidance prompt (its own system
-  prompt, like `UiCard.reason` is per-card guidance).
+  prompt).
 - `uploadMethod` — how content gets in, from a closed vocabulary:
   `resume | github | url | file | textarea | image | form | generic`.
 - `storageKinds` — the uniform storage rule: `text`, `image`, or
@@ -21,7 +21,7 @@ cards are `UiCard` rows. The row holds everything that defines the source:
   (later feature) render the generic panel.
 - `enabled`, `order` — display gate and display order (order is data).
 
-`lib/ingestionSources.ts` mirrors `lib/uiCards.ts`: `listIngestionSources()`
+`lib/ingestionSources.ts`: `listIngestionSources()`
 (ordered by `order` then `createdAt`), `saveIngestionSource()` (validates
 vocabulary, slugifies keys, suffixes key collisions for new rows, appends new
 rows at `max(order)+1`), `deleteIngestionSource()`, and

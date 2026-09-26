@@ -157,20 +157,18 @@ async function main() {
     const freshCanned = await prisma.cannedAnswer.count({ where: { userId: fresh } });
     check("provisioning creates zero canned answers", freshCanned === 0, `rows=${freshCanned}`);
 
-    const [profile, persona, themeRow, sources, cards] = await Promise.all([
+    const [profile, persona, themeRow, sources] = await Promise.all([
       prisma.profile.findUnique({ where: { userId: fresh } }),
       prisma.personaConfig.findUnique({ where: { userId: fresh } }),
       prisma.themeConfig.findUnique({ where: { userId: fresh } }),
       prisma.ingestionSource.count({ where: { userId: fresh } }),
-      prisma.uiCard.count({ where: { userId: fresh } }),
     ]);
-    // UI cards are no longer seeded either (onboarding-a2ui-cards): the
-    // catalogs that remain provisioned are profile, persona, theme and the
-    // ingestion sources.
+    // The catalogs that remain provisioned are profile, persona, theme and
+    // the ingestion sources.
     check(
       "the other starter catalogs are still provisioned",
-      !!profile && !!persona && !!themeRow && sources > 0 && cards === 0,
-      `profile=${!!profile} persona=${!!persona} theme=${!!themeRow} sources=${sources} cards=${cards}`,
+      !!profile && !!persona && !!themeRow && sources > 0,
+      `profile=${!!profile} persona=${!!persona} theme=${!!themeRow} sources=${sources}`,
     );
 
     // ── No rows means no chips, and no generic questions anywhere on the page ──

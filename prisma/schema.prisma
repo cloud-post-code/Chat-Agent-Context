@@ -44,7 +44,6 @@ model User {
   chatSessions        ChatSession[]
   cannedAnswers       CannedAnswer[]
   agentDirectives     AgentDirective[]
-  uiCards             UiCard[]
   ingestionSources    IngestionSource[]
   itemClassifications ItemClassification[]
   addressBookEntries  AddressBookEntry[]
@@ -335,8 +334,10 @@ model CannedAnswer {
   /// row the owner deliberately empties stays empty instead of refilling itself.
   draftedAt DateTime?
   /// Optional card to render alongside the answer, named by the tool that
-  /// would have drawn it: show_projects | show_project | show_gallery |
-  /// show_contact_form. Hydrated through the same path the model path uses.
+  /// would have drawn it (lib/canned.tools.ts CARD_TOOLS: show_projects |
+  /// show_project | show_gallery | show_services | show_menu | show_cart |
+  /// show_contact_form | show_booking | show_social). Hydrated through the
+  /// same path the model path uses.
   cardTool  String?
   /// JSON args for `cardTool`, e.g. {"id":"..."} or {"layout":"filmstrip"}.
   cardInput String?
@@ -372,41 +373,8 @@ model AgentDirective {
   @@index([userId, kind])
 }
 
-/// One A2UI card the admin curates: what it's called, which tool draws it,
-/// when the agent should reach for it, and a stored sample payload the admin
-/// tab renders as a preview. Nothing is seeded at signup: onboarding designs
-/// the set for the business (lib/onboarding/cards.ts) into an empty catalog,
-/// and after that the rows are the owner's to edit, add to, or delete.
-model UiCard {
-  id          String   @id @default(cuid())
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String
-  /// Stable slug ("gallery-carousel") — the anchor id on the admin tab.
-  key         String
-  /// Human name shown as the card's heading ("Gallery — carousel").
-  label       String
-  /// The A2UI tool that draws it: show_projects | show_project | show_gallery
-  /// | show_services | show_menu | show_cart | show_contact_form |
-  /// show_booking | show_social | show_card (see lib/canned.ts CARD_TOOLS).
-  tool        String
-  /// One line on what the card renders, shown next to the tool name.
-  description String   @default("") @db.Text
-  /// When the agent should show this card — the guidance text for this tool.
-  reason      String   @default("") @db.Text
-  /// Admin-facing caveat ("live card — reads your actual calendar"), if any.
-  note        String   @default("") @db.Text
-  /// JSON UiBlock (lib/cards.ts shape) the preview renders — the card's
-  /// structure with sample content, not live site data.
-  sampleBlock String   @default("{}") @db.Text
-  order       Int      @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  @@unique([userId, key])
-}
-
 /// One admin ingestion source: a Content tab the dashboard renders, stored as
-/// data the way A2UI cards are. The row holds the source's code (key), how
+/// data rather than code. The row holds the source's code (key), how
 /// content gets in (uploadMethod), the uniform storage rule (storageKinds:
 /// every ingested piece is text or image), where it lands (outputMethod), and
 /// its own system prompt. The seven built-in tabs are seeded per user at
@@ -435,7 +403,7 @@ model IngestionSource {
   /// "single": each upload stays one item — no split model call.
   splitMode    String   @default("split")
   /// Optional custom HTML+inline-CSS for this source's Content tab, with a
-  /// {{items}} placeholder — validated like coded cards (safeCardHtml) and
+  /// {{items}} placeholder — validated by safeHtml (lib/util/html.ts) and
   /// rendered in the same sealed iframe. "" means the default page.
   panelHtml    String   @default("") @db.Text
   /// Who this source's content is for: "public" | "contact" |
@@ -550,7 +518,7 @@ model GmailAuth {
   updatedAt    DateTime  @updatedAt
 }
 
-/// A contact submission captured by the in-chat A2UI contact form.
+/// A contact submission captured by the in-chat contact form card.
 model Contact {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)

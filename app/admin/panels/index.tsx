@@ -27,7 +27,6 @@ import { KnowledgePanel, isDocSource } from "../KnowledgePanel";
 import { GithubImport } from "../GithubImport";
 import { GraphPanel } from "../GraphPanel";
 import { AnswersPanel } from "../AnswersPanel";
-import { A2uiPanel } from "../A2uiPanel";
 import { DirectivesPanel } from "../DirectivesPanel";
 import { ContactsPanel } from "../ContactsPanel";
 import { cannedStats } from "@/lib/canned";
@@ -67,7 +66,7 @@ export async function buildAdminPanels(
   query: { error?: string; gmail?: string; booking?: string } = {},
 ): Promise<AdminPanelSet> {
   const data = await loadAdminData(user, query);
-  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, uiCards, ingestionSources, goalRows, ruleRows, addressBook, gmail, bookingConfig, orders, metrics, services, staffList, locationList, bookingSettings, bookings, operator, accounts, colors, personaSections } = data;
+  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, ingestionSources, goalRows, ruleRows, addressBook, gmail, bookingConfig, orders, metrics, services, staffList, locationList, bookingSettings, bookings, operator, accounts, colors, personaSections } = data;
 
   const profileTab = <ProfilePanel data={data} />;
 
@@ -321,7 +320,6 @@ export async function buildAdminPanels(
     goals: goalsTab,
     rules: rulesTab,
     contacts: <ContactsPanel rows={addressBook} gmail={gmail} message={query.gmail} />,
-    a2ui: <A2uiPanel rows={uiCards} slug={user.slug} />,
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
   };
   for (const t of contentTabs) flat[t.key] = t.content;
@@ -366,7 +364,6 @@ export async function buildAdminPanels(
       checklist={checklistItems({
         profile,
         taglineSource: personaConfig.taglineSource,
-        cardCount: uiCards.length,
         bookingEnabled: bookingConfig.enabled,
         sources: contentTabs.map((t) => ({
           key: t.key,

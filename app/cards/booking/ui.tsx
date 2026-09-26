@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Shared A2UI bits for the booking cards. The idiom is app/cards/styles.ts
+ * Shared card bits for the booking cards. The idiom is app/cards/styles.ts
  * (inline styles, CSS variables); what is identical is re-exported from
  * there, and only the booking-specific variants (longhand borders that
  * merge with `picked`, the 40px stepper) are defined here.

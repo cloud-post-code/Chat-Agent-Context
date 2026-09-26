@@ -14,13 +14,13 @@ in `lib/cards.ts` (photos, services, booking flow, menu, social). Events stream 
 NDJSON; `app/Chat.tsx` reads them with `lib/client/ndjson.ts` and `app/cards/Cards.tsx`
 renders each block. The turn is logged to `ChatSession` / `ChatMessage`.
 
-**A new owner onboards** — `/signup` creates the user and seeds starter ingestion
-sources, A2UI cards and answers (`lib/users.provisionUserDefaults`). `/admin/onboarding`
+**A new owner onboards** — `/signup` creates the user and seeds the starter ingestion
+sources and config rows (`lib/users.provisionUserDefaults`). `/admin/onboarding`
 posts a site URL; `lib/onboarding/jobs.ts` crawls it (Playwright) and runs the extraction
 stages in parallel, each writing through `lib/onboarding/save.ts`: profile, locations,
 social links, gallery photos (vision-tagged), theme (normalized for contrast), knowledge
 (blog / testimonials / team / sitemap → `Source` rows, indexed into chunks and the
-graph), services and the transcribed booking form, then the first card set. The
+graph), services and the transcribed booking form, then the starter questions. The
 activity stream shows progress; the owner reviews the theme and the booking form.
 
 **A visitor books** — `show_booking` emits a booking block; the client starts a session

@@ -62,7 +62,7 @@ card, still fully interactive.
 - `agent.md`: the new tool, event and rules.
 
 ## Non-Goals
-- No element support this pass for Chats (`activity`), Cards (`a2ui`), Contacts, Users,
+- No element support this pass for Chats (`activity`), Contacts, Users,
   Knowledge source items, or the Home/Health/Theme/Profile/Hours/Customer/Questions/Pricing
   panels; the registry is designed so each can add a builder and a row component later.
 - No model-generated markup or layout; the copilot only selects among pre-rendered nodes.

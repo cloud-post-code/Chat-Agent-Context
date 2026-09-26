@@ -6,7 +6,7 @@
 - A canned answer carrying `cardTool` still emits a hydrated UI card.
 - Any non-match (different text, `enabled = false`, empty answer) reaches the
   model exactly once, as it does today.
-- The model path — retrieval, streaming, the tool loop, A2UI cards — still works
+- The model path — retrieval, streaming, the tool loop, cards — still works
   after being moved out of the route.
 - Canned turns are recorded in Activity like model turns.
 - No regression in chunk/entity counts, and the database returns to baseline.
@@ -48,7 +48,7 @@ brain, asserts, then deletes everything it made.
 8. **Model path still renders cards** — the double scripts a `tool_use` for
    `show_projects` on turn 1 and text on turn 2; the brain runs the real tool
    loop and emits both a card and the closing text. Proves the extraction from
-   `route.ts` preserved A2UI.
+   `route.ts` preserved the cards.
 9. **Canned turns are recorded** — after a canned answer, the `cannedproof`
    session holds a `user` message with the question and an `assistant` message
    with the canned text. The brain awaits this write before the stream ends, so

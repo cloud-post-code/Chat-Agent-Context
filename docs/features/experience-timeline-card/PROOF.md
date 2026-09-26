@@ -1,4 +1,4 @@
-# Proof Plan — A2UI experience timeline card
+# Proof Plan — experience timeline card
 
 ## Definition Of Done
 - Asking the bot about Blake's background renders a timeline card, not a

@@ -13,17 +13,22 @@ file whenever prompts, tools or routing change.
    (`lib/retrieval/search.ts`): stemmed BM25 + same-model cosine, source titles
    scored, one-hop graph expansion. Small multi-chunk sources (a price list)
    are served whole.
-3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
-   `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
-   `show_card`), each narrowable with `ids`/`tags`/`query`/`limit`/`title`
-   where it applies (`show_gallery` also takes the required `layout`;
-   `show_services` also takes `category` and `similar`) — see "Composable
-   elements" below. `show_booking` when booking is on (`service` opens the
-   booking conversation on the service the visitor named; the booking itself
-   is a sequence of cards, see "Booking"), `show_social` gated on the tenant actually having social links on
-   file rather than on the card catalog (`platforms`, `title`), `add_to_cart`
-   whenever the menu is in the catalog, and `search_knowledge` on every
-   unscripted turn.
+3. **Tools**: the data-gated cards (`lib/cardTools.ts`): `show_projects` /
+   `show_project` when projects exist, `show_gallery` when curated photos do,
+   `show_services` when services do (the booking flow's rows or the services
+   knowledge), `show_menu` / `show_cart` when the extractor wrote menu items,
+   `show_contact_form` always — each narrowable with
+   `ids`/`tags`/`query`/`limit`/`title` where it applies (`show_gallery` also
+   takes the required `layout`; `show_services` also takes `category` and
+   `similar`) — see "Composable elements" below. `show_booking` when booking
+   is on (`service` opens the booking conversation on the service the visitor
+   named; the booking itself is a sequence of cards, see "Booking"),
+   `show_social` gated on the tenant actually having social links on file
+   (`platforms`, `title`), `add_to_cart` whenever the menu is offered, and
+   `search_knowledge` on every unscripted turn. `USING RICH CARDS`
+   (`lib/knowledge.ts`) carries one fixed "when to use it" line per card on
+   offer — the same set, so the prompt never names a card the model cannot
+   draw.
 4. **Loop**: up to 4 model turns; tool results are fed back so the model can
    close.
 
@@ -39,8 +44,8 @@ exercise them without a database: `lib/terms.ts` (`meaningfulWords`,
 
 **Filter semantics** (all three follow the same rule): an EMPTY filter (no
 `ids`, no `tags`/`category`, no `query`) returns EVERY item with NO limit —
-canned rows (a starter question or a catalog row with no arguments) depend on
-this to render the full gallery/list. A non-empty filter defaults to 6 items
+canned rows (a starter question with no arguments) depend on this to render
+the full gallery/list. A non-empty filter defaults to 6 items
 and caps at 12. `ids` come back in caller order with unknown ids dropped.
 `tags` are ANDed, and a tag matches an item whose own `tags` carry it OR whose
 caption/description contains it as a word (`meaningfulWords`) — an untagged
@@ -53,14 +58,14 @@ a catalog with no shared category or terms falls back to catalog order
 (`close: false`) rather than returning nothing.
 
 **PHOTO INDEX / SERVICE INDEX** (`lib/knowledge.ts`): the prompt gets a
-`PHOTO INDEX (id | caption | tags)` section only when `show_gallery` is
-actually offered — naming photos the model can't draw is how you get an
-apology instead of a card — and a `SERVICE INDEX (id | name | category |
-price | terms)` section whenever `show_services` is offered OR booking is
-on, built from the live booking flow's services when there are any, else the
-knowledge catalog. Both sections, and the `COMPOSING CARDS` paragraph, are
-built once per prompt from `getBookingConfig`/`getBookingFlow` read once and
-threaded through, not re-fetched per section.
+`PHOTO INDEX (id | caption | tags)` section whenever curated photos exist,
+which is exactly when `show_gallery` is offered — naming photos the model
+can't draw is how you get an apology instead of a card — and a `SERVICE
+INDEX (id | name | category | price | terms)` section whenever services are
+on file, built from the live booking flow's services when there are any,
+else the knowledge catalog. Both sections, and the `COMPOSING CARDS`
+paragraph, are built once per prompt from `getBookingConfig`/`getBookingFlow`
+read once and threaded through, not re-fetched per section.
 
 **Card memory**: each rendered card's summary is folded into the assistant
 history the model sees on its NEXT turn, so "book that" or "the red ones" can
@@ -92,7 +97,7 @@ curator and the upload flow for new photos, parsed everywhere through
 photos uploaded before tagging existed — not run automatically; an operator
 runs it once per tenant that needs it.
 
-Proof: `docs/features/composable-a2ui-elements/proof.ts`.
+Proof: `docs/features/composable-card-elements/proof.ts`.
 
 ## Booking
 
@@ -109,8 +114,9 @@ free on submit; the card's figures are convenience.
 
 ## The menu and the cart
 
-When a `show_menu` (or `show_cart`) row is in the catalog the prompt gains a
-`MENU INDEX` — one line per item: key, name, section, price and tags
+When the tenant has menu items on file (`show_menu` and `show_cart` are then
+offered) the prompt gains a `MENU INDEX` — one line per item: key, name,
+section, price and tags
 (`menuPromptSection`, `lib/menu.ts`) — with the rule: `show_menu` with no
 filter for the whole menu, `keys` for a curated list that fits the question,
 `tags` for a dietary or popularity filter, `category` for a section; never a
@@ -121,10 +127,10 @@ price or tag not in the index. The chat request carries the visitor's cart
 the model is told so. `show_cart` draws the cart card. The menu itself is
 written by the services extractor (`SERVICES_SYSTEM_PROMPT` now reports a
 `menu` object per service — every field optional, never invented — beside an
-`=== IMAGES` list of the pages' image URLs) into `MenuItem` rows; the
-onboarding and site-cards planners gained kind `menu`, gated on items on file,
-which wins over `services` when both are planned. Proof:
-`docs/features/menu-cart/proof.ts`.
+`=== IMAGES` list of the pages' image URLs) into `MenuItem` rows, and those
+rows are what puts the menu card on offer: a tenant with none keeps the
+services card (`lib/menu.ts`'s services fallback only serves a canned answer
+that names `show_menu`). Proof: `docs/features/menu-cart/proof.ts`.
 
 ## search_knowledge
 
@@ -224,28 +230,6 @@ beside the chat in localStorage (`booking:<slug>:<sessionId>` next to
 `chat:<slug>:<id>`); without it the session's messages are pruned by id and
 the first step asked again. Proof: `docs/features/booking-in-chat/proof.ts`.
 
-## Site-cards agent: A2UI cards from the imported site
-
-The A2UI tab's "Build cards from my site" button runs `buildCardsFromSite`
-(`lib/siteCards.ts`, `SITE_CARDS_SYSTEM_PROMPT`) over
-`POST /api/admin/site-cards` (NDJSON: `status` / `need` / `card`, then one
-`done` or `error`). It reads the site the business imported — the tenant's
-link `Source` rows, no crawling — beside an `EXISTING CARDS` block and the
-onboarding planner's BUSINESS / SIGNALS / STARTER QUESTIONS blocks. One
-planning call names up to 4 visitor **needs**, each with the page URL it was
-read from and the card that serves it (`gallery`, `services`, `contact`,
-`projects`, `designed`; never `booking`). `sanitizeSiteCardPlan` drops a need
-the catalog already covers (same tool for a live-data card, same label for any
-card) before the onboarding sanitizer's gates and caps. Cards are placed
-through onboarding's `placeCard`: designed ones go to the research-enabled card
-builder (`draftUiCard`) with the need and its evidence page added to the brief.
-Strictly additive — rows append after the catalog's last, existing rows are
-never touched, new cards attach only to starter questions with no card. No
-imported site means no model call. Designed cards need a builder model that
-supports adaptive thinking (`CARD_BUILDER_MODEL`). Proof:
-`docs/features/site-driven-a2ui-cards/proof.ts`; live check: `crosscheck.ts`
-beside it.
-
 ## Admin copilot: focused edits
 
 The admin copilot (`lib/adminBrain.ts`, `/admin/chat`) has `show_panel`,
@@ -279,13 +263,13 @@ panels' own row components (`AppointmentCard`, `OrderRow`, `DirectiveForm`,
 revealed row keeps its real server actions. Brain and panel build their index
 from the same rows via the same builders (`loadElementData` /
 `buildElementIndex`), which is what keeps the ids in agreement. Panels without
-elements (chats, cards, contacts, users, source items, settings) still reveal
+elements (chats, contacts, users, source items, settings) still reveal
 whole via `show_panel`. Proof: `docs/features/copilot-element-reveal/proof.ts`.
 
 ## Admin copilot: panels follow the dashboard nav
 
-The dashboard's seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking,
-Settings) are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`).
+The dashboard's six groups (Home, Inbox, Knowledge, Agent, Booking, Settings)
+are declared once in `app/admin/contentTabs.ts` (`NAV_GROUPS`).
 `adminPanelKeys` builds the copilot's `show_panel` enum from the same config
 (`fixedPanelEntries`), so the chat can reveal exactly the panels the dashboard
 shows — never `home`, and `users`/`bulk` for operators only. The old combined
@@ -298,7 +282,7 @@ no separate Customer tab, since name/email/phone are ordinary questions on the
 form now). `show_panel` maps retired keys
 through `TAB_ALIASES` before looking a panel up, so saved chats and canned
 answers naming `calendar` still open Appointments. Chat starter chips point at
-Chats, Presets, Appointments and Cards. Proof:
+Chats, Presets and Appointments. Proof:
 `docs/features/admin-nav-groups/proof.ts` (nav/resolver) and
 `docs/features/booking-flow/proof.ts` (the Booking section's own panels).
 

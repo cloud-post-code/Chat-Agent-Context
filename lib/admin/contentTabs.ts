@@ -30,7 +30,6 @@ type NavKey =
   | "inbox"
   | "knowledge"
   | "agent"
-  | "cards"
   | "booking"
   | "settings";
 
@@ -93,7 +92,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
       { key: "rules", label: "Rules" },
     ],
   },
-  { key: "cards", label: "Cards", subs: [{ key: "a2ui", label: "Cards" }] },
   {
     key: "booking",
     label: "Booking",

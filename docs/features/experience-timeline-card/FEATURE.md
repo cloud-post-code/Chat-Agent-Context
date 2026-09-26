@@ -1,7 +1,7 @@
-# Feature — A2UI experience timeline card
+# Feature — experience timeline card
 
 ## What
-A sixth A2UI card, `show_timeline`: Blake's work history rendered in the chat as
+A sixth card, `show_timeline`: Blake's work history rendered in the chat as
 a vertical timeline — a rail down the left, a dot per role, each with its dates,
 title, company and what he did — instead of the model reciting the same list as
 a paragraph.
@@ -64,7 +64,7 @@ Six places, the standard checklist for a card in this repo:
 2. `app/cards/Cards.tsx` — the mirrored union member, the branch, `Timeline`
 3. `lib/brain.ts` — the tool definition and the `hydrate()` case
 4. `lib/canned.ts` — `CARD_TOOLS`, so a canned answer can draw it for free
-5. `lib/knowledge.ts` — the "when to call it" line in the A2UI prompt block
-6. `README.md` — the A2UI table
+5. `lib/knowledge.ts` — the "when to call it" line in the card prompt block
+6. `README.md` — the cards table
 
 No schema change. No migration. No new dependency.

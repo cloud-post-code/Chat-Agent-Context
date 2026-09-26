@@ -23,14 +23,15 @@ export function claudeModel(): string {
 }
 
 /**
- * The model for the admin card builder only. Split from CLAUDE_MODEL because
- * the two workloads want different trade-offs: the chatbot answers every
- * visitor message (cost matters, Haiku fits), while the builder is a rare,
- * admin-only design task where quality beats the extra cents. Falls back to
- * the chatbot's model when unset.
+ * The model for the admin's ingestion-source builder only. Split from
+ * CLAUDE_MODEL because the two workloads want different trade-offs: the
+ * chatbot answers every visitor message (cost matters, Haiku fits), while the
+ * builder is a rare, admin-only design task where quality beats the extra
+ * cents. Falls back to the chatbot's model when unset. CARD_BUILDER_MODEL is
+ * the variable's old name, still honoured so an existing deploy keeps working.
  */
-export function cardBuilderModel(): string {
-  return process.env.CARD_BUILDER_MODEL || claudeModel();
+export function builderModel(): string {
+  return process.env.BUILDER_MODEL || process.env.CARD_BUILDER_MODEL || claudeModel();
 }
 
 /** The text of a response's content blocks, joined; non-text blocks contribute nothing. */

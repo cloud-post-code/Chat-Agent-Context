@@ -16,7 +16,7 @@ import { clampLabel } from "@/lib/chipLabel";
  */
 
 import { CARD_TOOLS, type CardTool } from "./canned.tools";
-export { CARD_TOOLS, type CardTool } from "./canned.tools";
+export { CARD_TOOLS } from "./canned.tools";
 
 /**
  * The lookup key for a question: case, surrounding and internal whitespace, and

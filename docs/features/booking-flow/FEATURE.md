@@ -1,4 +1,4 @@
-# Feature — The full booking flow as an A2UI card
+# Feature — The full booking flow as a card
 
 ## Summary
 

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/db";
 import { parseSocialLinks, type SocialLink } from "@/lib/socialLinks";
 
 /**
- * The social-links A2UI element: one small card of the business's own social
+ * The social-links card: one small card of the business's own social
  * profiles, filterable to the platforms a visitor actually asked about
  * ("just Instagram") instead of always showing every link on file.
  *

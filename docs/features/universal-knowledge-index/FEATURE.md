@@ -38,7 +38,7 @@ without Blake endorsing it.
 ### Prompt slims down
 The always-on core keeps only what must always be true or must exist for tool
 calls: identity, contact, the persona, a compact `id — name` project index (so
-`show_project` can be called), the photo count, the A2UI instructions, the
+`show_project` can be called), the photo count, the card instructions, the
 rules, and the admin corrections. Bio, experience, project blurbs/details,
 photo descriptions and approved answers all become **retrieved** rather than
 always-present.

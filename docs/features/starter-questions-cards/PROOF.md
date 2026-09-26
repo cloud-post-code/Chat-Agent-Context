@@ -1,16 +1,16 @@
-# Proof — starter questions can show A2UI cards
+# Proof — starter questions can show cards
 
 ## Primary proof command
 
 ```bash
-npx tsx docs/features/starter-questions-a2ui-cards/proof.ts
+npx tsx docs/features/starter-questions-cards/proof.ts
 ```
 
 Exit 0 and `All proof assertions passed`.
 
 ## What it proves
 
-Drives the real `lib/brain.answer()` over seeded `CannedAnswer` and `UiCard`
+Drives the real `lib/brain.answer()` over seeded `CannedAnswer`
 rows for a throwaway tenant. The Anthropic client is injected as a double at the
 outermost provider boundary **only** — retrieval, prompt assembly, the tool loop
 and `hydrate()` all run for real — so "the model was reached" is proven by
@@ -20,7 +20,7 @@ wording survives" by inspecting the system prompt the double received.
 | Assertion | Guards |
 |---|---|
 | a starter question with no attached card reaches the model | the regression itself |
-| and can therefore render an A2UI card | the point of the feature |
+| and can therefore render a card | the point of the feature |
 | the owner's approved wording is handed to the model verbatim | prose is not silently regenerated |
 | the model is told to speak it as written | the `APPROVED ANSWER` instruction survives edits |
 | a row that already carries its own card still costs zero model calls | presets stay a cost saver |

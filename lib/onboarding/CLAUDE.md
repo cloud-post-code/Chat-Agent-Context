@@ -14,7 +14,6 @@ extracts with the model and writes through `save.ts`. The bulk builder
 | blog, testimonials, team, sitemap sweep | `knowledge.ts` |
 | the LLM extraction helper every stage uses (`llmExtract`, `llmExtractVision`) | `knowledgeLlm.ts` |
 | services and the booking form (transcribed from the real booking page) | `services.ts`, `bookingPage.ts`, `formReader.ts`, `formTranscribe.ts`, `bookingFormChat.ts`, `bookingSeed.ts` (writes Service / Staff / Location / BookingSettings and the form fields) |
-| first-run A2UI card set | `cards.ts` (`lib/siteCards.ts` is the later gap-fill over the same placement path) |
 | graph indexing of what was read | `graphIndex.ts` |
 | concurrency | `pool.ts` (`onboardingConcurrency`); the model gate with 429/529 backoff is `lib/claude/retry.ts` (`modelCall`) |
 | the only writer | `save.ts` |

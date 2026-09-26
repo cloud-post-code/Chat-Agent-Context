@@ -3,7 +3,7 @@ import { personaPromptBlock } from "./persona";
 import { goalsPromptSection, rulesPromptLines } from "./directives";
 import { retrieve, formatContext } from "./retrieval/search";
 import { broadOverviews } from "./retrieval/clusters";
-import { cardCatalog, type CardGuidance } from "./uiCards";
+import { availableCardTools, CARD_TOOL_NAMES, type CardToolName } from "./cardTools";
 import { parseSocialLinks } from "./socialLinks";
 import { parsePhotoTags, photoIndexLines } from "./photoIndex";
 import { priceFromText } from "./serviceCatalog";
@@ -11,7 +11,7 @@ import { serviceIndexLines, type ServiceMeta } from "./serviceIndex";
 
 /**
  * Assembles the chatbot's system prompt: a persona core (profile, projects,
- * photos, contact, A2UI instructions, corrections) plus knowledge for THIS
+ * photos, contact, card instructions, corrections) plus knowledge for THIS
  * question, retrieved from the chunk/entity index built at ingest time.
  * The admin controls all of this content, so the bot only speaks from it.
  *
@@ -19,9 +19,10 @@ import { serviceIndexLines, type ServiceMeta } from "./serviceIndex";
  * we fall back to the legacy dump of recent source summaries so the bot is
  * never knowledge-blind.
  *
- * The prompt also tells Claude HOW to use the A2UI tools, from the card
- * catalog Blake edits on the admin A2UI tab (lib/uiCards.ts) — each card's
- * "when to show it" text becomes a line of the USING RICH CARDS section.
+ * The prompt also tells Claude HOW to use the card tools: one "when to show
+ * it" line per card the tenant's data allows (lib/cardTools.ts) becomes the
+ * USING RICH CARDS section, so the model is never told about a card it
+ * cannot draw.
  */
 type PromptData = Awaited<ReturnType<typeof loadPromptData>>;
 
@@ -63,7 +64,7 @@ async function loadPromptData(userId: string) {
 
 /**
  * Every prompt section that depends on the fetched rows (project index,
- * knowledge, corrections, card catalog, photo/service indexes, persona) plus
+ * knowledge, corrections, card tools, photo/service indexes, persona) plus
  * the speaker names the final template needs. Pulled out of
  * buildSystemPrompt so that function stays under the line-count limit;
  * behaviour is unchanged.
@@ -99,28 +100,23 @@ async function promptSections(userId: string, query: string | undefined, data: P
         .join("\n")}`
     : "";
 
-  // The card catalog the admin curates on the A2UI tab: which cards exist and
-  // when to show each.
-  const cards = await cardCatalog(userId);
-  const cardTools = new Set(cards.map((c) => c.tool));
+  // Which card tools the tenant's data allows (lib/cardTools.ts) — the same
+  // set lib/brain.ts offers, so the guidance below never names a card the
+  // model cannot draw.
+  const cardTools = await availableCardTools(userId);
 
   // Booking config and flow are each read at most once per prompt build, then
   // threaded through the sections that need them (serviceIndexSection,
-  // hasBookingOrSocialTools, bookingPromptSection) instead of every section
-  // re-fetching its own copy.
+  // bookingPromptSection) instead of every section re-fetching its own copy.
   const { getBookingConfig } = await import("./appointments");
   const bookingConfig = await getBookingConfig(userId);
   const { getBookingFlow } = await import("./booking/store");
   const bookingFlow = await getBookingFlow(userId);
 
-  // The full PHOTO INDEX (id | caption | tags) only when show_gallery is
-  // actually offered — naming photos the model can't draw is how you get an
-  // apology instead of a card. Otherwise the old count-only line.
-  const photoBlock = cardTools.has("show_gallery")
-    ? photoIndexSection(photos)
-    : photos.length
-      ? `${photos.length} photo(s) available.`
-      : "(No photos uploaded yet.)";
+  // The full PHOTO INDEX (id | caption | tags). show_gallery is offered
+  // exactly when curated photos exist, so listing them never names a photo
+  // the model can't draw; with none on file, one plain line.
+  const photoBlock = photoIndexSection(photos);
 
   // "" when the owner has written no persona yet — a generic personality
   // dressed up as this business's own would be exactly the kind of invented
@@ -138,7 +134,6 @@ async function promptSections(userId: string, query: string | undefined, data: P
     projectBlock,
     sourceBlock,
     correctionBlock,
-    cards,
     cardTools,
     bookingConfig,
     bookingFlow,
@@ -159,7 +154,6 @@ export async function buildSystemPrompt(userId: string, query?: string): Promise
     projectBlock,
     sourceBlock,
     correctionBlock,
-    cards,
     cardTools,
     bookingConfig,
     bookingFlow,
@@ -184,12 +178,12 @@ PROJECT INDEX (ids for show_project; details come through KNOWLEDGE below):
 ${projectBlock}
 
 ${photoBlock}
-${await serviceIndexSection(userId, cardTools, bookingConfig, bookingFlow)}
+${await serviceIndexSection(userId, bookingFlow)}
 KNOWLEDGE FOR THIS QUESTION (retrieved from everything ${speaker} curates —
 profile and experience, persona, project write-ups, photo descriptions, saved
 sources, and approved answers. Each block is labelled with where it came
 from):
-${sourceBlock}${cardRulesSection(cards, { hasBookingOrSocial: await hasBookingOrSocialTools(bookingConfig, userId) })}${bookingPromptSection(bookingConfig)}${goalsPromptSection(directives)}
+${sourceBlock}${cardRulesSection(cardTools)}${bookingPromptSection(bookingConfig)}${goalsPromptSection(directives)}
 
 RULES:
 - Only state facts present above or returned by a search — never invent a price, service or policy.
@@ -259,24 +253,16 @@ type BookingConfigLike = Awaited<ReturnType<typeof import("./appointments").getB
 type BookingFlowLike = Awaited<ReturnType<typeof import("./booking/store").getBookingFlow>>;
 
 /**
- * "SERVICE INDEX (id | name | category | price | terms):" whenever
- * show_services is offered OR booking is enabled — the same gate
- * bookingPromptSection used to name services in prose. Built from the live
- * booking flow's services when there are any, else the knowledge catalog
+ * "SERVICE INDEX (id | name | category | price | terms):" whenever there are
+ * services to index — the same data that puts show_services on offer and
+ * that show_booking picks its `service` from. Built from the live booking
+ * flow's services when there are any, else the knowledge catalog
  * (priceFromText gives it a price the same way serviceIndexLines expects).
- * "" when there is nothing to index. `bookingConfig`/`bookingFlow` are read
- * once by buildSystemPrompt and passed in rather than each section fetching
- * its own copy.
+ * "" when there is nothing to index. `bookingFlow` is read once by
+ * buildSystemPrompt and passed in rather than each section fetching its own
+ * copy.
  */
-async function serviceIndexSection(
-  userId: string,
-  cardTools: Set<string>,
-  bookingConfig: BookingConfigLike,
-  bookingFlow: BookingFlowLike,
-): Promise<string> {
-  const bookingOn = bookingConfig.enabled && bookingConfig.fields.length > 0;
-  if (!cardTools.has("show_services") && !bookingOn) return "";
-
+async function serviceIndexSection(userId: string, bookingFlow: BookingFlowLike): Promise<string> {
   // The flow (real Service rows, or the legacy bridge's derived ones) is
   // richer whenever it has anything on file — same rule servicesBlock uses —
   // regardless of whether the booking WIZARD itself has questions configured
@@ -306,18 +292,10 @@ async function serviceIndexSection(
   return `SERVICE INDEX (id | name | category | price | terms):\n${serviceIndexLines(metas)}\n`;
 }
 
-/** Whether either data-gated tool (booking, social) exists, so COMPOSING
- *  CARDS still gets appended when the catalog itself has no reason lines. */
-async function hasBookingOrSocialTools(bookingConfig: BookingConfigLike, userId: string): Promise<boolean> {
-  const { hasSocialLinks } = await import("./social");
-  const social = await hasSocialLinks(userId);
-  return (bookingConfig.enabled && bookingConfig.fields.length > 0) || social;
-}
-
 const COMPOSING_CARDS_SECTION = `
 COMPOSING CARDS:
-Several small, focused cards beat one big one. The catalog above tells you WHEN to reach for a
-card; the PHOTO INDEX and SERVICE INDEX tell you WHICH items to put in it. Narrow every card to
+Several small, focused cards beat one big one. USING RICH CARDS above tells you WHEN to reach for
+a card; the PHOTO INDEX and SERVICE INDEX tell you WHICH items to put in it. Narrow every card to
 the exact need of the moment — a few matching photos, the one service asked about plus its close
 neighbours, the booking card opened on the service they named — rather than the whole gallery
 or catalog. Combine several small cards in one answer when the visitor's
@@ -330,37 +308,35 @@ never repeat or mention it. When the visitor then says "those", "that one", "the
 "book that", use those ids/tags: pass the tags as \`query\` to show_services or show_booking, or
 pass the ids straight through to \`services\`/\`ids\`, instead of asking them to repeat themselves.`;
 
-/**
- * The USING RICH CARDS section, from the already-gated card list, plus the
- * COMPOSING CARDS paragraph. One line per card with a written reason; a card
- * whose reason is blank contributes its tool's existence (the PHOTO INDEX
- * line, the tool list in brain.ts) but no guidance line. `hasBookingOrSocial`
- * keeps COMPOSING CARDS present even when the catalog itself has no reason
- * lines but booking or social — gated on data, not the catalog — still
- * exist as tools; with neither cards nor those tools, nothing renders:
- * instructing the model about cards it cannot draw is how you get an apology
- * instead of a card.
- */
-function cardRulesSection(cards: CardGuidance[], opts: { hasBookingOrSocial: boolean } = { hasBookingOrSocial: false }): string {
-  const lines = cards
-    .filter((c) => c.reason.trim())
-    // Custom cards share one tool, so the key is part of the instruction:
-    // it is the argument the model must pass to draw THIS card.
-    .map((c) =>
-      c.tool === "show_card"
-        ? `- show_card with key "${c.key}": ${c.reason.trim()}`
-        : `- ${c.tool}: ${c.reason.trim()}`,
-    );
-  if (!lines.length && !opts.hasBookingOrSocial) return "";
-  const usingCards = lines.length
-    ? `
+/** When to reach for each card, in the order lib/cardTools.ts lists them. */
+const CARD_GUIDANCE: Record<CardToolName, string> = {
+  show_projects: "when a visitor asks about the owner's work, portfolio or projects — narrowed to the ones that fit the ask",
+  show_project: "when the conversation is about one specific project",
+  show_gallery: "when a visitor asks to see photos, examples of the work, or what the place looks like",
+  show_services: "when a visitor asks what the business offers, or about a service and its price",
+  show_menu: "when a visitor asks what's on the menu, what to order, or about a dish",
+  show_cart: "when a visitor wants to see, change or check out what they've picked",
+  show_contact_form: "when a visitor wants to get in touch, ask for a quote, or leave a message for the owner",
+};
 
-USING RICH CARDS (A2UI):
+/**
+ * The USING RICH CARDS section — one guidance line per card tool the tenant's
+ * data allows (the same set lib/brain.ts offers) — plus the COMPOSING CARDS
+ * paragraph. Booking and social carry their own guidance (BOOKING below, the
+ * tool description). Nothing renders when no card is on offer: instructing
+ * the model about cards it cannot draw is how you get an apology instead of
+ * a card.
+ */
+function cardRulesSection(cardTools: Set<CardToolName>): string {
+  const lines = CARD_TOOL_NAMES.filter((t) => cardTools.has(t)).map((t) => `- ${t}: ${CARD_GUIDANCE[t]}`);
+  if (!lines.length) return "";
+  return `
+
+USING RICH CARDS:
 You have tools that render visual cards in the chat. Prefer a small focused card over a plain text list. When to use each:
 ${lines.join("\n")}
-Always add a short spoken sentence alongside a card — the card supplements your words, it doesn't replace them.`
-    : "";
-  return `${usingCards}\n${COMPOSING_CARDS_SECTION}`;
+Always add a short spoken sentence alongside a card — the card supplements your words, it doesn't replace them.
+${COMPOSING_CARDS_SECTION}`;
 }
 
 /**

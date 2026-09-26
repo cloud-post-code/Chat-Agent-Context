@@ -24,7 +24,7 @@ retype a name from memory. The owner who reported it put it plainly: "I have
 no idea what is needed."
 
 This adds the question types a small business actually asks with, draws each
-as its own A2UI control, and builds the service question from the tenant's
+as its own card control, and builds the service question from the tenant's
 menu automatically.
 
 ## Desired Behavior
@@ -117,7 +117,7 @@ menu automatically.
   the question's options are the owner's to edit.
 
 ## Constraints
-- A2UI: the block carries data (`type` + `config`), never markup; the client
+- Cards: the block carries data (`type` + `config`), never markup; the client
   renders from a closed vocabulary and skips what it doesn't know.
 - The server never trusts the card: the same `resolveAnswer` runs in both, and
   only the server's verdict counts.

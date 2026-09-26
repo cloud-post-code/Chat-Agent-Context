@@ -3,13 +3,13 @@
 import { useEffect, useState } from "react";
 
 /**
- * The one sealed renderer for model- or owner-written HTML: coded cards in
- * the chat (`tone="bg-soft"`) and a source's custom page in the admin
- * (`tone="surface"`). The markup was validated by safeCardHtml at save; this
- * sandbox is the second wall — a CSP of default-src 'none' (inline styles and
- * same-origin/data images only) and a sandbox with no scripts — so stored
- * HTML can never execute or phone out even if a validator regression let
- * something through.
+ * The one sealed renderer for model- or owner-written HTML: a source's custom
+ * page in the admin (`tone="surface"`; `tone="bg-soft"` suits a frame on the
+ * chat's soft fill). The markup was validated by safeHtml (lib/util/html.ts)
+ * at save; this sandbox is the second wall — a CSP of default-src 'none'
+ * (inline styles and same-origin/data images only) and a sandbox with no
+ * scripts — so stored HTML can never execute or phone out even if a validator
+ * regression let something through.
  *
  * Theme variables are read from the live document and injected, because a
  * sandboxed iframe inherits nothing; the frame stays on-palette when the

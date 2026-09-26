@@ -1,7 +1,7 @@
 # Proof Plan — Services card
 
 ## Definition Of Done
-- A `services` A2UI block and a `show_services` tool exist with the same
+- A `services` card block and a `show_services` tool exist with the same
   structure as every other card: a typed union member in `lib/cards.ts`
   mirrored in `app/cards/Cards.tsx`, a hydrator reached through `hydrate()`, a
   `CARD_TOOLS` entry, a storable sample type, a renderer branch.
@@ -75,7 +75,7 @@ Secondary guards:
 - `npx tsc --noEmit` clean.
 - The card, its fold, a long description's More/Less, Book → the booking
   conversation with the service already chosen → review, exercised in the
-  browser preview on the admin A2UI tab's live preview.
+  browser preview on the admin card tab's live preview (that tab has since been removed).
 
 ## Environment And Data
 - Local dev Postgres from `.env`, same as sibling proofs. No network: both

@@ -1,10 +1,10 @@
 /**
- * Primary proof for starter-questions-a2ui-cards (see PROOF.md).
- * Run: npx tsx docs/features/starter-questions-a2ui-cards/proof.ts
+ * Primary proof for starter-questions-cards (see PROOF.md).
+ * Run: npx tsx docs/features/starter-questions-cards/proof.ts
  *
  * A starter question IS a CannedAnswer row, and the brain used to serve any
  * such row by returning its prose and stopping — the model, its tool list and
- * the whole A2UI catalog were never reached. So a visitor clicking a starter
+ * the card tools were never reached. So a visitor clicking a starter
  * chip could never be shown a card, however well one fit.
  *
  * This drives the real lib/brain.answer() over seeded rows. The Anthropic
@@ -106,7 +106,6 @@ async function main() {
     if (!u) return;
     await prisma.chatSession.deleteMany({ where: { visitorKey: SESSION_KEY } });
     await prisma.cannedAnswer.deleteMany({ where: { userId: u.id } });
-    await prisma.uiCard.deleteMany({ where: { userId: u.id } });
     await prisma.chunk.deleteMany({ where: { userId: u.id } });
     await prisma.entity.deleteMany({ where: { userId: u.id } });
     await prisma.source.deleteMany({ where: { userId: u.id } });
@@ -143,20 +142,8 @@ async function main() {
         },
       ],
     });
-    // A catalog with a contact card, so the tool is on offer at all.
-    await prisma.uiCard.create({
-      data: {
-        userId: user.id,
-        key: "contact",
-        label: "Contact",
-        tool: "show_contact_form",
-        description: "A contact form.",
-        reason: "Show when the visitor wants to get in touch.",
-        note: "",
-        sampleBlock: "",
-        order: 0,
-      },
-    });
+    // show_contact_form is always on offer (lib/cardTools.ts), so nothing
+    // needs seeding for the card to exist.
 
     // ── The regression this feature fixes ─────────────────────────────────
     const plain = await ask(Q_STARTER, user.id, [
@@ -168,7 +155,7 @@ async function main() {
       `calls=${plain.calls}`,
     );
     check(
-      "and can therefore render an A2UI card",
+      "and can therefore render a card",
       plain.cards.some((c) => c.type === "contact"),
       `cards=${JSON.stringify(plain.cards)}`,
     );

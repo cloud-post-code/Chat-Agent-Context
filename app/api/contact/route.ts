@@ -4,7 +4,7 @@ import { prisma } from "@/lib/db";
 export const runtime = "nodejs";
 
 /**
- * Records a contact submission from the in-chat A2UI contact form. `slug`
+ * Records a contact submission from the in-chat contact form card. `slug`
  * names whose agent page the form was on, so the submission lands in that
  * owner's Contacts tab.
  */

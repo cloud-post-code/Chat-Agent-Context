@@ -4,7 +4,7 @@ import { useState } from "react";
 import { field, btnGhost } from "../ui";
 
 /**
- * The gallery review's A2UI element: extracted photos three at a time, a
+ * The gallery review's card: extracted photos three at a time, a
  * "page / pages" counter, and arrows to move between sets. Captions are
  * editable in place; a photo the user doesn't want is removed with its ×.
  */

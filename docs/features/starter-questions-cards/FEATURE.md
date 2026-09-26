@@ -1,10 +1,10 @@
-# Starter questions can show A2UI cards
+# Starter questions can show cards
 
 ## Why
 
 A starter question is a `CannedAnswer` row (see `lib/starterQuestions.ts`), and
 `lib/brain.answer()` served *any* canned row by yielding its prose and
-returning. The model, its tool list and the whole A2UI catalog were never
+returning. The model, its tool list and the card tools were never
 reached. So the five questions a visitor is most likely to click — the ones on
 the chip row — were the only questions that could never produce a card, however
 well one fit. A card could only appear if the owner had hand-attached one in the
@@ -28,7 +28,7 @@ from doing that.
 
 ## Not in scope
 
-Changing which cards exist, or the starter card catalog.
+Changing which cards exist.
 
 ## Files
 

@@ -8,7 +8,7 @@ start, right after `prisma db push` has applied the schema. It is idempotent
 and best-effort (a DB hiccup never blocks boot), so the database begins —
 and stays — in the correct structure at every point in time:
 
-- seeds the starter **ingestion sources**, **A2UI cards**, and **canned
+- seeds the starter **ingestion sources**, **cards**, and **canned
   answers** into empty tables (the same into-empty-only semantics as before,
   now at boot instead of lazily on first dashboard load — the dashboard
   becomes a plain reader);

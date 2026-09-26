@@ -3,8 +3,7 @@
 ## Definition Of Done
 - `provisionUserDefaults` creates **zero** canned answers for a new account;
   every other starter catalog (profile, persona, theme, ingestion sources) is
-  still provisioned. (UI cards are no longer seeded either — see
-  onboarding-a2ui-cards — so the proof asserts zero of those too.)
+  still provisioned.
 - `seedStarterAnswers` no longer exists in `lib/canned.ts`, and no source file
   outside `docs/` references it.
 - `starterChipsFor` returns the owner's enabled rows in order, and `[]` — never

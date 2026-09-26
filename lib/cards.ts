@@ -1,4 +1,4 @@
-import type { ProjectCard, PhotoCard, ServiceCard, CustomElement } from "./cards.types";
+import type { ProjectCard, PhotoCard, ServiceCard } from "./cards.types";
 import { str } from "@/lib/util/text";
 import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
@@ -44,10 +44,10 @@ export {
 export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
 
 /**
- * Shapes the data the A2UI cards render. The chat route calls these to hydrate
- * the tool blocks Claude emits (show_projects / show_project / show_gallery /
- * show_services / show_booking / show_social) into concrete payloads the
- * frontend renders as cards.
+ * Shapes the data the chat's cards render. The chat route calls these to
+ * hydrate the tool blocks Claude emits (show_projects / show_project /
+ * show_gallery / show_services / show_booking / show_social) into concrete
+ * payloads the frontend renders as cards.
  *
  * The composable elements (gallery/services/projects/booking) all take an
  * `input` bag straight from the model's tool call: an empty/no-op filter
@@ -65,19 +65,12 @@ export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
  */
 export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow | null };
 
-export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "./cards.types";
+export type { ProjectCard, PhotoCard, ServiceCard, SocialItem } from "./cards.types";
 
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
   | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
-  // A card designed in the admin card builder. Unlike the tool-drawn blocks
-  // above, the stored content IS the card — nothing is hydrated at chat time.
-  | { type: "custom"; title?: string; elements: CustomElement[] }
-  // A card the builder CODED: model-written HTML+inline CSS, rendered in a
-  // sealed sandbox (no scripts, no external requests). `height` is the
-  // iframe's px height, since a sandboxed document can't report its own.
-  | { type: "html"; html: string; height?: number }
   | { type: "contact" }
   // The tenant's services, read from the knowledge onboarding saved. `booking`
   // rides in the block when appointments are on, so each service opens the

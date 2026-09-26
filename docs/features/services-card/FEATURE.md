@@ -9,7 +9,7 @@
 > `createBooking` is that path now, still server-validated the same way.
 
 ## What
-A first-class A2UI card, `show_services`: the business's services listed in the
+A first-class card, `show_services`: the business's services listed in the
 chat — name, what it includes — each with a **Book** button that opens the
 appointment wizard with that service already chosen.
 
@@ -28,7 +28,7 @@ from it. The visitor read the list, then had to ask again to book, then type
 the service name they had just been looking at into the wizard.
 
 A fixed block fixes all three: every tenant's services card has the same
-structure as every other A2UI element (typed block → hydrator → renderer), it
+structure as every other card element (typed block → hydrator → renderer), it
 is always current, and booking is on the card.
 
 ## Shape
@@ -113,11 +113,7 @@ bubble is not a menu page. Stored order is kept — it is the site's order.
    `ServiceRow`, `BookingCard`'s `prefill`/`intro`
 5. `lib/brain.ts` — the tool definition and the `hydrate()` case
 6. `lib/canned.ts` — `CARD_TOOLS`, so a starter question can carry it for free
-7. `lib/uiCards.ts` — `services` is a storable sample block type
-8. `lib/cardBuilder.ts` — the live-data route, tool→type map, services in the
-   site-data brief
-9. `lib/onboarding/cards.ts` — the `services` kind, its signal, its live sample
-10. `README.md` — the A2UI table
+7. `README.md` — the cards table
 
 No schema change. No migration. No new dependency. No new endpoint.
 

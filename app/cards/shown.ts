@@ -1,6 +1,6 @@
 /**
  * Pure helper deriving the wire `ShownCard[]` for a message's rendered cards
- * (see the composable-a2ui-elements contract, "Wire / card memory").
+ * (see the composable-card-elements contract, "Wire / card memory").
  * Client-safe: the only import is the `ShownCard` type from lib/brain.ts,
  * which the type-only `import type` erases at compile time — no server code
  * reaches the client bundle — so this still runs from app/Chat.tsx and from

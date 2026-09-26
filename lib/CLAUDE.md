@@ -11,10 +11,10 @@ prisma-free modules from here (see the test in `tests/arch/`).
 | retrieval: chunk, embed, entities, graph, search | `retrieval/` (`indexer.ts` writes, `search.ts` reads) |
 | onboarding: read a site into the account | `onboarding/jobs.ts` runs the stages; `onboarding/save.ts` writes; `onboarding/knowledgeLlm.ts` is the extraction helper |
 | booking model: services, staff, locations, settings, bookings | `booking/store.ts` (only writer: `createBooking`), shapes in `booking/types.ts` |
-| A2UI cards: hydrate tool blocks / card catalog / AI card builder | `cards.ts` / `uiCards.ts` / `cardBuilder.ts`; first-run set `onboarding/cards.ts`; gap-fill `siteCards.ts` |
+| chat cards: which tools the tenant's data allows / hydrate tool blocks | `cardTools.ts` / `cards.ts` (item shapes in `cards.types.ts`) |
 | ingestion sources and items | `ingestionSources.ts` (catalog), `ingestedItems.ts` (read), `customIngest.ts` (write) |
 | accounts: passwords, sessions, login (`authenticate`), signup, operator tools, wipe | `auth.ts`, `users.ts`, `accountAdmin.ts`, `accountWipe.ts` (covered by `tests/lib/accountWipe.test.ts`) |
-| Claude | `claude/index.ts` — the only Anthropic client (`claudeModel()`, `cardBuilderModel()`, `textOf`); `claude/retry.ts` — `modelCall`, the shared gate with 429/529 backoff |
+| Claude | `claude/index.ts` — the only Anthropic client (`claudeModel()`, `builderModel()`, `textOf`); `claude/retry.ts` — `modelCall`, the shared gate with 429/529 backoff |
 | Prisma | `db.ts` — the only client, plus `getProfile` / `getPersonaConfig` / `getThemeConfig` upserts |
 | theme, fonts, brand voice | `theme.ts`, `fonts.ts`, `brand.ts` (voice, not visuals) |
 | menu, cart, orders | `menu.ts`, `menuTypes.ts`, `orders.ts` |

@@ -14,7 +14,7 @@ exactly the idempotence case).
 ## Assertions (all must pass)
 
 1. **`bootstrapDatabase()` is idempotent on a populated DB**: running it
-   twice changes no row counts in IngestionSource, UiCard, or CannedAnswer.
+   twice changes no row counts in IngestionSource or CannedAnswer.
 2. **`foldLegacySections` folds retired-catalogue text** into one labeled
    prose block, and returns "" for current-shape input.
 3. **Persona migration round-trip**: a Profile whose `personaSections`

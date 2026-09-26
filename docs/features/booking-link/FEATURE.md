@@ -21,7 +21,7 @@ visitor wants to schedule.
 3. **The contact card shows it**: the `contact` block gains an optional
    `bookingLink`, hydrated from the profile, and the contact form renders a
    "book a time directly" link under the send button when it is set.
-4. **A `booking_link` A2UI card**: `{ type: "booking_link", url, name }` — a
+4. **A `booking_link` card**: `{ type: "booking_link", url, name }` — a
    card with a button that opens the booking page in a new tab.
 5. **A `show_booking_link` tool**, offered to the model only when the link is
    set (same withholding pattern as `show_booking`), hydrated through the same

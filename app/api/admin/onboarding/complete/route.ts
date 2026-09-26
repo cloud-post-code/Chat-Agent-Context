@@ -2,7 +2,6 @@ import { currentUser } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { finishOnboardingIndex } from "@/lib/onboarding/graphIndex";
-import { generateOnboardingCards } from "@/lib/onboarding/cards";
 
 export const runtime = "nodejs";
 
@@ -52,10 +51,6 @@ export async function POST(req: Request) {
         console.error(`finishOnboardingIndex(${user.id}) failed:`, e);
       }
       await personalizeStarterQuestions(user.id);
-      // Then the cards the agent can show, planned from the profile and
-      // whatever knowledge exists — there is no site to read on this path.
-      // Never throws by contract; logged inside on failure.
-      await generateOnboardingCards([], user.id, { categories: [] }, () => {});
     })();
   }
 

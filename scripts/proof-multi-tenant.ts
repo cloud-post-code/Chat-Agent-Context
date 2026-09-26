@@ -215,11 +215,6 @@ async function main() {
 
   // ── Cross-tenant probes: A's session against B's resource ids ──
   console.log("\n· cross-tenant probes (A's session, B's ids)");
-  const bobCard = await prisma.uiCard.findFirst({ where: { userId: userB.id } });
-  if (bobCard) {
-    const { res } = await get(jarA, `/admin/cards/${bobCard.id}`);
-    check("GET /admin/cards/<B's card id> as A → 404", res.status === 404, `status ${res.status}`);
-  }
 
   // The admin mutations are server actions; invoke the real ones over HTTP
   // (no-JS form protocol) with B's ids and prove nothing changed.

@@ -101,7 +101,7 @@ The seeding block in `extractServicesAndBooking` is replaced by one rule:
     "appointments" still lands somewhere real rather than drawing nothing.
 
 ## Out of scope
-- The visitor-facing booking wizard, its A2UI rendering, and the availability
+- The visitor-facing booking wizard, its card rendering, and the availability
   model (no change).
 - `createAppointment` validation (no change).
 - Backfilling `bookingEnabled = true` for existing tenants.

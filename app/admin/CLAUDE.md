@@ -8,7 +8,7 @@ ingestion source behind a second password.
 ## Layout
 | Concern | Where |
 |---|---|
-| server actions, one module per domain | `actions/{auth,accounts,profile,content,chat,graph,canned,directives,addressbook,cards,ingestion,booking}.ts`; `actions/_shared.ts` holds `requireUser`, `revalidateAll`, `isUpload`, `reindex`, `toData` (not a `"use server"` file) |
+| server actions, one module per domain | `actions/{auth,accounts,profile,content,chat,graph,canned,directives,addressbook,ingestion,booking}.ts`; `actions/_shared.ts` holds `requireUser`, `revalidateAll`, `isUpload`, `reindex`, `toData` (not a `"use server"` file) |
 | data every panel reads | `panels/queries.ts` → `loadAdminData(user, query)`; `AdminData` is its return type |
 | panel composition (`buildAdminPanels`) | `panels/index.tsx`; Profile / Persona / Theme / Activity are their own components beside it, the rest are the `*Panel.tsx` files in this folder |
 | nav registry (groups, sub-keys, aliases, deep links) | `lib/admin/contentTabs.ts` (shim at `./contentTabs.ts`); keys are the contract shared by `?tab=`, `flat[key]` and the copilot's `show_panel` |
@@ -29,4 +29,4 @@ ingestion source behind a second password.
 ## Testing
 `npm test` (`tests/admin/*`) covers the nav registry, SubTabs, home items, pagination,
 the source builder and the persona prompt. Panels that need data: the proofs
-(`admin-chat-a2ui`, `copilot-element-reveal`, `admin-nav-groups`) and `npm run smoke`.
+(`admin-chat-panels`, `copilot-element-reveal`, `admin-nav-groups`) and `npm run smoke`.

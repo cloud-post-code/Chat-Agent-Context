@@ -1,5 +1,5 @@
-import { claude, cardBuilderModel, textOf } from "@/lib/claude";
-import { safeCardHtml } from "@/lib/uiCards";
+import { claude, builderModel, textOf } from "@/lib/claude";
+import { safeHtml } from "@/lib/util/html";
 import {
   UPLOAD_METHODS,
   STORAGE_KINDS,
@@ -37,7 +37,7 @@ export type SourceDraft = {
 
 export type BuilderTurn = { role: "user" | "assistant"; content: string };
 
-/** Minimal client surface, injectable for proofs (same pattern as cardBuilder). */
+/** Minimal client surface, injectable for proofs (same pattern as lib/brain.ts's ModelClient). */
 export type SourceBuilderClient = {
   messages: {
     create(req: {
@@ -104,7 +104,7 @@ function validateDraft(v: unknown): SourceDraft | null {
   // Generated page code is model output: anything unsafe drops to "" (the
   // default page) rather than surviving to the save.
   const rawPanel = str(d.panelHtml);
-  const panelHtml = rawPanel && safeCardHtml(rawPanel) ? rawPanel : "";
+  const panelHtml = rawPanel && safeHtml(rawPanel) ? rawPanel : "";
   return {
     label,
     key: str(d.key),
@@ -138,7 +138,7 @@ export async function draftIngestionSource(
   let raw: string;
   try {
     const res = await client.messages.create({
-      model: cardBuilderModel(),
+      model: builderModel(),
       // Page code (panelHtml) can be sizeable; give the JSON room.
       max_tokens: 8000,
       system: SYSTEM,

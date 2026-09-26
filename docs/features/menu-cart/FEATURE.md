@@ -18,7 +18,7 @@ prices, sale prices, sizes, add-ons, dietary tags, allergens, "choose one
 side", "serves 2", "4 remaining", pickup or delivery. Visitors want to pick
 several things, change how many, and order or book the lot in one go.
 
-This adds two first-class A2UI elements — **menu** (`show_menu`) and **cart**
+This adds two first-class card elements — **menu** (`show_menu`) and **cart**
 (`show_cart`) — fed by a structured menu the onboarding extractor reads from
 the site, a cart that lives with the visitor across every card in the chat,
 and an order write path the server validates from the menu on file.
@@ -128,8 +128,7 @@ and an order write path the server validates from the menu on file.
 ## Scope
 `prisma/schema.prisma` + migration (`MenuItem`, `Order`), `lib/menuTypes.ts`
 (new), `lib/menu.ts` (new), `lib/orders.ts` (new), `app/api/order/route.ts`
-(new), `lib/cards.ts`, `lib/brain.ts`, `lib/canned.ts`, `lib/uiCards.ts`,
-`lib/cardBuilder.ts`, `lib/onboarding/cards.ts`, `lib/siteCards.ts`,
+(new), `lib/cards.ts`, `lib/brain.ts`, `lib/canned.ts`,
 `lib/onboarding/services.ts`, `app/api/chat/route.ts`, `app/cards/cart.tsx`
 (new), `app/cards/MenuCard.tsx` (new), `app/cards/CartCard.tsx` (new),
 `app/cards/Cards.tsx`, `app/Chat.tsx`, `app/admin/CalendarPanel.tsx`,
@@ -142,7 +141,7 @@ and an order write path the server validates from the menu on file.
 - Slot availability for the requested time.
 
 ## Constraints
-- A2UI: blocks carry data, never markup; the client renders from the closed
+- Cards: blocks carry data, never markup; the client renders from the closed
   vocabulary and skips what it doesn't know.
 - The server never trusts the card: prices, rules and availability come from
   the rows on file at checkout.

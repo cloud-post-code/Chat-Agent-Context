@@ -41,7 +41,6 @@ async function main() {
     const counts = async () =>
       Promise.all([
         prisma.ingestionSource.count(),
-        prisma.uiCard.count(),
         prisma.cannedAnswer.count(),
       ]);
     await bootstrapDatabase();

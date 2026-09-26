@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { btn, btnGhost, panel } from "../ui";
-import { card as a2uiCard, cf as a2uiField } from "@/app/cards/styles";
+import { card as cardStyle, cf as fieldStyle } from "@/app/cards/styles";
 import { BookingThread } from "@/app/cards/booking/BookingThread";
 import { diffSteps, type BookingFormSummary, type FormStep } from "@/lib/booking/steps";
 
@@ -186,7 +186,7 @@ export function BookingFormStep({
           </div>
 
           {/* The chat: what's missing, what to change. */}
-          <div style={{ ...a2uiCard, background: "transparent", color: "inherit", padding: 12 }}>
+          <div style={{ ...cardStyle, background: "transparent", color: "inherit", padding: 12 }}>
             <strong style={{ fontSize: 14, fontFamily: "var(--font-heading)" }}>
               {form.empty ? "What do you need to know from a customer?" : "What's missing or wrong?"}
             </strong>
@@ -219,7 +219,7 @@ export function BookingFormStep({
             )}
             <textarea
               ref={inputRef}
-              style={{ ...a2uiField, resize: "vertical", marginBottom: 8 }}
+              style={{ ...fieldStyle, resize: "vertical", marginBottom: 8 }}
               rows={2}
               value={draft}
               disabled={sending || busy}

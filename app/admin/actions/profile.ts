@@ -56,10 +56,9 @@ export async function restartOnboarding() {
   await wipeAccountContent(user.id);
 
   // The transaction above clears the rows a NEW account is provisioned with —
-  // ingestion sources, A2UI cards, starter answers, persona and theme. Without
-  // putting them back the account restarts onboarding with no content tabs, no
-  // cards and no starter questions, which is what "reset isn't working" looked
-  // like: it wiped everything and rebuilt nothing.
+  // ingestion sources, persona and theme. Without putting them back the
+  // account restarts onboarding with no content tabs, which is what "reset
+  // isn't working" looked like: it wiped everything and rebuilt nothing.
   await provisionUserDefaults(user.id);
 
   revalidateAll();

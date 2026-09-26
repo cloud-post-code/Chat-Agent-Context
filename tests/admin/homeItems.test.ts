@@ -44,7 +44,6 @@ describe("checklistItems", () => {
       checklistItems({
         profile: { company_name: "Salon", owner_name: "", company_phone_number: "", company_email: "x@y", company_hours: "" },
         taglineSource: "suggested",
-        cardCount: 0,
         bookingEnabled: false,
         sources: [
           { key: "blog", label: "Blog", count: 0 },
@@ -52,13 +51,12 @@ describe("checklistItems", () => {
         ],
       }).map((c) => [c.tab, c.done]),
     );
-    expect(todo).toMatchObject({ profile: false, theme: false, a2ui: false, booking: false, blog: false, services: true });
+    expect(todo).toMatchObject({ profile: false, theme: false, booking: false, blog: false, services: true });
   });
   it("is all done for a fully set-up account", () => {
     const all = checklistItems({
       profile: { company_name: "S", owner_name: "O", company_phone_number: "1", company_email: "e", company_hours: "h" },
       taglineSource: "extracted",
-      cardCount: 2,
       bookingEnabled: true,
       sources: [{ key: "blog", label: "Blog", count: 1 }],
     });

@@ -18,7 +18,6 @@ import {
   type GraphIndexReport,
 } from "./graphIndex";
 import { deriveGoals, type GoalsReport } from "./goals";
-import { generateOnboardingCards, type CardsReport } from "./cards";
 import { personalizeStarterQuestions } from "@/lib/starterQuestions";
 import { extractSocialLinks } from "./social";
 import type { SocialLink } from "@/lib/socialLinks";
@@ -94,8 +93,6 @@ export type Job = {
   goals?: GoalsReport;
   /** How many business-specific starter questions were written for the page. */
   starterQuestions?: number;
-  /** The A2UI cards designed for this business (lib/onboarding/cards.ts). */
-  cards?: CardsReport;
   /** When the filing pass started and how long the rest of the run was
    *  estimated to take, so the chat can count down to done. */
   filing?: { startedAt: number; seconds: number };
@@ -106,7 +103,7 @@ export type Job = {
   crawler?: Crawler;
   home?: Page;
   extras?: Page[];
-  /** @internal the pages the booking stage read, for the knowledge stage's goals and cards. */
+  /** @internal the pages the booking stage read, for the knowledge stage's goals. */
   servicePages?: Page[];
   busy?: boolean;
 };
@@ -154,20 +151,6 @@ export function describeDuration(seconds: number): string {
   const part = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
   if (m === 0) return part(s, "second");
   return s ? `${part(m, "minute")} ${part(s, "second")}` : part(m, "minute");
-}
-
-/** One honest line for what the cards stage did. */
-function cardsOutcome(c: CardsReport): string {
-  if (c.keptExisting) return "You already have cards — left them exactly as they are";
-  if (c.written) {
-    const names = c.cards.map((x) => x.label).join(", ");
-    const attached = c.attached
-      ? `, attached to ${c.attached} starter question${c.attached === 1 ? "" : "s"}`
-      : "";
-    return `Designed ${c.written} card${c.written === 1 ? "" : "s"} for your agent (${names})${attached} — editable under A2UI`;
-  }
-  if (c.failed) return "Couldn't plan your cards — you can build them under A2UI";
-  return "Nothing on your site called for a card yet — you can build them under A2UI";
 }
 
 type UnattendedStage =
@@ -586,12 +569,12 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     }
     picked = picked.filter((e) => e !== "services");
   }
-  // What the goals and cards passes are told produced content this run.
+  // What the goals pass is told produced content this run.
   const producing: string[] = booked?.report?.services ? [...new Set([...picked, "services"])] : picked;
 
   // The bar moves as agents FINISH, whatever order that happens in. The extra
-  // step is everything after the extractors — indexing, goals, questions and
-  // cards — so the bar still has somewhere to go while that runs.
+  // step is everything after the extractors — indexing, goals and questions —
+  // so the bar still has somewhere to go while that runs.
   const steps = picked.length + 1;
   let stepsDone = 0;
   const stepDone = () => (job.progress = Math.round((100 * ++stepsDone) / steps));
@@ -758,8 +741,8 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     };
 
     // Goals read the pages, filing reads the database, and neither reads the
-    // other — so they run together. The questions and cards after them read
-    // both, so they wait.
+    // other — so they run together. The questions after them read both, so
+    // they wait.
     await Promise.all([filing(), goals()]);
 
     log(job, "Writing the questions visitors will see first");
@@ -771,21 +754,6 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
         : "Couldn't write starter questions — add your own or hit Regenerate under Presets");
     } catch {
       log(job, "Couldn't write starter questions — add your own or hit Regenerate under Presets");
-    }
-
-    // The cards the agent can draw. Planned last because it reads everything
-    // above — the pages, the goals, and the starter questions it attaches
-    // cards to. Nothing is seeded at signup any more, so this is where a
-    // business's cards come from; best-effort like the goals pass, and only
-    // into an empty catalog, since a catalog the owner has touched is theirs.
-    log(job, "Designing the cards your agent can show visitors");
-    try {
-      job.cards = await generateOnboardingCards(
-        goalPages, job.userId, { categories: producing }, onEvent,
-      );
-      log(job, cardsOutcome(job.cards));
-    } catch {
-      log(job, "Couldn't design your cards — you can build them under A2UI");
     }
 
     log(job, "All done");

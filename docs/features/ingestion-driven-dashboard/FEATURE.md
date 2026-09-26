@@ -23,7 +23,7 @@ cards and canned answers):
 ## Why
 
 Display order and tab existence become data, editable from the admin (later
-features), matching how A2UI cards already work.
+features), matching how cards already work.
 
 ## Also
 

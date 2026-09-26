@@ -34,7 +34,7 @@ const KEEP = new Set(["user", "profile", "gmailAuth"]);
 /** Every per-user model; each must read zero for the wiped account. */
 const PER_USER = [
   "source", "chunk", "entity", "mergeDismissal", "photo", "project", "chatSession",
-  "cannedAnswer", "agentDirective", "uiCard", "itemClassification", "ingestionSource",
+  "cannedAnswer", "agentDirective", "itemClassification", "ingestionSource",
   "addressBookEntry", "contact", "a2ATask", "appointmentField", "appointment", "service",
   "staffMember", "bookingLocation", "bookingSettings", "menuItem", "order", "personaConfig",
   "themeConfig",
@@ -66,7 +66,7 @@ async function seed(tag: string, dir: string) {
   const u = user.id;
   const f = {
     photo: await file(dir, "jpg"), service: await file(dir), staff: await file(dir),
-    logo: await file(dir), project: await file(dir), card: await file(dir),
+    logo: await file(dir), project: await file(dir),
     menu: await file(dir), chat: await file(dir), pdf: await file(dir, "pdf"),
   };
   const src = await prisma.source.create({ data: { userId: u } });
@@ -84,12 +84,6 @@ async function seed(tag: string, dir: string) {
   });
   await prisma.cannedAnswer.create({ data: { userId: u, question: "q", matchKey: `q-${tag}` } });
   await prisma.agentDirective.create({ data: { userId: u, kind: "goal", text: "t" } });
-  await prisma.uiCard.create({
-    data: {
-      userId: u, key: "k", label: "l", tool: "t",
-      sampleBlock: JSON.stringify({ kind: "image", src: `/api/uploads/${f.card}` }),
-    },
-  });
   await prisma.itemClassification.create({
     data: { userId: u, itemId: "i", sourceKey: "s", classification: "c" },
   });

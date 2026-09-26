@@ -108,7 +108,7 @@ async function main() {
     // 4. No leaks into built-in surfaces.
     const gallery = await galleryBlock("carousel");
     check("public gallery omits the custom photo",
-      gallery.type === "gallery" && !gallery.items.some((g) => g.id === photoRow?.id));
+      gallery?.type === "gallery" && !gallery.items.some((g) => g.id === photoRow?.id));
     check("builtin text tab omits custom rows",
       !(await listIngestedItems("text")).some((i) => i.title === "proof-cis note"));
     check("builtin photos tab omits custom rows",

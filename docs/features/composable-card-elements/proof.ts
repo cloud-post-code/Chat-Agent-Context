@@ -1,10 +1,10 @@
 /**
- * Primary proof for composable-a2ui-elements (see PROOF.md).
- * Run: npx tsx docs/features/composable-a2ui-elements/proof.ts
+ * Primary proof for composable-card-elements (see PROOF.md).
+ * Run: npx tsx docs/features/composable-card-elements/proof.ts
  *
  * Seeds a throwaway tenant with real rows (8 tagged photos + 1 caption-only
  * red photo, 5 priced services across 3 categories, 2 social links, booking
- * enabled, UiCard rows for show_gallery/show_services only), drives the real
+ * enabled — so show_gallery and show_services are offered from the data), drives the real
  * brain's tool loop with a scripted model client (the only doubled
  * boundary), and asserts the filtered/composed cards, the prompt sections,
  * the pure selectors, card memory across turns, and rendered markup.
@@ -106,7 +106,7 @@ async function main() {
   const { prisma } = await import("../../../lib/db");
   const { answer } = await import("../../../lib/brain");
   const { CARD_TOOLS } = await import("../../../lib/canned");
-  const { writeUiCard, parseSampleBlock } = await import("../../../lib/uiCards");
+  const { availableCardTools } = await import("../../../lib/cardTools");
   const { saveBookingSettings, saveService } = await import("../../../lib/booking/store");
   const { setBookingEnabled } = await import("../../../lib/appointments");
 
@@ -127,9 +127,9 @@ async function main() {
 
   const user = await prisma.user.create({
     data: {
-      email: "proof-composable-a2ui@example.invalid",
-      name: "Proof Composable A2UI",
-      slug: `proof-composable-a2ui-${Date.now()}`,
+      email: "proof-composable-cards@example.invalid",
+      name: "Proof Composable Cards",
+      slug: `proof-composable-cards-${Date.now()}`,
       passwordHash: "",
       onboardedAt: new Date(),
     },
@@ -219,19 +219,11 @@ async function main() {
     const browWax = await svc("Brow Wax", 20, "brows");
     const nailsIds = [gel, classic, french];
 
-    const gallerySample = JSON.stringify({ type: "gallery", layout: "carousel", items: [] });
-    const servicesSample = JSON.stringify({ type: "services", items: [], booking: null });
-    const wroteGallery = await writeUiCard(user.id, {
-      key: "", label: "Gallery", tool: "show_gallery", description: "Photo gallery",
-      reason: "When a visitor asks to see photos", note: "", sampleBlock: gallerySample,
-    });
-    const wroteServices = await writeUiCard(user.id, {
-      key: "", label: "Services", tool: "show_services", description: "Service list",
-      reason: "When a visitor asks about services or price", note: "", sampleBlock: servicesSample,
-    });
-    check("UiCard row for show_gallery written", wroteGallery.ok, JSON.stringify(wroteGallery));
-    check("UiCard row for show_services written", wroteServices.ok, JSON.stringify(wroteServices));
-    check("no show_social UiCard row exists (data-gated instead)", true);
+    // Nothing to curate: show_gallery and show_services are on offer because
+    // the tenant has photos and services on file (lib/cardTools.ts).
+    const offeredTools = await availableCardTools(user.id);
+    check("show_gallery is offered from the photos on file", offeredTools.has("show_gallery"), [...offeredTools].join(","));
+    check("show_services is offered from the services on file", offeredTools.has("show_services"), [...offeredTools].join(","));
 
     // ══ 1. Pure: filterPhotos / tagVocabulary ═══════════════════════════════
     if (photoIndex) {
@@ -317,19 +309,19 @@ async function main() {
     {
       const { buildSystemPrompt } = await import("../../../lib/knowledge");
       const system = await buildSystemPrompt(user.id);
-      check("system prompt has a PHOTO INDEX section (show_gallery is in the catalog)", /PHOTO INDEX/.test(system), system.slice(0, 200));
+      check("system prompt has a PHOTO INDEX section (photos on file put show_gallery on offer)", /PHOTO INDEX/.test(system), system.slice(0, 200));
       check("PHOTO INDEX carries tags", /nails/.test(system) && /red/.test(system));
-      check("system prompt has a SERVICE INDEX section (show_services in catalog + booking on)", /SERVICE INDEX/.test(system));
+      check("system prompt has a SERVICE INDEX section (services on file + booking on)", /SERVICE INDEX/.test(system));
       check("SERVICE INDEX carries prices", /45|\$45/.test(system));
       check("system prompt has a COMPOSING CARDS section", /COMPOSING CARDS/i.test(system));
       check("system prompt explains the [shown: …] history marker", /\[shown:/.test(system));
 
       const bare = await prisma.user.create({
-        data: { email: `proof-composable-a2ui-bare-${Date.now()}@example.invalid`, name: "Bare", slug: `proof-bare-${Date.now()}`, passwordHash: "", onboardedAt: new Date() },
+        data: { email: `proof-composable-cards-bare-${Date.now()}@example.invalid`, name: "Bare", slug: `proof-bare-${Date.now()}`, passwordHash: "", onboardedAt: new Date() },
       });
       try {
         const bareSystem = await buildSystemPrompt(bare.id);
-        check("no PHOTO INDEX when show_gallery is not in the catalog", !/PHOTO INDEX/.test(bareSystem));
+        check("no PHOTO INDEX for a tenant with no photos (show_gallery not offered)", !/PHOTO INDEX/.test(bareSystem));
       } finally {
         await prisma.user.delete({ where: { id: bare.id } }).catch(() => {});
       }
@@ -439,7 +431,7 @@ async function main() {
     // ══ 7. show_social ═══════════════════════════════════════════════════════
     {
       const igRun = await run(show("show_social", { platforms: ["instagram"] }));
-      check("show_social is offered though no show_social UiCard row exists", igRun.seen.toolNames.includes("show_social"), igRun.seen.toolNames.join(","));
+      check("show_social is offered from the profile's links, gated on data like the rest", igRun.seen.toolNames.includes("show_social"), igRun.seen.toolNames.join(","));
       const soc = cardsOf(igRun.events, "social")[0] as { items?: { platform: string; url: string }[] } | undefined;
       check("show_social platforms:[instagram] yields exactly the instagram link", (soc?.items ?? []).length === 1 && soc?.items?.[0]?.platform === "instagram", JSON.stringify(soc));
 
@@ -451,7 +443,7 @@ async function main() {
       check("show_social platforms:[tiktok] yields no card", cardsOf(tiktokRun.events, "social").length === 0);
 
       const noLinksUser = await prisma.user.create({
-        data: { email: `proof-composable-a2ui-nolinks-${Date.now()}@example.invalid`, name: "No Links", slug: `proof-nolinks-${Date.now()}`, passwordHash: "", onboardedAt: new Date() },
+        data: { email: `proof-composable-cards-nolinks-${Date.now()}@example.invalid`, name: "No Links", slug: `proof-nolinks-${Date.now()}`, passwordHash: "", onboardedAt: new Date() },
       });
       try {
         const seenNoLinks = { system: [] as string[], messages: [] as unknown[][], calls: 0, toolNames: [] as string[] };
@@ -525,18 +517,9 @@ async function main() {
         check("app/cards/Cards.tsx exports a Cards component", false, "module not found");
       }
     }
-
-    // ══ 10. Backward compatibility ═══════════════════════════════════════════
-    {
-      const oldGallery = JSON.stringify({ type: "gallery", layout: "filmstrip", items: [] });
-      check("old sampleBlock without new fields parses", parseSampleBlock(oldGallery)?.type === "gallery");
-      const socialSample = JSON.stringify({ type: "social", items: [{ platform: "instagram", url: "https://instagram.com/x" }] });
-      check("parseSampleBlock accepts a social block", parseSampleBlock(socialSample)?.type === "social", socialSample);
-    }
   } finally {
     await prisma.photo.deleteMany({ where: { userId: user.id } }).catch(() => {});
     await prisma.service.deleteMany({ where: { userId: user.id } }).catch(() => {});
-    await prisma.uiCard.deleteMany({ where: { userId: user.id } }).catch(() => {});
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
     await prisma.$disconnect();
   }

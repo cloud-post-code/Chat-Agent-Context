@@ -110,17 +110,16 @@ async function main() {
     let counts: Record<string, number> = {};
     let onboarded = false;
     if (site.userId) {
-      const [sources, chunks, photos, menuItems, uiCards, cannedAnswers, agentDirectives, user] = await Promise.all([
+      const [sources, chunks, photos, menuItems, cannedAnswers, agentDirectives, user] = await Promise.all([
         prisma.source.count({ where: { userId: site.userId } }),
         prisma.chunk.count({ where: { userId: site.userId } }),
         prisma.photo.count({ where: { userId: site.userId } }),
         prisma.menuItem.count({ where: { userId: site.userId } }),
-        prisma.uiCard.count({ where: { userId: site.userId } }),
         prisma.cannedAnswer.count({ where: { userId: site.userId } }),
         prisma.agentDirective.count({ where: { userId: site.userId } }),
         prisma.user.findUnique({ where: { id: site.userId } }),
       ]);
-      counts = { sources, chunks, photos, menuItems, uiCards, cannedAnswers, agentDirectives };
+      counts = { sources, chunks, photos, menuItems, cannedAnswers, agentDirectives };
       onboarded = !!user?.onboardedAt;
     }
     rows.push({

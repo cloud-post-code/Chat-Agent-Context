@@ -1,4 +1,4 @@
-# Proof — The full booking flow as an A2UI card
+# Proof — The full booking flow as a card
 
 ## Primary proof command
 ```

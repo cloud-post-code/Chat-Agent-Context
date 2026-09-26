@@ -16,7 +16,7 @@ reads it into knowledge, services, a booking form, a theme and starter questions
 |---|---|---|
 | Directory | `/` | everyone — every agent page |
 | Agent page | `/a/<slug>` | visitors — chat, starter chips, streamed answers, cards |
-| Admin | `/admin` → `/admin/chat` and `/admin/dashboard` | the owner — a copilot plus seven groups (Home, Inbox, Knowledge, Agent, Cards, Booking, Settings) that own every word the agent can say |
+| Admin | `/admin` → `/admin/chat` and `/admin/dashboard` | the owner — a copilot plus six groups (Home, Inbox, Knowledge, Agent, Booking, Settings) that own every word the agent can say |
 | Onboarding | `/admin/onboarding` | a new owner — the site is read in, stage by stage |
 | Agent interfaces | `/.well-known/agent-card.json`, `/api/a2a`, `/api/a2a/rest` | other agents — discovery and the A2A protocol (JSON-RPC, SSE, REST); bearer-token gated |
 | LLM-readable | `/llms.txt`, `/a/<slug>/llms.txt`, `/a/<slug>/llms-full.txt` | crawlers — the knowledge as Markdown |
@@ -35,9 +35,9 @@ decision rules live in [`agent.md`](agent.md) and change with the prompts.
 
 | Path | What |
 |---|---|
-| `app/` | Next.js App Router. `a/[slug]` public chat; `admin/` panels, server actions (`actions.ts`), nav registry (`contentTabs.ts`); `api/` endpoints; `cards/` the A2UI renderer and booking cards |
+| `app/` | Next.js App Router. `a/[slug]` public chat; `admin/` panels, server actions (`actions.ts`), nav registry (`contentTabs.ts`); `api/` endpoints; `cards/` the card renderer and booking cards |
 | `lib/` | all server logic — see [`lib/CLAUDE.md`](lib/CLAUDE.md) for the module map |
-| `prisma/` | schema (32 models, Postgres) and migrations, applied on start by `scripts/migrate.mjs` |
+| `prisma/` | schema (31 models, Postgres) and migrations, applied on start by `scripts/migrate.mjs` |
 | `docs/features/` | one folder per feature (`FEATURE.md`, `PROOF.md`, `proof.ts`); `status.json` is the queue — [`docs/features/CLAUDE.md`](docs/features/CLAUDE.md) |
 | `tests/` | Vitest unit tests; `scripts/` operational scripts (`crosscheck`, `smoke`, `reindex`, `tagPhotos`) |
 
@@ -94,8 +94,9 @@ The schema provider is Postgres and stays Postgres.
 - **The agent only knows what you curate.** No live web at answer time, no model
   general knowledge about the business. Not in the index → "I don't know" and a way to
   reach the owner.
-- **Cards are data.** The card catalog and the ingestion-source catalog are rows, not
-  code; the brain offers a tool only when the tenant has the data behind it.
+- **Cards follow the data.** The brain offers a card tool only when the tenant has the
+  data behind it — photos, services, a menu, booking switched on (`lib/cardTools.ts`);
+  nothing is curated per card. The ingestion-source catalog is rows, not code.
 - **The booking form is the business's own.** Onboarding transcribes the real booking
   page into fields with roles and screens; the booking is a conversation of cards.
 - **Proofs over promises.** Each feature carries an executable proof; the queue says
