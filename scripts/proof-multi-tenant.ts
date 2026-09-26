@@ -259,8 +259,6 @@ async function main() {
     body: JSON.stringify({ instructions: "x" }),
   });
   check("POST /api/admin/build-card unauthenticated → 401", anonBuild.status === 401, `status ${anonBuild.status}`);
-  const anonGmail = await fetch(`${BASE}/api/admin/gmail/callback`, { redirect: "manual" });
-  check("GET /api/admin/gmail/callback unauthenticated → 401", anonGmail.status === 401, `status ${anonGmail.status}`);
   const anonDash = await fetch(`${BASE}/admin/dashboard`, { redirect: "manual" });
   check(
     "GET /admin/dashboard unauthenticated redirects to login",

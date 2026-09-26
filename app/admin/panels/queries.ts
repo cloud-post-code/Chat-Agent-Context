@@ -7,8 +7,6 @@ import { listOrders } from "@/lib/orders";
 import { listServices, listStaff, listLocations, getBookingSettings, listBookings } from "@/lib/booking/store";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { listDirectives } from "@/lib/directives";
-import { listAddressBook } from "@/lib/addressBook";
-import { gmailStatus } from "@/lib/gmail/client";
 import { listUiCards } from "@/lib/uiCards";
 import { graphStats, listEntities, listEdges, suggestedMerges } from "@/lib/retrieval/graph";
 import { listCannedAnswers } from "@/lib/canned";
@@ -20,7 +18,7 @@ import { chatMetrics } from "@/lib/activity";
 /** Everything the admin panels read, in two batches. `AdminData` is the shape every panel takes. */
 export async function loadAdminData(
   user: User,
-  query: { error?: string; gmail?: string; booking?: string } = {},
+  query: { error?: string; booking?: string } = {},
 ) {
   const [
     profile,
@@ -40,8 +38,6 @@ export async function loadAdminData(
     ingestionSources,
     goalRows,
     ruleRows,
-    addressBook,
-    gmail,
     bookingConfig,
     orders,
   ] = await Promise.all([
@@ -83,8 +79,6 @@ export async function loadAdminData(
       listIngestionSources(user.id),
       listDirectives(user.id, "goal"),
       listDirectives(user.id, "rule"),
-      listAddressBook(user.id),
-      gmailStatus(user.id),
       getBookingConfig(user.id),
       listOrders(user.id).catch(() => []),
     ]);
@@ -125,8 +119,6 @@ export async function loadAdminData(
     ingestionSources,
     goalRows,
     ruleRows,
-    addressBook,
-    gmail,
     bookingConfig,
     orders,
     metrics,

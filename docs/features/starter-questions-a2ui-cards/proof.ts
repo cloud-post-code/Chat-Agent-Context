@@ -41,8 +41,8 @@ const SESSION_KEY = `${PREFIX}-session`;
 // Distinctive strings so any match can only have come from this proof.
 const Q_STARTER = "What nail services does Lacquer Lane offer?";
 const A_STARTER = "We do gel, acrylic and a signature chrome finish.";
-const Q_WITH_CARD = "How do I reach Lacquer Lane?";
-const A_WITH_CARD = "Easiest is the form right here.";
+const Q_WITH_CARD = "What has Lacquer Lane worked on?";
+const A_WITH_CARD = "Here are a few of our recent projects.";
 const MODEL_TEXT = "[model wandered off script]";
 
 type FakeTurn = { text?: string; tool?: { name: string; input: Record<string, unknown> } };
@@ -138,20 +138,20 @@ async function main() {
           question: Q_WITH_CARD,
           matchKey: normalizeQuestion(Q_WITH_CARD),
           answer: A_WITH_CARD,
-          cardTool: "show_contact_form",
+          cardTool: "show_projects",
           order: 1,
         },
       ],
     });
-    // A catalog with a contact card, so the tool is on offer at all.
+    // A catalog with a projects card, so the tool is on offer at all.
     await prisma.uiCard.create({
       data: {
         userId: user.id,
-        key: "contact",
-        label: "Contact",
-        tool: "show_contact_form",
-        description: "A contact form.",
-        reason: "Show when the visitor wants to get in touch.",
+        key: "projects",
+        label: "Projects",
+        tool: "show_projects",
+        description: "The project portfolio.",
+        reason: "Show when the visitor asks about past work.",
         note: "",
         sampleBlock: "",
         order: 0,
@@ -160,7 +160,7 @@ async function main() {
 
     // ── The regression this feature fixes ─────────────────────────────────
     const plain = await ask(Q_STARTER, user.id, [
-      { text: A_STARTER, tool: { name: "show_contact_form", input: {} } },
+      { text: A_STARTER, tool: { name: "show_projects", input: {} } },
     ]);
     check(
       "a starter question with no attached card reaches the model",
@@ -169,7 +169,7 @@ async function main() {
     );
     check(
       "and can therefore render an A2UI card",
-      plain.cards.some((c) => c.type === "contact"),
+      plain.cards.some((c) => c.type === "projects"),
       `cards=${JSON.stringify(plain.cards)}`,
     );
     check(
@@ -195,7 +195,7 @@ async function main() {
     );
     check(
       "and still renders that card",
-      withCard.cards.some((c) => c.type === "contact"),
+      withCard.cards.some((c) => c.type === "projects"),
       `cards=${JSON.stringify(withCard.cards)}`,
     );
 

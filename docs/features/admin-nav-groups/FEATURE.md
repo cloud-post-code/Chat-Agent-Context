@@ -19,7 +19,7 @@ panel that resolves it.
   - **Agent** — Presets `answers`, Goals `goals`, Rules `rules`.
   - **Cards** — `a2ui`. No strip.
   - **Settings** — Profile `profile`, Theme `theme`, Booking `booking`,
-    Contacts `contacts`, Users `users` (operators only).
+    Users `users` (operators only).
 - The old Calendar panel splits: `AppointmentsPanel` (month grid + cancel),
   `OrdersPanel`, and `BookingSettings` rendered on its own under Settings.
   Settings › Booking is always present so booking can be turned back on;

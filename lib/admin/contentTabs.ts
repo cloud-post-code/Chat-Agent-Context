@@ -114,7 +114,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
     subs: [
       { key: "profile", label: "Profile" },
       { key: "theme", label: "Theme" },
-      { key: "contacts", label: "Contacts" },
       { key: "users", label: "Users", operator: true },
       { key: "bulk", label: "Bulk builder", operator: true },
     ],

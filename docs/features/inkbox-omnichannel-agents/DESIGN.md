@@ -58,7 +58,6 @@ becomes prose on channels that cannot paint. Web is untouched because `"web"` st
 | `gallery` | Caption list + absolute image URLs |
 | `custom` | Walk `CustomElement` (closed set: heading, text, list, badges, stats, buttons, image, quote, divider) → markdown |
 | `html` | Text content only; never forward model-authored markup |
-| `contact` | Link to `/a/<slug>` — it is a form, not content |
 | `booking` | Booking link, not a field dump |
 
 `CustomElement` being a closed vocabulary is what makes this tractable rather than
@@ -216,16 +215,14 @@ conversation store or every message starts cold. `ChatSession.visitorKey` with
 
 ### 9c. Trust tiering is a stub — do not rely on it
 
-`IngestionSource.classification` (`public | contact | close-friends | personal`) and
-`AddressBookEntry.trust` (`public | co-worker | close-friend | personal`) exist as
-columns, and `prisma/schema.prisma:429-431` says so plainly:
+`IngestionSource.classification` (`public | contact | close-friends | personal`) exists as
+a column, and `prisma/schema.prisma:429-431` says so plainly:
 
 > The frontend still shows everything to everyone — classification is recorded, not yet
 > enforced at retrieval.
 
 Confirmed: `buildSystemPrompt(userId, query?)` (`lib/knowledge.ts:23`) takes no audience
-argument, and retrieval never reads either column. The two vocabularies do not even match
-(`contact` vs `co-worker`).
+argument, and retrieval never reads the column.
 
 **Consequence for this feature.** The external agent is a *public* channel. If personal
 material has been ingested on the assumption that classification gates it, opening an
@@ -244,12 +241,6 @@ assuming those columns already protect anything.
 
 ### 9d. Also worth knowing
 
-- `app/api/contact/route.ts` writes a `Contact` row and notifies nobody. Once outbound
-  email exists, "email the owner on a new contact submission" is nearly free — but it is
-  agent-initiated mail, so it needs its own opt-in.
-- Gmail integration is **read-only** (`GMAIL_SCOPE = "...gmail.readonly"`,
-  `lib/gmail/client.ts:22`); it mines sent mail for contacts and cannot send. Inkbox does
-  not overlap with it.
 - `README.md:333-336` warns the A2A auth refactor is mid-flight and the project may not
   typecheck. The current files look consistent (`authorize` exists in `lib/a2a/guard.ts`),
   but run a typecheck before building on that area.

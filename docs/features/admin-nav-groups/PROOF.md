@@ -19,7 +19,7 @@ wiring reads. No DB, no model calls.
    `graph` → "Health", `a2ui` → "Cards", `booking` → "Booking".
 2. **Deep links**: `resolveAdminTab` yields `activity`→inbox,
    `calendar`→inbox/appointments, `orders`→inbox, `booking`→settings,
-   `graph`→knowledge, `a2ui`→cards, `contacts`→settings, `answers`→agent,
+   `graph`→knowledge, `a2ui`→cards, `answers`→agent,
    `goals`→agent, `profile`→settings, `theme`→settings, `me`→settings/profile,
    `users`→settings, `new-source`→knowledge, a live source key→knowledge,
    `content`→knowledge on the first live key (sub undefined with none),

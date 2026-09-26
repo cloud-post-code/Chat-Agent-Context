@@ -43,7 +43,6 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_services: ["services"],
   show_menu: ["menu"],
   show_cart: ["cart"],
-  show_contact_form: ["contact"],
   show_booking: ["booking"],
   show_card: ["custom", "html"],
   show_social: ["social"],
@@ -95,14 +94,13 @@ const BUILDER_BRIEF = `You design "A2UI cards" for a personal portfolio site's c
 
 There are three ways to build a card. FIRST decide which fits, in this order:
 
-1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, services, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
+1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, services). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
 - show_projects → {"type":"projects","items":[ProjectCard, …]} — a grid of project cards
 - show_project → {"type":"project","item":ProjectCard} — one project, drawn wide
 - show_gallery → {"type":"gallery","layout":"carousel"|"filmstrip","items":[PhotoCard, …]} — photos
 - show_services → {"type":"services","items":[{"id":"1","name":"…","description":"…"}, …],"booking":null} — the business's services, each with a Book button when appointments are on. ALWAYS this for a services, treatments, menu or price-list card: it lists the real services on file, which a custom or coded card would freeze as a copy
 - show_menu → {"type":"menu","title":"Menu","full":true,"items":[{"key":"…","name":"…","category":"…","price":"$…"}, …],"checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the business's menu with prices, options and add-ons, each item addable to a cart with a quantity; the whole menu grouped by section, or a curated list. Prefer this over show_services when the business sells things a visitor picks several of (dishes, products, treatments with add-ons)
 - show_cart → {"type":"cart","checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the visitor's cart with quantities and checkout
-- show_contact_form → {"type":"contact"} — the in-chat contact form
 - show_social → {"type":"social","title":"…","items":[{"platform":"instagram","url":"https://…"}, …]} — the business's own social links, filterable to specific platforms
 
 2. A CUSTOM card (tool "show_card"), ONLY for content that is genuinely a plain vertical stack — an FAQ, a testimonial, a short list of points. Stock elements render as a single unstyled column at one text size; they cannot express layout. The content you write IS what visitors will see (nothing is hydrated later — write it fully and well). Shape:

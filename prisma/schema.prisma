@@ -47,9 +47,6 @@ model User {
   uiCards             UiCard[]
   ingestionSources    IngestionSource[]
   itemClassifications ItemClassification[]
-  addressBookEntries  AddressBookEntry[]
-  gmailAuth           GmailAuth?
-  contacts            Contact[]
   appointmentFields   AppointmentField[]
   appointments        Appointment[]
   services            Service[]
@@ -336,7 +333,7 @@ model CannedAnswer {
   draftedAt DateTime?
   /// Optional card to render alongside the answer, named by the tool that
   /// would have drawn it: show_projects | show_project | show_gallery |
-  /// show_contact_form. Hydrated through the same path the model path uses.
+  /// show_services. Hydrated through the same path the model path uses.
   cardTool  String?
   /// JSON args for `cardTool`, e.g. {"id":"..."} or {"layout":"filmstrip"}.
   cardInput String?
@@ -386,8 +383,8 @@ model UiCard {
   /// Human name shown as the card's heading ("Gallery — carousel").
   label       String
   /// The A2UI tool that draws it: show_projects | show_project | show_gallery
-  /// | show_services | show_menu | show_cart | show_contact_form |
-  /// show_booking | show_social | show_card (see lib/canned.ts CARD_TOOLS).
+  /// | show_services | show_menu | show_cart | show_booking | show_social |
+  /// show_card (see lib/canned.ts CARD_TOOLS).
   tool        String
   /// One line on what the card renders, shown next to the tool name.
   description String   @default("") @db.Text
@@ -484,84 +481,6 @@ model ItemClassification {
 
   @@unique([userId, itemId])
   @@index([userId, sourceKey])
-}
-
-/// One person in the owner's address book, curated on the Agent Behavior →
-/// Contacts tab. Distinct from `Contact` (in-chat form submissions): these are
-/// people the owner adds by hand, each reachable by email or phone and
-/// carrying a trust tier that mirrors the ingestion classifications
-/// (public | co-worker | close-friend | personal).
-model AddressBookEntry {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  name      String
-  /// Free-text notes about the person.
-  details   String   @default("") @db.Text
-  /// Email address; optional but at least one of email/phone is expected.
-  email     String   @default("")
-  /// Phone number; optional but at least one of email/phone is expected.
-  phone     String   @default("")
-  /// Trust tier: public | co-worker | close-friend | personal.
-  trust     String   @default("public")
-  order     Int      @default(0)
-  /// Identity key for sent-mail ingestion: the email lowercased, with dots and
-  /// +tags folded ONLY for gmail.com/googlemail.com. Unique per user, so a
-  /// re-sync enriches the existing person instead of adding a second row.
-  /// Empty for hand-added contacts with no email — "" would collide under the
-  /// unique, so those store null.
-  canonicalEmail String?
-  /// How this contact arrived: manual | gmail.
-  source         String  @default("manual")
-  /// Sent messages seen for this person; accumulates across syncs.
-  messageCount   Int     @default(0)
-  firstContacted DateTime?
-  lastContacted  DateTime?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@unique([userId, canonicalEmail])
-}
-
-/// The stored Gmail authorization — one row per user.
-///
-/// The refresh token lives here rather than in an env var so re-consent after
-/// a revoked or expired grant is a button in the dashboard instead of a
-/// redeploy. Deliberately separate from the calendar credentials in env:
-/// Google issues one refresh token per OAuth client covering every consented
-/// scope, so a shared client would let a Gmail re-consent replace the token
-/// the booking flow depends on.
-model GmailAuth {
-  id           String    @id @default(cuid())
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId       String    @unique
-  refreshToken String    @db.Text
-  /// The mailbox that granted access, for display in the admin panel.
-  emailAddress String    @default("")
-  /// Scopes actually granted, so a narrowed grant is visible rather than
-  /// surfacing later as a confusing API error.
-  scope        String    @default("") @db.Text
-  /// Incremental sync cursor: messages newer than this were already read.
-  /// Null means nothing has synced yet, and the next sync reads everything.
-  /// Advanced only after a fully successful pass, so a mid-sync failure
-  /// re-reads a window rather than silently skipping it.
-  lastSyncedAt DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-}
-
-/// A contact submission captured by the in-chat A2UI contact form.
-model Contact {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  name      String
-  email     String
-  message   String @db.Text
-  handled   Boolean  @default(false)
-  createdAt DateTime @default(now())
-
-  @@index([userId])
 }
 
 /// One question the booking wizard asks, per tenant. The catalog is seeded

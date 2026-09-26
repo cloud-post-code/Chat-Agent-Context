@@ -61,8 +61,8 @@ So this feature is a channel plus an inbound transport, not a rewrite.
 - A new renderer turns a `UiBlock` into text for channels that cannot paint it, replacing
   today's silent `continue` at `lib/brain.ts:272`. Every `UiBlock` variant and every
   `CustomElement` kind gets a text form.
-- Interactive blocks degrade to an action, not a description: `contact` and `booking`
-  become a link back to the web surface that can actually collect the input.
+- Interactive blocks degrade to an action, not a description: `booking` becomes a
+  link back to the web surface that can actually collect the input.
 - `gallery` and `project` image URLs are rewritten to absolute URLs, since a relative
   `/api/uploads/...` is meaningless in a mail client.
 - `html` blocks are reduced to their text content; model-authored markup is never

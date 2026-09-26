@@ -6,7 +6,7 @@ export const runtime = "nodejs";
 
 /**
  * The booking flow's transport. `slug` names whose agent page the card was
- * on, exactly like /api/contact. All real validation lives in
+ * on, exactly like /api/order. All real validation lives in
  * lib/booking/store.ts; this route only translates it onto HTTP.
  */
 

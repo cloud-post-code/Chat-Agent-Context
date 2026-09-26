@@ -15,8 +15,8 @@ describe("readNdjson", () => {
   it("dispatches one event per line even when a chunk splits a line", async () => {
     const events: unknown[] = [];
     let chunks = 0;
-    await readNdjson(stream(['{"t":"text","v":"He', 'llo"}\n{"t":"card","v":{"type":"contact"}}\n', '{"t":"text","v":"!"}']), (e) => events.push(e), () => chunks++);
-    expect(events).toEqual([{ t: "text", v: "Hello" }, { t: "card", v: { type: "contact" } }, { t: "text", v: "!" }]);
+    await readNdjson(stream(['{"t":"text","v":"He', 'llo"}\n{"t":"card","v":{"type":"cart"}}\n', '{"t":"text","v":"!"}']), (e) => events.push(e), () => chunks++);
+    expect(events).toEqual([{ t: "text", v: "Hello" }, { t: "card", v: { type: "cart" } }, { t: "text", v: "!" }]);
     // Three chunks, plus one repaint for the trailing line that had no newline.
     expect(chunks).toBe(4);
   });

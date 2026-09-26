@@ -19,7 +19,7 @@
   never falls back to `foundingUser()`.
 - A live custom domain's root serves the same tenant page as `/a/<slug>`, by
   rewrite (URL stays on the custom domain), with the resolved tenant's real
-  `slug` passed to `<Chat>` so `/api/chat`, `/api/booking` and `/api/contact`
+  `slug` passed to `<Chat>` so `/api/chat`, `/api/booking` and `/api/order`
   keep resolving that tenant.
 - `/admin`, `/signup` and `/agent` on a custom domain redirect to the platform
   domain; `/api/*`, `/api/uploads/*` and `/.well-known/*` still answer.

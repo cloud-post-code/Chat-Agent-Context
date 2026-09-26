@@ -1,6 +1,6 @@
 # prisma — schema and migrations
 
-Postgres only. `schema.prisma` has 32 models, every tenant-scoped one carrying
+Postgres only. `schema.prisma` has 29 models, every tenant-scoped one carrying
 `userId` with `onDelete: Cascade` from `User`.
 
 ## Rules
@@ -9,7 +9,9 @@ Postgres only. `schema.prisma` has 32 models, every tenant-scoped one carrying
   `scripts/migrate.mjs` runs `prisma migrate deploy` on every start (it marks the
   baseline `0_init` applied on a pre-migrations database).
 - Additive first: new columns take a default so existing rows keep working; a drop is
-  its own later migration after a backup.
+  its own later migration after a backup. Pending such a migration: `Contact`,
+  `AddressBookEntry` and `GmailAuth` left the schema with the contact features but
+  still exist as tables in deployed databases.
 - A new per-user model must be added to `lib/accountWipe.ts` (or cascade from one that
   is); `tests/lib/accountWipe.test.ts` fails otherwise.
 - JSON-in-text columns (`config`, `customer`, `pricing`, `answers`, …) are read through

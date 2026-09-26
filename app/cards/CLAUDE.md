@@ -1,7 +1,7 @@
 # app/cards — the A2UI renderer
 
 `Cards.tsx` is the one switch over `UiBlock.type`: projects, project, gallery,
-services, contact, custom, html, booking (+ the client-only `booking_step` /
+services, custom, html, booking (+ the client-only `booking_step` /
 `booking_confirmed`), menu, cart, social. Sub-renderers: `MenuCard`, `CartCard`,
 `SocialCard`, `BookingQuestion`, and `booking/` (the booking conversation: session,
 thread, one card per step).

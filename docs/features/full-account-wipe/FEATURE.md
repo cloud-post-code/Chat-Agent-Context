@@ -17,15 +17,15 @@ for the logged-in user only:
 - everything it already cleared: sources, chunks, entities and their graph,
   merge dismissals, photos, projects, chat sessions and messages, canned
   answers, directives, UI cards, item classifications, ingestion sources,
-  address book, contacts, A2A tasks, persona, theme; profile blanked;
+  A2A tasks, persona, theme; profile blanked;
 - the booking domain: `Service`, `StaffMember`, `BookingLocation`,
   `BookingSettings`, `AppointmentField`, `Appointment`;
 - `MenuItem` and `Order`;
 - `Profile.bookingEnabled` back to its default (on);
 - the uploaded files those rows referenced, removed from `UPLOAD_DIR`.
 
-It still keeps the `User` row (email, name, slug, password) and `GmailAuth`,
-and still sets `onboardedAt` to null so the next admin visit enters the flow.
+It still keeps the `User` row (email, name, slug, password), and still sets
+`onboardedAt` to null so the next admin visit enters the flow.
 
 ## Upload cleanup
 

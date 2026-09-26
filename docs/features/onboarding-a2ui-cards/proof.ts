@@ -49,13 +49,14 @@ const QUESTIONS = [
   "What retrofit packages do you offer?", // 1 → designed
   "Can I see examples of your work?", // 2 → gallery
   "How do I book a site survey?", // 3 → booking
-  "How can I get in touch?", // 4 → contact, but the owner attached a card first
+  "Where can I follow you?", // 4 → social, but the owner attached a card first
   "Do you work outside Harrowgate?", // 5 → unmapped
 ];
 const BRIEF =
   "A services-and-pricing card listing the Quillhaven retrofit packages with what each "
   + "includes; search the knowledge base for package names and inclusions";
 const PHOTOS = ["proofcards-a.jpg", "proofcards-b.jpg"];
+const SOCIAL = [{ platform: "instagram", url: "https://instagram.com/quillhavenkilns" }];
 
 const PAGES = [
   page(
@@ -78,8 +79,8 @@ const PLAN = {
       brief: BRIEF, questions: [1],
     },
     {
-      kind: "contact", label: "Get in touch", description: "The in-chat contact form",
-      reason: "When a visitor wants to reach the team or request a quote", questions: [4],
+      kind: "social", label: "Follow us", description: "The business's social links",
+      reason: "When a visitor wants to follow the team or see more of the work online", questions: [4],
     },
     { kind: "booking", label: "Book a site survey", description: "", reason: "When a visitor wants to book a survey", questions: [3] },
     { kind: "projects", label: "Projects", description: "", reason: "When asked about projects", questions: [] },
@@ -103,7 +104,7 @@ const DRAFT = {
   sampleBlock: JSON.stringify(DRAFT_BLOCK),
 };
 
-const SIGNALS_ON = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: ["services"], hasKnowledge: true };
+const SIGNALS_ON = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 1, categories: ["services"], hasKnowledge: true };
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
@@ -135,7 +136,10 @@ async function main() {
   const mkTenant = async (tag: string) => {
     const userId = await mkUser(tag);
     await prisma.profile.create({
-      data: { userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid", bookingEnabled: true },
+      data: {
+        userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid",
+        social_links: JSON.stringify(SOCIAL), bookingEnabled: true,
+      },
     });
     await prisma.personaConfig.create({ data: { userId, tagline: "Kilns that outlive their owners" } });
     await prisma.themeConfig.create({ data: { userId } });
@@ -246,14 +250,14 @@ async function main() {
           { kind: "projects", label: "Projects", reason: "When projects", questions: [] },
           { kind: "booking", label: "Book", reason: "When booking", questions: [] },
           { kind: "designed", label: "No brief", reason: "When designed", questions: [] },
-          { kind: "contact", label: "Contact", reason: "When contact", questions: [] },
+          { kind: "social", label: "Social", reason: "When social", questions: [] },
         ],
       },
       { ...SIGNALS_ON, photos: 0, projects: 0, takesAppointments: false },
       5,
     );
     check("unknown kind, gated kinds and a briefless designed card are all dropped",
-      gated.cards.length === 1 && gated.cards[0].kind === "contact", JSON.stringify(gated));
+      gated.cards.length === 1 && gated.cards[0].kind === "social", JSON.stringify(gated));
     const galleryKept = sanitizeCardPlan(
       { cards: [{ kind: "gallery", label: "Gallery", reason: "When photos", layout: "sideways", questions: [] }] },
       SIGNALS_ON,
@@ -277,7 +281,7 @@ async function main() {
 
     // ── 3. Sanitizer: caps, dedup, question numbers ──
     const many = sanitizeCardPlan(
-      { cards: Array.from({ length: 9 }, (_, i) => ({ kind: "contact", label: `Card ${i}`, reason: "When", questions: [] })) },
+      { cards: Array.from({ length: 9 }, (_, i) => ({ kind: "social", label: `Card ${i}`, reason: "When", questions: [] })) },
       SIGNALS_ON,
       5,
     );
@@ -291,8 +295,8 @@ async function main() {
     const dup = sanitizeCardPlan(
       {
         cards: [
-          { kind: "contact", label: "Same", reason: "first", questions: [1, 2, 9, 0, "x"] },
-          { kind: "contact", label: "  same ", reason: "second", questions: [2, 3] },
+          { kind: "social", label: "Same", reason: "first", questions: [1, 2, 9, 0, "x"] },
+          { kind: "social", label: "  same ", reason: "second", questions: [2, 3] },
           { kind: "gallery", label: "Other", reason: "third", questions: [2, 3, 3] },
         ],
       },
@@ -362,7 +366,7 @@ async function main() {
     const rowsA = await listUiCards(userA);
     check("three rows written", rowsA.length === 3, `${rowsA.length}`);
     check("rows are in plan order with the right tools",
-      rowsA.map((r) => r.tool).join(",") === "show_gallery,show_card,show_contact_form", rowsA.map((r) => r.tool).join(","));
+      rowsA.map((r) => r.tool).join(",") === "show_gallery,show_card,show_social", rowsA.map((r) => r.tool).join(","));
     check("order ascends with the plan", rowsA.every((r, i) => r.order === i), rowsA.map((r) => r.order).join(","));
     check("plan label, description and reason are what was saved",
       rowsA[0].label === "Our work" && rowsA[0].description === "Photos of finished retrofits"
@@ -377,10 +381,13 @@ async function main() {
     check("designed row holds the builder's validated block",
       JSON.stringify(JSON.parse(rowsA[1].sampleBlock)) === JSON.stringify(DRAFT_BLOCK), rowsA[1].sampleBlock.slice(0, 200));
     check("designed row key derives from its label", rowsA[1].key === "services-pricing", rowsA[1].key);
-    check("contact sample is the contact block", rowsA[2].sampleBlock === JSON.stringify({ type: "contact" }), rowsA[2].sampleBlock);
+    const socialSample = JSON.parse(rowsA[2].sampleBlock) as { type: string; items: { url: string }[] };
+    check("social sample is the tenant's own links",
+      socialSample.type === "social" && JSON.stringify(socialSample.items.map((i) => i.url)) === JSON.stringify(SOCIAL.map((s) => s.url)),
+      rowsA[2].sampleBlock);
     check("no booking or projects row was written", rowsA.every((r) => r.tool !== "show_booking" && r.tool !== "show_projects"));
     check("report lists the cards with their keys",
-      JSON.stringify(runA.cards.map((c) => c.key)) === JSON.stringify(["our-work", "services-pricing", "get-in-touch"]),
+      JSON.stringify(runA.cards.map((c) => c.key)) === JSON.stringify(["our-work", "services-pricing", "follow-us"]),
       JSON.stringify(runA.cards));
     const custom = await customCardBlock(userA, "services-pricing");
     check("designed card resolves through customCardBlock", !!custom && custom.type === "custom", JSON.stringify(custom));
@@ -412,7 +419,7 @@ async function main() {
     // ── 10. Chatbot integration ──
     const catalogA = await cardCatalog(userA);
     check("cardCatalog lists the three cards",
-      catalogA.map((c) => c.tool).join(",") === "show_gallery,show_card,show_contact_form", JSON.stringify(catalogA));
+      catalogA.map((c) => c.tool).join(",") === "show_gallery,show_card,show_social", JSON.stringify(catalogA));
     const promptA = await buildSystemPrompt(userA);
     check("prompt has USING RICH CARDS", promptA.includes("USING RICH CARDS"));
     check("prompt carries each reason",
@@ -421,8 +428,8 @@ async function main() {
     const spyA = await askBrain(userA);
     const toolsA = spyA.tools[0] ?? [];
     const namesA = toolsA.map((t) => t.name);
-    check("brain offers gallery, contact, custom and booking tools",
-      ["show_gallery", "show_contact_form", "show_card", "show_booking"].every((n) => namesA.includes(n)), namesA.join(","));
+    check("brain offers gallery, social, custom and booking tools",
+      ["show_gallery", "show_social", "show_card", "show_booking"].every((n) => namesA.includes(n)), namesA.join(","));
     check("brain offers no project tools", !namesA.includes("show_projects") && !namesA.includes("show_project"), namesA.join(","));
     const showCard = toolsA.find((t) => t.name === "show_card");
     check("show_card's key enum holds the designed key",
@@ -444,8 +451,8 @@ async function main() {
     // ── 12. Gate: an owner's catalog is never touched ──
     const userB = await mkTenant("b");
     const err = await saveUiCard(userB, {
-      key: "", label: "My own card", tool: "show_contact_form", description: "", reason: "When they ask", note: "",
-      sampleBlock: '{"type":"contact"}',
+      key: "", label: "My own card", tool: "show_social", description: "", reason: "When they ask", note: "",
+      sampleBlock: '{"type":"social","items":[]}',
     });
     check("fixture owner card saved", err === null, String(err));
     const ownerRow = (await listUiCards(userB))[0];
@@ -486,12 +493,12 @@ async function main() {
     check("a throwing builder does not throw out of the stage", !escapedD);
     const rowsD = await listUiCards(userD);
     check("live cards still land when the builder fails",
-      rowsD.map((r) => r.tool).join(",") === "show_gallery,show_contact_form", rowsD.map((r) => r.tool).join(","));
+      rowsD.map((r) => r.tool).join(",") === "show_gallery,show_social", rowsD.map((r) => r.tool).join(","));
     check("failed designed card is counted", runD?.designedFailed === 1 && runD?.written === 2, JSON.stringify(runD));
     const qD = await questionRows(userD);
     check("the designed card's question stays unattached", qD[0].cardTool === null, String(qD[0].cardTool));
     check("the other questions are still attached",
-      qD[1].cardTool === "show_gallery" && qD[2].cardTool === "show_booking" && qD[3].cardTool === "show_contact_form",
+      qD[1].cardTool === "show_gallery" && qD[2].cardTool === "show_booking" && qD[3].cardTool === "show_social",
       qD.map((r) => r.cardTool).join(","));
 
     const userE = await mkTenant("e");
@@ -509,8 +516,8 @@ async function main() {
     check("no pages still calls the planner", llmG.count() === 1, `${llmG.count()}`);
     check("no-page corpus still names the business", (llmG.seen[0] ?? "").includes(COMPANY));
     check("no-page corpus carries no page markers", !(llmG.seen[0] ?? "").includes("=== https://"));
-    check("contact card lands on the manual path",
-      runG.written === 1 && (await listUiCards(userG)).map((r) => r.tool).join(",") === "show_contact_form", JSON.stringify(runG));
+    check("social card lands on the manual path",
+      runG.written === 1 && (await listUiCards(userG)).map((r) => r.tool).join(",") === "show_social", JSON.stringify(runG));
 
     // ── 15. Tenant isolation ──
     check("tenant A's cards are not visible to tenant B",
@@ -521,7 +528,7 @@ async function main() {
     for (const id of created) {
       await prisma.user.delete({ where: { id } }).catch(() => {});
     }
-    const leftover = await prisma.uiCard.count({ where: { key: { in: ["our-work", "services-pricing", "get-in-touch"] }, userId: { in: created } } });
+    const leftover = await prisma.uiCard.count({ where: { key: { in: ["our-work", "services-pricing", "follow-us"] }, userId: { in: created } } });
     const leftUsers = await prisma.user.count({ where: { email: { startsWith: PREFIX } } });
     check("every row and user the proof created is gone", leftover === 0 && leftUsers === 0, `${leftover},${leftUsers}`);
     await prisma.$disconnect();

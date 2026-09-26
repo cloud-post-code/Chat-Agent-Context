@@ -30,12 +30,12 @@ function check(label: string, ok: boolean, detail = "") {
   if (!ok) failures++;
 }
 
-const KEEP = new Set(["user", "profile", "gmailAuth"]);
+const KEEP = new Set(["user", "profile"]);
 /** Every per-user model; each must read zero for the wiped account. */
 const PER_USER = [
   "source", "chunk", "entity", "mergeDismissal", "photo", "project", "chatSession",
   "cannedAnswer", "agentDirective", "uiCard", "itemClassification", "ingestionSource",
-  "addressBookEntry", "contact", "a2ATask", "appointmentField", "appointment", "service",
+  "a2ATask", "appointmentField", "appointment", "service",
   "staffMember", "bookingLocation", "bookingSettings", "menuItem", "order", "personaConfig",
   "themeConfig",
 ] as const;
@@ -96,8 +96,6 @@ async function seed(tag: string, dir: string) {
   await prisma.ingestionSource.create({
     data: { userId: u, key: "k", label: "l", uploadMethod: "manual" },
   });
-  await prisma.addressBookEntry.create({ data: { userId: u, name: "n" } });
-  await prisma.contact.create({ data: { userId: u, name: "n", email: "e@x", message: "m" } });
   await prisma.a2ATask.create({ data: { id: `task-${tag}-${Date.now()}`, userId: u, contextId: "c" } });
   await prisma.appointmentField.create({ data: { userId: u, key: "name", label: "Name" } });
   await prisma.appointment.create({ data: { userId: u, startsAt: new Date() } });
@@ -155,7 +153,7 @@ async function main() {
     check("other account's rows untouched", Object.values(bAfter).every((n) => n > 0),
       JSON.stringify(bAfter));
     check("other account's files untouched", b.files.every((n) => onDisk.has(n)));
-    check("KEEP set documents what survives", KEEP.has("gmailAuth"));
+    check("KEEP set documents what survives", KEEP.has("user") && KEEP.has("profile"));
   } finally {
     await prisma.user.deleteMany({ where: { id: { in: [a.user.id, b.user.id] } } });
     await rm(dir, { recursive: true, force: true });

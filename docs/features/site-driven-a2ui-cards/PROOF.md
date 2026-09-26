@@ -37,16 +37,16 @@ Secondary guards (not proof): `npx tsc --noEmit`, `npx next lint`, the gate,
 and the sibling proof `onboarding-a2ui-cards` still green.
 
 ## Assertions
-1. **Sanitizer** — junk shapes → empty plan; booking dropped; a `contact`
-   card dropped when `show_contact_form` exists; an existing label dropped
+1. **Sanitizer** — junk shapes → empty plan; booking dropped; a `social`
+   card dropped when `show_social` exists; an existing label dropped
    case-insensitively; a card with no need dropped; unknown evidence blanked,
    known evidence kept; 6 valid cards in → 4 out.
 2. **No site** — no link sources: `noSite`, zero planner calls, zero rows.
 3. **Corpus** — planner text has each source URL and its text, `EXISTING
    CARDS` with the owner's card label, the business name, the numbered
    starter questions; a `text`-type source's text is absent.
-4. **Additive round-trip** — tenant with one owner contact card (order 0) and
-   gallery photos; plan = designed + gallery + contact (tool exists) + booking
+4. **Additive round-trip** — tenant with one owner social card (order 0) and
+   gallery photos; plan = designed + gallery + social (tool exists) + booking
    + a duplicate label + a need-less card → exactly the designed and gallery
    rows are written after the owner's, in plan order, with the right tools; the designed
    row's block equals the draft and resolves through `customCardBlock`;

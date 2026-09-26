@@ -78,11 +78,11 @@ Secondary guards (not proof):
 6. **Empty catalog, empty guidance** — `cardCatalog` returns `[]`;
    `buildSystemPrompt` has no USING RICH CARDS; `answer()` hands the doubled
    client no `show_*` tool.
-7. **Round-trip** — on a tenant with 2 gallery photos, booking on, a goal and
-   5 blank starter questions, a plan of gallery + designed + contact +
-   booking + projects writes exactly 3 rows (gallery, designed, contact) in
-   that order with the right tools; the gallery sample holds the tenant's
-   real photo srcs; the designed row's block equals the builder's draft and
+7. **Round-trip** — on a tenant with 2 gallery photos, a social link, booking
+   on, a goal and 5 blank starter questions, a plan of gallery + designed +
+   social + booking + projects writes exactly 3 rows (gallery, designed,
+   social) in that order with the right tools; the gallery sample holds the
+   tenant's real photo srcs; the designed row's block equals the builder's draft and
    its key resolves through `customCardBlock`; the report lists them.
 8. **Builder brief** — the `draft` seam received the planner's brief, the
    company name, and the text of the question the card accompanies.
@@ -91,7 +91,7 @@ Secondary guards (not proof):
    owner had attached `show_projects` to, is untouched; `attached` = 3.
 10. **Chatbot integration** — `cardCatalog` lists the three; the prompt has
     each reason and `show_card with key "…"`; `answer()`'s tools include
-    `show_gallery`, `show_contact_form`, `show_card` (enum holds the key) and
+    `show_gallery`, `show_social`, `show_card` (enum holds the key) and
     `show_booking`, and exclude `show_projects`/`show_project`.
 11. **Corpus** — the planner text carries the page URLs, the business name,
     the goal, "STARTER QUESTIONS" with each numbered question, the photo
@@ -103,7 +103,7 @@ Secondary guards (not proof):
     question stays unattached, no throw. A draft `saveUiCard` rejects:
     skipped and counted, live cards intact.
 14. **Manual path** — no pages still calls the planner; the corpus names the
-    business; the contact card lands.
+    business; the social card lands.
 15. **Tenant isolation and cleanup** — tenant B sees none of A's cards; every
     row and user the proof created is gone at exit.
 

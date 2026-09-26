@@ -32,7 +32,6 @@ export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
   | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
-  | { type: "contact" }
   | {
       type: "services";
       title?: string;
@@ -93,9 +92,6 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
         booking={block.booking}
       />
     );
-  }
-  if (block.type === "contact") {
-    return <ContactForm slug={slug} />;
   }
   if (block.type === "booking") {
     return <BookingSessionCard block={block} slug={slug} />;
@@ -535,92 +531,6 @@ function ServiceRow({
         </button>
       )}
     </li>
-  );
-}
-
-function ContactForm({ slug }: { slug: string }) {
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
-  const [state, setState] = useState<"idle" | "sending" | "done" | "error">("idle");
-  const [error, setError] = useState("");
-
-  async function submit() {
-    if (state === "sending") return;
-    setState("sending");
-    setError("");
-    try {
-      const res = await fetch("/api/contact", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, email, message, slug }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.ok) {
-        setError(data.error || "Something went wrong.");
-        setState("error");
-        return;
-      }
-      setState("done");
-    } catch {
-      setError("Network error. Try again.");
-      setState("error");
-    }
-  }
-
-  if (state === "done") {
-    return (
-      <div data-fill="bg-soft" style={{ ...card, borderColor: "var(--success-on-bg-soft)" }}>
-        <strong style={{ fontSize: 15 }}>Got it — thank you.</strong>
-        <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 14, marginTop: 6 }}>
-          Your message was delivered. You&apos;ll hear back at {email}.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div data-fill="bg-soft" style={{ ...card, maxWidth: 440 }}>
-      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>Leave your details</strong>
-      <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 12px" }}>
-        Drop your info and a note — it goes straight to Blake.
-      </p>
-      <input
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Your name"
-        style={cf}
-      />
-      <input
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        placeholder="Your email"
-        type="email"
-        style={cf}
-      />
-      <textarea
-        value={message}
-        onChange={(e) => setMessage(e.target.value)}
-        placeholder="Your message"
-        rows={3}
-        style={{ ...cf, resize: "vertical" }}
-      />
-      {state === "error" && (
-        <p style={{ color: "var(--danger-on-bg-soft)", fontSize: 13, marginBottom: 8 }}>{error}</p>
-      )}
-      <button
-        onClick={submit}
-        disabled={state === "sending" || !name || !email || !message}
-        style={{
-          ...linkBtn,
-          ...liveBtn,
-          padding: "10px 18px",
-          opacity: state === "sending" || !name || !email || !message ? 0.55 : 1,
-        }}
-      >
-        {state === "sending" ? "Sending…" : "Send to Blake"}
-      </button>
-    </div>
   );
 }
 

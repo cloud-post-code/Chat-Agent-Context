@@ -29,7 +29,6 @@ import { GraphPanel } from "../GraphPanel";
 import { AnswersPanel } from "../AnswersPanel";
 import { A2uiPanel } from "../A2uiPanel";
 import { DirectivesPanel } from "../DirectivesPanel";
-import { ContactsPanel } from "../ContactsPanel";
 import { cannedStats } from "@/lib/canned";
 import { ProjectRow } from "../ProjectRow";
 import { contentTabsFromSources, labelsFromNav, NEW_SOURCE_TAB_KEY } from "../contentTabs";
@@ -64,10 +63,10 @@ export type AdminPanelSet = {
 
 export async function buildAdminPanels(
   user: User,
-  query: { error?: string; gmail?: string; booking?: string } = {},
+  query: { error?: string; booking?: string } = {},
 ): Promise<AdminPanelSet> {
   const data = await loadAdminData(user, query);
-  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, uiCards, ingestionSources, goalRows, ruleRows, addressBook, gmail, bookingConfig, orders, metrics, services, staffList, locationList, bookingSettings, bookings, operator, accounts, colors, personaSections } = data;
+  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, uiCards, ingestionSources, goalRows, ruleRows, bookingConfig, orders, metrics, services, staffList, locationList, bookingSettings, bookings, operator, accounts, colors, personaSections } = data;
 
   const profileTab = <ProfilePanel data={data} />;
 
@@ -320,7 +319,6 @@ export async function buildAdminPanels(
     answers: <AnswersPanel rows={canned} />,
     goals: goalsTab,
     rules: rulesTab,
-    contacts: <ContactsPanel rows={addressBook} gmail={gmail} message={query.gmail} />,
     a2ui: <A2uiPanel rows={uiCards} slug={user.slug} />,
     [NEW_SOURCE_TAB_KEY]: <NewSourcePanel error={query.error} />,
   };

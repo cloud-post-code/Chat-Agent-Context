@@ -60,9 +60,9 @@ const PLAN = {
       kind: "gallery", label: "Our work", description: "Photos of finished retrofits",
       reason: "When a visitor asks to see the work", layout: "filmstrip", questions: [2],
     },
-    { need: "Reaching the team", evidence: "", kind: "contact", label: "Reach us", description: "", reason: "When …", questions: [] },
+    { need: "Following the work online", evidence: "", kind: "social", label: "Our socials", description: "", reason: "When …", questions: [] },
     { need: "Booking a survey", evidence: "", kind: "booking", label: "Book a survey", description: "", reason: "When …", questions: [3] },
-    { need: "Contacting", evidence: "", kind: "designed", label: "get in TOUCH", description: "", reason: "When …", brief: "dup", questions: [] },
+    { need: "Following", evidence: "", kind: "designed", label: "follow US", description: "", reason: "When …", brief: "dup", questions: [] },
     { need: "", evidence: "", kind: "designed", label: "Needless card", description: "", reason: "When …", brief: "x", questions: [] },
   ],
 };
@@ -93,7 +93,12 @@ async function main() {
     });
     created.push(u.id);
     const userId = u.id;
-    await prisma.profile.create({ data: { userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid" } });
+    await prisma.profile.create({
+      data: {
+        userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid",
+        social_links: JSON.stringify([{ platform: "instagram", url: "https://instagram.com/quillhavenkilns" }]),
+      },
+    });
     await prisma.personaConfig.create({ data: { userId } });
     await prisma.themeConfig.create({ data: { userId } });
     for (const [i, filename] of ["proofsite-a.jpg", "proofsite-b.jpg"].entries()) {
@@ -111,8 +116,8 @@ async function main() {
   };
   const ownerCard = (userId: string) =>
     saveUiCard(userId, {
-      key: "", label: "Get in touch", tool: "show_contact_form", description: "Contact form",
-      reason: "When a visitor wants to reach us", note: "", sampleBlock: JSON.stringify({ type: "contact" }),
+      key: "", label: "Follow us", tool: "show_social", description: "Our social links",
+      reason: "When a visitor wants to follow us", note: "", sampleBlock: JSON.stringify({ type: "social", items: [] }),
     });
 
   const scriptedLlm = (result: unknown) => {
@@ -144,8 +149,8 @@ async function main() {
 
   try {
     // ── 1. Sanitizer ──
-    const signals = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: [], hasKnowledge: true };
-    const existing = [{ label: "Get in touch", tool: "show_contact_form" }];
+    const signals = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 1, categories: [], hasKnowledge: true };
+    const existing = [{ label: "Follow us", tool: "show_social" }];
     const urls = [VISIT_URL, WORK_URL];
     for (const junk of [null, "x", { needs: 7 }, { needs: [null, 3, {}] }]) {
       check(`sanitizer: junk ${JSON.stringify(junk)} → empty`,
@@ -158,7 +163,7 @@ async function main() {
     check("sanitizer blanks unknown evidence", clean.cards[1]?.evidence === "");
     check("sanitizer carries the need", clean.cards[0]?.need === NEED);
     const six = {
-      needs: ["designed", "designed", "gallery", "contact", "designed", "designed"]
+      needs: ["designed", "designed", "gallery", "social", "designed", "designed"]
         .map((kind, n) => ({ need: `Need ${n}`, kind, label: `Card ${n}`, brief: "b", reason: "When …" })),
     };
     check("sanitizer caps at 4 cards", sanitizeSiteCardPlan(six as never, signals, 0, [], urls).cards.length === 4);
@@ -185,14 +190,14 @@ async function main() {
     check("corpus carries each imported page's url and text",
       [VISIT_URL, WORK_URL, VISIT_TEXT, WORK_TEXT].every((s) => text.includes(s)));
     check("corpus excludes pasted (non-site) sources", !text.includes("zebra-quartz"));
-    check("corpus lists the existing cards", text.includes("EXISTING CARDS") && text.includes("Get in touch"));
+    check("corpus lists the existing cards", text.includes("EXISTING CARDS") && text.includes("Follow us"));
     check("corpus names the business and numbers the questions",
       text.includes(COMPANY) && text.includes(`1. ${QUESTIONS[0]}`));
 
     const rowsA = await listUiCards(userA);
     check("two rows added after the owner's, in plan order",
       rowsA.map((r) => `${r.label}:${r.tool}`).join("|")
-        === "Get in touch:show_contact_form|Parking & access:show_card|Our work:show_gallery",
+        === "Follow us:show_social|Parking & access:show_card|Our work:show_gallery",
       JSON.stringify(rowsA.map((r) => [r.label, r.tool, r.order])));
     check("new rows order after the existing last row", rowsA[1]?.order === 1 && rowsA[2]?.order === 2);
     check("owner's row is byte-identical", JSON.stringify(rowsA[0]) === ownerBefore);
@@ -236,7 +241,7 @@ async function main() {
     // the sanitizer and both hit the throwing builder.
     check("throwing builder: live cards still written, each failed draft counted",
       runF2.written === 2 && runF2.designedFailed === 2
-        && (await listUiCards(userF)).map((r) => r.tool).join(",") === "show_gallery,show_contact_form",
+        && (await listUiCards(userF)).map((r) => r.tool).join(",") === "show_gallery,show_social",
       JSON.stringify(runF2));
 
     // ── 10. Route + button ──

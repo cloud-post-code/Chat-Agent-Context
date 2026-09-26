@@ -512,12 +512,12 @@
     },
     {
       "id": "custom-domain-canonical-urls",
-      "title": "Canonical URLs, per-host agent card, robots/sitemap, and OAuth correctness on custom domains",
+      "title": "Canonical URLs, per-host agent card, and robots/sitemap on custom domains",
       "feature_dir": "docs/features/custom-domain-canonical-urls",
       "proof": "docs/features/custom-domain-canonical-urls/PROOF.md",
       "priority": 3,
       "status": "pending",
-      "notes": "Phase 3 of 3. canonicalOrigin(user) becomes the one source for absolute tenant URLs; siteOrigin() stops trusting an arbitrary X-Forwarded-Host (closing the existing lib/util.ts:32 weakness); app/layout.tsx stops calling siteOrigin() with no headers (today that yields localhost OG URLs). /a/<slug> declares the custom domain canonical without redirecting. The eight foundingUser() discovery call sites become host-aware, finally using the userId A2ATask already carries. gmailRedirectUri pins to the platform origin. Out of scope and deliberately unchanged: /api/uploads/[name] tenant-blindness."
+      "notes": "Phase 3 of 3. canonicalOrigin(user) becomes the one source for absolute tenant URLs; siteOrigin() stops trusting an arbitrary X-Forwarded-Host (closing the existing lib/util.ts:32 weakness); app/layout.tsx stops calling siteOrigin() with no headers (today that yields localhost OG URLs). /a/<slug> declares the custom domain canonical without redirecting. The eight foundingUser() discovery call sites become host-aware, finally using the userId A2ATask already carries. Out of scope and deliberately unchanged: /api/uploads/[name] tenant-blindness."
     },
     {
       "id": "inkbox-omnichannel-agents",
@@ -787,14 +787,10 @@
     {
       "id": "gmail-sent-contacts",
       "title": "Contacts from sent mail",
-      "feature_dir": "docs/features/gmail-sent-contacts",
-      "proof": "docs/features/gmail-sent-contacts/PROOF.md",
       "priority": 2,
-      "status": "stale",
-      "notes": "Feature folder existed with no queue entry (2026-09-25 audit). Status set once its proof is run by npm run crosscheck.",
-      "next": "STALE (2026-09-25 audit): predates the multi-tenant conversion: creates rows without a userId. Fix or retire when this area is next touched.",
-      "last_status": "unverified",
-      "stale_reason": "predates the multi-tenant conversion: creates rows without a userId"
+      "status": "retired",
+      "notes": "Retired 2026-09-26: the whole contact area was stripped — the Contacts tab and address book (AddressBookEntry, lib/addressBook.ts, app/admin/ContactsPanel.tsx), the Gmail sent-mail sync (GmailAuth, lib/gmail/*, /api/admin/gmail/*) and the in-chat contact form (Contact, show_contact_form, /api/contact). The feature folder and its proof were deleted with the code.",
+      "next": "The Contact, AddressBookEntry and GmailAuth tables are out of schema.prisma but still exist in deployed databases; drop them in their own migration after a backup (prisma/CLAUDE.md)."
     },
     {
       "id": "known-entities-in-extraction",

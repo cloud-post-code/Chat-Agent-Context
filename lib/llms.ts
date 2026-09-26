@@ -20,7 +20,7 @@ import { safeJson } from "./util";
  * Everything here is what the chatbot would tell a visitor anyway: profile,
  * persona, services, menu, projects, approved answers, source summaries and
  * the booking questions. Nothing admin-only (directives, corrections,
- * activity, orders, contacts) and nothing invented — an empty section is left
+ * activity, orders) and nothing invented — an empty section is left
  * out rather than padded.
  */
 

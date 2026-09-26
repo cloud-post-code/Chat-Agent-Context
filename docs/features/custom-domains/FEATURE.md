@@ -9,7 +9,7 @@ someone else's.
 
 The app is already closer to this than it looks. `app/a/[slug]/page.tsx:34`
 resolves a tenant from a slug and hands `slug` to `<Chat>`, which sends it back
-with every `/api/chat`, `/api/booking`, and `/api/contact` call. Nothing about
+with every `/api/chat`, `/api/booking`, and `/api/order` call. Nothing about
 the page depends on the *host* it was served from. So a custom domain does not
 require rewiring tenancy — it requires one new thing: a way to turn an incoming
 `Host` header into the slug the app already knows how to serve.
@@ -43,7 +43,7 @@ and the directory remain on the platform domain only.
   to the tenant's page, never redirected to `/a/<slug>`.
 - The chat works on the custom domain with no client change: the page passes
   the resolved tenant's real `slug` to `<Chat>`, so `/api/chat`, `/api/booking`
-  and `/api/contact` keep receiving the slug they already require.
+  and `/api/order` keep receiving the slug they already require.
 - On a custom domain, platform surfaces are not served: `/admin`, `/signup`,
   `/agent` and the directory at `/` (the platform's own root) return a redirect
   to the same path on the platform domain. `/api/*`, `/api/uploads/*` and
@@ -72,7 +72,7 @@ and the directory remain on the platform domain only.
 - **DNS verification and certificate status lifecycle** — sibling feature
   `custom-domain-verification`. This feature defines the status column and
   honors it; that feature drives rows through it.
-- **Canonical URLs, OG metadata, the A2A agent card, Gmail OAuth redirects, and
+- **Canonical URLs, OG metadata, the A2A agent card, and
   `robots`/`sitemap`** on custom domains — sibling feature
   `custom-domain-canonical-urls`.
 - **Admin on the custom domain.** `/admin` stays on the platform domain, so the

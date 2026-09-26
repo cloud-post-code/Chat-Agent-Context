@@ -2,7 +2,7 @@
 
 ## Definition Of Done
 - `wipeAccountContent(userId)` leaves zero rows in every per-user table except
-  `User`, `Profile` (blanked, `bookingEnabled` true) and `GmailAuth`.
+  `User` and `Profile` (blanked, `bookingEnabled` true).
 - That includes the booking domain (`Service`, `StaffMember`,
   `BookingLocation`, `BookingSettings`, `AppointmentField`, `Appointment`),
   `MenuItem` and `Order`.

@@ -78,7 +78,6 @@ export type UiBlock =
   // sealed sandbox (no scripts, no external requests). `height` is the
   // iframe's px height, since a sandboxed document can't report its own.
   | { type: "html"; html: string; height?: number }
-  | { type: "contact" }
   // The tenant's services, read from the knowledge onboarding saved. `booking`
   // rides in the block when appointments are on, so each service opens the
   // wizard with itself already chosen; null draws the list with no Book button.
@@ -160,11 +159,6 @@ export async function allProjectsBlock(
 export async function singleProjectBlock(userId: string, id: string): Promise<UiBlock> {
   const p = await prisma.project.findFirst({ where: { id, userId } });
   return { type: "project", item: p ? toProjectCard(p) : null };
-}
-
-/** The contact form. */
-export async function contactBlock(): Promise<UiBlock> {
-  return { type: "contact" };
 }
 
 /**

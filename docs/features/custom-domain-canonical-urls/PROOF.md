@@ -19,8 +19,6 @@
   the host's tenant on a live custom domain, and the founding user on the
   platform domain — replacing the unconditional `foundingUser()` at those call
   sites.
-- `gmailRedirectUri` is built from the platform origin explicitly, independent
-  of the request host.
 - Admin's "view your agent" link and the directory entry show the custom domain
   once live.
 

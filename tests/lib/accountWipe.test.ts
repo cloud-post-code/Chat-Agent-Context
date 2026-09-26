@@ -11,8 +11,8 @@ const root = path.resolve(__dirname, "../..");
 const schema = readFileSync(path.join(root, "prisma/schema.prisma"), "utf8");
 const wipe = readFileSync(path.join(root, "lib/accountWipe.ts"), "utf8");
 
-/** Survive on purpose: the login row (updated), the blanked profile (upserted), the Gmail link. */
-const KEPT = new Set(["User", "Profile", "GmailAuth"]);
+/** Survive on purpose: the login row (updated) and the blanked profile (upserted). */
+const KEPT = new Set(["User", "Profile"]);
 
 const bodies = new Map<string, string>();
 for (const m of schema.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) bodies.set(m[1], m[2]);

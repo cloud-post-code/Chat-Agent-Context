@@ -23,10 +23,10 @@ the model client is injected via `BrainDeps.client` the way the existing proofs 
    appears in the text stream. This is the regression that separates "rendered" from
    today's silent drop.
 4. Every `UiBlock` variant renders non-empty text: `projects`, `project`, `gallery`,
-   `custom`, `html`, `contact`, `booking`.
+   `custom`, `html`, `booking`.
 5. Every `CustomElement` kind renders: heading, text, list, badges, stats, buttons,
    image, quote, divider.
-6. `contact` and `booking` render a link to the web surface, not a description of a form.
+6. `booking` renders a link to the web surface, not a description of a form.
 7. `gallery` and `project` image URLs are absolute in text output.
 8. `html` output contains no `<` markup.
 

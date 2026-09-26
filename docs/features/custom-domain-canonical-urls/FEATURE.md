@@ -13,9 +13,7 @@ headers argument**, so it resolves to `NEXT_PUBLIC_SITE_URL` or, unset, to
 platform's image, not the tenant's. The A2A agent card at
 `app/.well-known/agent-card.json/route.ts:21` advertises `siteOrigin(req.headers)`
 for the **founding user** regardless of which host asked, so a custom domain
-publishes a card describing someone else's agent. Gmail's OAuth redirect is
-built from the same origin helper (`lib/gmail/client.ts:50`), so a connect
-attempt from the wrong host yields `redirect_uri_mismatch`. And visitor chat
+publishes a card describing someone else's agent. And visitor chat
 history lives in `localStorage` keyed `chats:<slug>` (`lib/chatStore.ts:43`) —
 which is per-origin, so moving a tenant to a custom domain silently strands
 every returning visitor's conversations.
@@ -63,11 +61,6 @@ custom domain rather than competing with it.
   they keep describing the founding user exactly as today. This finally uses the
   `userId` the `A2ATask` model already carries for "a future per-slug A2A
   surface" (`prisma/schema.prisma:658`).
-- **Gmail OAuth stays on the platform domain.** Admin lives only on the platform
-  host (per the custom-domains spec), so `gmailRedirectUri` is built from the
-  platform origin explicitly rather than from whatever host the request arrived
-  on — one redirect URI to register with Google, no `redirect_uri_mismatch`, and
-  no way for a tenant-controlled hostname to shape an OAuth redirect.
 - **Visitor chat history survives the move.** The `localStorage` key stays
   `chats:<slug>` — the slug, not the host — and the agent page passes the same
   slug on both addresses, so history is at least consistent per origin. Where a
@@ -87,7 +80,6 @@ custom domain rather than competing with it.
 - Per-host `robots.txt` and `sitemap.xml`.
 - Host-aware tenant selection for `/.well-known/*`, `/api/a2a`, and `/agent`,
   replacing the unconditional `foundingUser()` at those eight call sites.
-- Pinning `gmailRedirectUri` to the platform origin in `lib/gmail/client.ts`.
 - The admin-visible canonical link in the dashboard and directory.
 
 ## Non-Goals
@@ -120,10 +112,6 @@ custom domain rather than competing with it.
   `X-Forwarded-Host: evil.example`. The advertised origin does not become
   `evil.example`; an unrecognized host resolves to no tenant and the discovery
   document is not served for it.
-- **Gmail connect.** A tenant connects Gmail from `/admin` on the platform
-  domain. The redirect URI is the platform's, matches Google's registered value,
-  and the callback lands back in the dashboard — unchanged by the existence of
-  any custom domain.
 - **Domain goes away.** A tenant removes their domain, or it falls out of
   `live`. Canonical, metadata, sitemap and the admin's "view your agent" link
   all revert to `/a/<slug>` on the next request, with nothing left pointing at a

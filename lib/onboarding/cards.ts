@@ -18,9 +18,9 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * Nothing is seeded at signup any more: the old starter set was written for a
  * personal portfolio and gave a nail salon an "All projects" card. This stage
  * is where a business's cards come from. Live-data cards (the gallery of the
- * photos onboarding imported, the services it read, the contact form, projects
- * when there are any) are written straight into the catalog with the tenant's
- * own data as their preview. Business-specific cards — hours and locations,
+ * photos onboarding imported, the services it read, projects when there are
+ * any) are written straight into the catalog with the tenant's own data as
+ * their preview. Business-specific cards — hours and locations,
  * the team, what to expect — go through the same research-enabled card builder
  * the admin's "Build a card" page uses, so they are drafted from the
  * knowledge base the run just indexed. Every card the plan ties to a starter
@@ -40,7 +40,6 @@ Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" (one photo at a time) or "filmstrip" (thumbnails with a lightbox).
 - "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file.
 - "menu": the business's menu the visitor can order from — items with prices, options and add-ons, each addable to a cart with a quantity, and a checkout. Only when SIGNALS says the business has something orderable without booking a visit. Plan "menu" when the business sells things a visitor picks several of and can buy right there (dishes, drinks, products, treatments with add-ons sold on their own); plan "services" when it is a plain list booked one at a time, or when SIGNALS says nothing is orderable without booking — an appointment-only service list is "services", never "menu", however many extras it has. One of the two is ALWAYS planned when services are on file, for the question about what the business offers — never both.
-- "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
 - "social": the business's own social media links as clickable buttons. Only when SIGNALS lists social links on file.
@@ -55,19 +54,18 @@ Rules:
 - At most 5 cards, at most 3 of them "designed". Fewer, sharper cards beat padding. Nothing groundable? Return an empty list.
 
 Respond with ONLY this JSON, no other text:
-{"cards":[{"kind":"gallery|services|menu|contact|projects|booking|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"cards":[{"kind":"gallery|services|menu|projects|booking|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
 export type CardKind =
   | "gallery"
   | "services"
   | "menu"
-  | "contact"
   | "projects"
   | "booking"
   | "social"
   | "designed";
 const KINDS: readonly CardKind[] = [
-  "gallery", "services", "menu", "contact", "projects", "booking", "social", "designed",
+  "gallery", "services", "menu", "projects", "booking", "social", "designed",
 ];
 
 export type PlannedCard = {
@@ -369,11 +367,10 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
     };
     return { tool: "show_menu", sample: JSON.stringify(block) };
   }
-  if (card.kind === "social") {
-    const block = (await socialBlock(userId, {})) ?? { type: "social", items: [] };
-    return { tool: "show_social", sample: JSON.stringify(block) };
-  }
-  return { tool: "show_contact_form", sample: JSON.stringify({ type: "contact" }) };
+  // "social" is the one live kind left: booking and designed never reach here
+  // (placeCard routes them first), and the sanitizer admits nothing else.
+  const block = (await socialBlock(userId, {})) ?? { type: "social", items: [] };
+  return { tool: "show_social", sample: JSON.stringify(block) };
 }
 
 /**

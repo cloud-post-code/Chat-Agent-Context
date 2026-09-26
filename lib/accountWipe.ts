@@ -7,10 +7,10 @@ import { deleteUpload, UPLOAD_FILENAME } from "@/lib/uploads";
  * Everything onboarding or the dashboard populated goes: knowledge (sources,
  * chunks and the entity graph hanging off them), photos, projects, chat
  * history, canned answers, directives, UI cards, ingestion sources and their
- * item classifications, address book, contacts, A2A tasks, persona, theme,
- * the whole booking domain (services, staff, locations, settings, form fields,
- * appointments), menu items and orders. The profile is blanked rather than
- * dropped. The login itself and the Gmail connection (GmailAuth) are kept.
+ * item classifications, A2A tasks, persona, theme, the whole booking domain
+ * (services, staff, locations, settings, form fields, appointments), menu
+ * items and orders. The profile is blanked rather than dropped. The login
+ * itself is kept.
  *
  * Uploaded files are removed from the volume too. Filenames are collected
  * BEFORE the rows go (the rows are the only record of which files are ours)
@@ -34,8 +34,6 @@ export async function wipeAccountContent(userId: string): Promise<{ filesDeleted
     prisma.uiCard.deleteMany(where),
     prisma.itemClassification.deleteMany(where),
     prisma.ingestionSource.deleteMany(where),
-    prisma.addressBookEntry.deleteMany(where),
-    prisma.contact.deleteMany(where),
     prisma.a2ATask.deleteMany(where),
     prisma.appointment.deleteMany(where),
     prisma.appointmentField.deleteMany(where),

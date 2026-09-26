@@ -6,7 +6,7 @@ agents can call.**
 A visitor lands on `/a/<slug>`, asks a question, and an AI host answers in the
 business's voice using **only** what the owner curated, drawing real UI inline when
 showing beats telling: photos, services with prices, a booking flow, a menu and cart,
-social links, a contact form. The same brain is published as an A2A agent and as
+social links. The same brain is published as an A2A agent and as
 `llms.txt` for ChatGPT and Claude. Owners onboard by pasting their website; the app
 reads it into knowledge, services, a booking form, a theme and starter questions.
 

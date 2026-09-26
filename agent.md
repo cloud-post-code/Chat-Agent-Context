@@ -14,8 +14,8 @@ file whenever prompts, tools or routing change.
    scored, one-hop graph expansion. Small multi-chunk sources (a price list)
    are served whole.
 3. **Tools**: catalog cards (`show_projects`, `show_project`, `show_gallery`,
-   `show_services`, `show_menu`, `show_cart`, `show_contact_form`,
-   `show_card`), each narrowable with `ids`/`tags`/`query`/`limit`/`title`
+   `show_services`, `show_menu`, `show_cart`, `show_card`), each
+   narrowable with `ids`/`tags`/`query`/`limit`/`title`
    where it applies (`show_gallery` also takes the required `layout`;
    `show_services` also takes `category` and `similar`) — see "Composable
    elements" below. `show_booking` when booking is on (`service` opens the
@@ -233,8 +233,8 @@ The A2UI tab's "Build cards from my site" button runs `buildCardsFromSite`
 link `Source` rows, no crawling — beside an `EXISTING CARDS` block and the
 onboarding planner's BUSINESS / SIGNALS / STARTER QUESTIONS blocks. One
 planning call names up to 4 visitor **needs**, each with the page URL it was
-read from and the card that serves it (`gallery`, `services`, `contact`,
-`projects`, `designed`; never `booking`). `sanitizeSiteCardPlan` drops a need
+read from and the card that serves it (`gallery`, `services`, `projects`,
+`designed`; never `booking`). `sanitizeSiteCardPlan` drops a need
 the catalog already covers (same tool for a live-data card, same label for any
 card) before the onboarding sanitizer's gates and caps. Cards are placed
 through onboarding's `placeCard`: designed ones go to the research-enabled card
@@ -279,7 +279,7 @@ panels' own row components (`AppointmentCard`, `OrderRow`, `DirectiveForm`,
 revealed row keeps its real server actions. Brain and panel build their index
 from the same rows via the same builders (`loadElementData` /
 `buildElementIndex`), which is what keeps the ids in agreement. Panels without
-elements (chats, cards, contacts, users, source items, settings) still reveal
+elements (chats, cards, users, source items, settings) still reveal
 whole via `show_panel`. Proof: `docs/features/copilot-element-reveal/proof.ts`.
 
 ## Admin copilot: panels follow the dashboard nav
@@ -316,7 +316,7 @@ approved answers with text, scanned non-ingest source summaries, booking
 questions) and renders `/a/<slug>/llms.txt` (index) and
 `/a/<slug>/llms-full.txt` (everything, fixed section order, empty sections
 omitted); `/llms.txt` and `/llms-full.txt` cover the directory. Directives,
-corrections, activity, orders and contacts never appear. `app/robots.ts`
+corrections, activity and orders never appear. `app/robots.ts`
 allows the named AI user agents, `app/sitemap.ts` lists the files, the agent
 page's `<head>` links its Markdown twin, and `middleware.ts` rewrites
 `Accept: text/markdown` or a `.md` suffix to the full document. Proof:

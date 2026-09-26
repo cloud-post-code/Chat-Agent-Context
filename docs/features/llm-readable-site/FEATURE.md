@@ -38,7 +38,7 @@ can also *talk* to the site.
   Sources (scanned knowledge sources: title, link, summary), Booking (whether
   on and the questions asked), and How to talk to this agent. Empty sections
   are omitted; nothing is invented; nothing from admin-only surfaces
-  (directives, corrections, activity, orders, contacts) appears.
+  (directives, corrections, activity, orders) appears.
 - **Platform index** at `/llms.txt` naming every agent on the deployment with
   a link to each one's index and full document; `/llms-full.txt` concatenates
   every tenant's full document.

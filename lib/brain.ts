@@ -6,7 +6,6 @@ import {
   singleProjectBlock,
   galleryBlock,
   galleryTagVocabulary,
-  contactBlock,
   bookingBlock,
   servicesBlock,
   type UiBlock,
@@ -203,12 +202,6 @@ const TOOLS: Anthropic.Tool[] = [
       "Render the visitor's cart: every item they added with quantity steppers, the total, and checkout. Use it when they want to see, change or check out what they've picked.",
     input_schema: { type: "object", properties: {} },
   },
-  {
-    name: "show_contact_form",
-    description:
-      "Render a contact form so the visitor can leave their name, email, and a message for the owner. Use this whenever someone wants to get in touch, connect, reach out, hire, or collaborate. Their submission is recorded for the owner.",
-    input_schema: { type: "object", properties: {} },
-  },
 ];
 
 /**
@@ -401,8 +394,6 @@ export async function hydrate(userId: string, name: string, input: Record<string
       return ok(await menuBlock(userId, input), "Card rendered to the user.");
     case "show_cart":
       return ok(await cartBlock(userId), "Card rendered to the user.");
-    case "show_contact_form":
-      return ok(await contactBlock(), "Card rendered to the user.");
     case "show_booking": {
       // Null when booking was disabled after the tool was seen (or a stale
       // canned answer names it) — nothing is drawn rather than a dead booker.

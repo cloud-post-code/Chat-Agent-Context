@@ -30,7 +30,7 @@ export function CardBuilder({
   id?: string;
   cardKey?: string;
   initial?: CardDraft;
-  /** The owner's agent slug, so live preview cards (contact form) post home. */
+  /** The owner's agent slug, so live preview cards (booking, menu, cart) post home. */
   slug?: string;
 }) {
   const router = useRouter();

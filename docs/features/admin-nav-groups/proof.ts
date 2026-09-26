@@ -75,7 +75,6 @@ async function main() {
     ["booking-pricing", "booking", "booking-pricing"],
     ["graph", "knowledge", "graph"],
     ["a2ui", "cards", "a2ui"],
-    ["contacts", "settings", "contacts"],
     ["answers", "agent", "answers"],
     ["goals", "agent", "goals"],
     ["profile", "settings", "profile"],

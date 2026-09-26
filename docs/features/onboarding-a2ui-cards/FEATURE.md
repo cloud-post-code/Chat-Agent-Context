@@ -47,7 +47,6 @@ model seams.
 - **The plan** — one model call proposes at most 5 cards. Each is one of:
   - `gallery` (tool `show_gallery`, a layout) — only when SIGNALS lists
     photos;
-  - `contact` (tool `show_contact_form`);
   - `projects` (tool `show_projects`) — only when projects exist;
   - `booking` — writes no catalog row (booking is not catalog-driven) and
     exists only so a "how do I book?" question can carry `show_booking`;
@@ -69,8 +68,8 @@ model seams.
   numbers. Never throws on a junk shape (returns an empty plan).
 - **Writing** — live-data cards are written through the real `saveUiCard`
   path with the tenant's own data as the preview sample (the gallery card
-  previews the photos onboarding imported; contact and projects use their
-  hydrated blocks). Designed cards go through the existing `draftUiCard`
+  previews the photos onboarding imported; projects and social links use
+  their hydrated blocks). Designed cards go through the existing `draftUiCard`
   builder — the same research-enabled loop the admin's "Build a card" page
   uses, so the card is drafted from the knowledge base the run just indexed
   — and the validated draft is saved through `saveUiCard`. Designed drafts
@@ -97,7 +96,7 @@ model seams.
 - `app/api/admin/onboarding/complete/route.ts` (manual / skip path): the
   same stage runs after starter-question generation with no pages — the
   plan is grounded in the profile and whatever knowledge exists, which for
-  a sparse manual setup usually means a contact card and nothing invented.
+  a sparse manual setup usually means few cards and nothing invented.
 - The onboarding flow's "All done" message names the cards that were
   designed.
 

@@ -16,8 +16,8 @@ void React;
 /**
  * The social-links A2UI element: one button per profile the visitor asked
  * about (or every one on file when they didn't narrow it), each opening the
- * real profile in a new tab. Small and composable like ContactForm/
- * ServicesCard — a handful of buttons, not a whole "connect with us" section.
+ * real profile in a new tab. Small and composable like ServicesCard — a
+ * handful of buttons, not a whole "connect with us" section.
  */
 
 const ICONS: Record<string, ReactElement> = {

@@ -13,7 +13,6 @@ export const BLOCK_TYPES = [
   "services",
   "menu",
   "cart",
-  "contact",
   "custom",
   "html",
   "social",
