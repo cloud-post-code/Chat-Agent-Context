@@ -3,7 +3,6 @@ import { claude, cardBuilderModel, textOf } from "@/lib/claude";
 import { prisma, getProfile, getPersonaConfig } from "@/lib/db";
 import { safeTags } from "@/lib/knowledge";
 import { CARD_TOOLS, type CardTool } from "@/lib/canned";
-import { listServices } from "@/lib/cards";
 import { parseSampleBlock, swatch } from "@/lib/uiCards";
 import { retrieve as defaultRetrieve, formatContext } from "@/lib/retrieval/search";
 import {
@@ -40,11 +39,7 @@ const TOOL_TO_TYPES: Record<CardTool, string[]> = {
   show_projects: ["projects"],
   show_project: ["project"],
   show_gallery: ["gallery"],
-  show_services: ["services"],
-  show_menu: ["menu"],
-  show_cart: ["cart"],
   show_contact_form: ["contact"],
-  show_booking: ["booking"],
   show_card: ["custom", "html"],
   show_social: ["social"],
 };
@@ -95,13 +90,10 @@ const BUILDER_BRIEF = `You design "A2UI cards" for a personal portfolio site's c
 
 There are three ways to build a card. FIRST decide which fits, in this order:
 
-1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, services, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
+1. A LIVE-DATA card, when the owner wants the site's own content (their projects, photos, contact form). These hydrate from the database at chat time, so their sample is ILLUSTRATIVE ("Sample Project A" style). Tools and exact sample shapes ("type" must match the tool):
 - show_projects → {"type":"projects","items":[ProjectCard, …]} — a grid of project cards
 - show_project → {"type":"project","item":ProjectCard} — one project, drawn wide
 - show_gallery → {"type":"gallery","layout":"carousel"|"filmstrip","items":[PhotoCard, …]} — photos
-- show_services → {"type":"services","items":[{"id":"1","name":"…","description":"…"}, …],"booking":null} — the business's services, each with a Book button when appointments are on. ALWAYS this for a services, treatments, menu or price-list card: it lists the real services on file, which a custom or coded card would freeze as a copy
-- show_menu → {"type":"menu","title":"Menu","full":true,"items":[{"key":"…","name":"…","category":"…","price":"$…"}, …],"checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the business's menu with prices, options and add-ons, each item addable to a cart with a quantity; the whole menu grouped by section, or a curated list. Prefer this over show_services when the business sells things a visitor picks several of (dishes, products, treatments with add-ons)
-- show_cart → {"type":"cart","checkout":{"fulfillment":[],"contact":{"phone":"off","email":"required"},"currency":""}} — the visitor's cart with quantities and checkout
 - show_contact_form → {"type":"contact"} — the in-chat contact form
 - show_social → {"type":"social","title":"…","items":[{"platform":"instagram","url":"https://…"}, …]} — the business's own social links, filterable to specific platforms
 
@@ -163,12 +155,11 @@ Respond with ONLY a JSON object (no prose, no code fences):
  */
 async function siteDataBrief(userId: string): Promise<string> {
   try {
-    const [profile, persona, projects, photoCount, services] = await Promise.all([
+    const [profile, persona, projects, photoCount] = await Promise.all([
       getProfile(userId),
       getPersonaConfig(userId),
       prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
       prisma.photo.count({ where: { userId } }),
-      listServices(userId),
     ]);
     const lines: string[] = ["REAL SITE DATA (build card content from this — do not invent facts):"];
     const who = profile.company_name || profile.owner_name;
@@ -181,18 +172,6 @@ async function siteDataBrief(userId: string): Promise<string> {
     } else {
       lines.push("Projects: none added yet.");
     }
-    // show_services draws nothing without services on file, so the model has
-    // to know which side of that line this account is on before choosing it.
-    lines.push(
-      services.length
-        ? `Services on file (${services.length}): ${services.slice(0, 20).map((s) => s.name).join(", ")}`
-        : "Services: none on file — show_services would draw nothing.",
-    );
-    lines.push(
-      services.length
-        ? "Menu: the same items are on file for show_menu / show_cart (the orderable menu with a cart)."
-        : "Menu: none on file — show_menu would draw nothing.",
-    );
     const contact = [profile.company_email, profile.company_phone_number, profile.company_address, profile.company_hours].filter(Boolean).join(" | ");
     if (contact) lines.push(`Contact: ${contact}`);
     lines.push(`Photos: ${photoCount} uploaded.`);

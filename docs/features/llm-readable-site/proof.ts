@@ -27,9 +27,6 @@ function check(name: string, ok: boolean, detail?: string) {
 
 async function main() {
   const { prisma } = await import("@/lib/db");
-  const { onboardingIngestKind } = await import("@/lib/ingestionSources");
-  const { SERVICES_SOURCE_TITLE } = await import("@/lib/serviceCatalog");
-  const { formatServiceCatalog } = await import("@/lib/serviceCatalog");
   const tenantIndex = (await import("@/app/a/[slug]/llms.txt/route")).GET;
   const tenantFull = (await import("@/app/a/[slug]/llms-full.txt/route")).GET;
   const platformIndex = (await import("@/app/llms.txt/route")).GET;
@@ -44,7 +41,7 @@ async function main() {
     data: { email: `${slug}@example.test`, name: "Proof Bakery", slug, passwordHash: "x" },
   });
   try {
-    await seed(prisma, user.id, onboardingIngestKind("services"), SERVICES_SOURCE_TITLE, formatServiceCatalog);
+    await seed(prisma, user.id);
     const params = { params: Promise.resolve({ slug }) };
     const origin = "https://proof.example";
 
@@ -73,19 +70,16 @@ async function main() {
     check("full answers 200 as markdown", fullRes.status === 200 && fullRes.headers.get("content-type") === "text/markdown; charset=utf-8");
     const heads = full.split("\n").filter((l) => l.startsWith("## ")).map((l) => l.slice(3));
     check("sections in the fixed order", JSON.stringify(heads) === JSON.stringify([
-      "About", "Contact and hours", "Services", "Menu", "Projects",
-      "Frequently asked questions", "Sources", "Booking", "How to talk to this agent",
+      "About", "Contact and hours", "Projects",
+      "Frequently asked questions", "Sources", "How to talk to this agent",
     ]), JSON.stringify(heads));
     check("about carries the persona", full.includes("We bake sourdough at dawn"));
     check("contact carries address, phone, email, hours and a social link", ["12 Main St", "555-0100", "hi@proof.test", "Tue-Sun 7am-2pm", "https://instagram.com/proofbakery"].every((s) => full.includes(s)));
-    check("services list each service", full.includes("### Wedding cakes") && full.includes("Three tiers"));
-    check("menu lists items with displayed prices", full.includes("Sourdough loaf") && full.includes("$9") && full.includes("from $40"));
     check("projects list name and links", full.includes("### Bread Club") && full.includes("https://github.com/proof/bread") && full.includes("https://bread.proof.test"));
     check("faq has the answered enabled question", full.includes("### Do you deliver?") && full.includes("Yes, within 5 miles."));
     check("faq omits blank and disabled answers", !full.includes("Are you hiring") && !full.includes("Secret question"));
     check("sources carry title, link and summary", full.includes("### Our story") && full.includes("https://proof.test/story") && full.includes("Founded in 2019"));
     check("sources omit raw text", !full.includes("RAW TEXT MARKER"));
-    check("booking names the questions", full.includes("Your name") && full.includes("Preferred date"));
     check("directives never appear", !full.includes("Always upsell") && !idx.includes("Always upsell"));
     check("no admin surface is mentioned", !/admin/i.test(full) && !/admin/i.test(idx));
     check("unknown slug answers 404", (await tenantFull(new Request(`${origin}/a/nope/llms-full.txt`), { params: Promise.resolve({ slug: "nope-" + stamp }) })).status === 404);
@@ -134,13 +128,7 @@ async function main() {
 }
 
 type Db = (typeof import("@/lib/db"))["prisma"];
-async function seed(
-  prisma: Db,
-  userId: string,
-  servicesKind: string,
-  servicesTitle: string,
-  formatServiceCatalog: (s: { name: string; description: string }[]) => string,
-) {
+async function seed(prisma: Db, userId: string) {
   await prisma.profile.create({
     data: {
       userId,
@@ -161,36 +149,17 @@ async function seed(
       personaSections: JSON.stringify({ persona: "We bake sourdough at dawn and sell out by noon." }),
     },
   });
-  await prisma.source.createMany({
-    data: [
-      {
-        userId,
-        type: "text",
-        kind: servicesKind,
-        title: servicesTitle,
-        status: "scanned",
-        rawText: formatServiceCatalog([
-          { name: "Wedding cakes", description: "Three tiers, from $40 per tier." },
-          { name: "Bread subscription", description: "A loaf a week." },
-        ]),
-      },
-      {
-        userId,
-        type: "link",
-        kind: "article",
-        url: "https://proof.test/story",
-        title: "Our story",
-        summary: "Founded in 2019 by Pat Proof in a garage.",
-        rawText: "RAW TEXT MARKER should not be published",
-        status: "scanned",
-      },
-    ],
-  });
-  await prisma.menuItem.createMany({
-    data: [
-      { userId, key: "sourdough-loaf", name: "Sourdough loaf", category: "Bread", order: 0, data: JSON.stringify({ price: "$9", priceType: "fixed", shortDescription: "Country loaf" }) },
-      { userId, key: "wedding-cake", name: "Wedding cake", category: "Cakes", order: 1, data: JSON.stringify({ price: "$40", priceType: "starting_at" }) },
-    ],
+  await prisma.source.create({
+    data: {
+      userId,
+      type: "link",
+      kind: "article",
+      url: "https://proof.test/story",
+      title: "Our story",
+      summary: "Founded in 2019 by Pat Proof in a garage.",
+      rawText: "RAW TEXT MARKER should not be published",
+      status: "scanned",
+    },
   });
   await prisma.project.create({
     data: { userId, name: "Bread Club", blurb: "A weekly bread box.", githubUrl: "https://github.com/proof/bread", liveUrl: "https://bread.proof.test" },
@@ -203,12 +172,6 @@ async function seed(
     ],
   });
   await prisma.agentDirective.create({ data: { userId, kind: "rule", text: "Always upsell the cake." } });
-  await prisma.appointmentField.createMany({
-    data: [
-      { userId, key: "name", label: "Your name", type: "short_text", required: true, order: 0 },
-      { userId, key: "date", label: "Preferred date", type: "short_text", required: false, order: 1 },
-    ],
-  });
 }
 
 main().catch((e) => {

@@ -1,6 +1,6 @@
 # prisma — schema and migrations
 
-Postgres only. `schema.prisma` has 32 models, every tenant-scoped one carrying
+Postgres only. `schema.prisma` has 24 models, every tenant-scoped one carrying
 `userId` with `onDelete: Cascade` from `User`.
 
 ## Rules
@@ -9,12 +9,13 @@ Postgres only. `schema.prisma` has 32 models, every tenant-scoped one carrying
   `scripts/migrate.mjs` runs `prisma migrate deploy` on every start (it marks the
   baseline `0_init` applied on a pre-migrations database).
 - Additive first: new columns take a default so existing rows keep working; a drop is
-  its own later migration after a backup.
+  its own later migration after a backup (`20260926180000_drop_booking` is the shape:
+  `DROP TABLE IF EXISTS`, one table per line, the column drop last).
 - A new per-user model must be added to `lib/accountWipe.ts` (or cascade from one that
   is); `tests/lib/accountWipe.test.ts` fails otherwise.
-- JSON-in-text columns (`config`, `customer`, `pricing`, `answers`, …) are read through
-  their sanitizers in `lib/`, never `JSON.parse` at the call site.
-- No SQLite: the migrations are Postgres SQL (`@db.Text`, advisory locks).
+- JSON-in-text columns (`sampleBlock`, `tags`, `social_links`, `personaSections`, …) are
+  read through their sanitizers in `lib/`, never `JSON.parse` at the call site.
+- No SQLite: the migrations are Postgres SQL (`@db.Text`).
 
 ## Local database
 `DATABASE_URL` in `.env`; `npx prisma migrate deploy` brings a fresh database up;

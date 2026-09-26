@@ -33,7 +33,7 @@ export default async function Dashboard({
   const query = await searchParams;
   const one = (k: string) => (Array.isArray(query[k]) ? query[k][0] : query[k]);
 
-  const set = await buildAdminPanels(user, { error: one("error"), gmail: one("gmail"), booking: one("booking") });
+  const set = await buildAdminPanels(user, { error: one("error"), gmail: one("gmail") });
   const { flat, labels, contentKeys, hiddenSources } = set;
 
   // ?tab= deep links resolve against the live source keys so custom tabs

@@ -34,7 +34,7 @@ type Msg = { role: "user" | "assistant"; content: string; items: ChatItem[] };
 const STARTERS = [
   "What are visitors asking?",
   "Show presets to review",
-  "Show my appointments",
+  "Show my goals",
   "Show my cards",
 ];
 

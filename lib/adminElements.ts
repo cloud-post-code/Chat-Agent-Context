@@ -1,16 +1,13 @@
-import { formatMoney, type LocationRow, type ServiceRow, type StaffRow } from "@/lib/booking/types";
-import type { AppointmentDetail } from "@/lib/booking/store";
-import type { OrderRow } from "@/lib/orders";
 import type { DirectiveRow } from "@/lib/directives";
 
 /**
  * The element registry behind the copilot's show_elements tool: each list
- * panel of the dashboard is split into addressable elements (one booking, one
- * order, one goal, …) that carry flat, filterable facets. Everything here is
+ * panel of the dashboard is split into addressable elements (one goal, one
+ * rule, one preset) that carry flat, filterable facets. Everything here is
  * pure — the brain filters the index it loads, the panel side renders one node
  * per element from the same rows, and both agree because both call the same
- * builders on the same rows. Imports only type-level or pure modules so
- * offline proofs can exercise it.
+ * builders on the same rows. Imports only type-level modules so offline
+ * proofs can exercise it.
  */
 
 export type FacetValue = string | number;
@@ -38,16 +35,11 @@ export type ElementSelection = {
   limit?: number;
 };
 
-/** The panels that have elements this pass, with the facets each carries. */
+/** The panels that have elements, with the facets each carries. */
 export const ELEMENT_PANELS: Readonly<Record<string, readonly string[]>> = {
-  appointments: ["date", "weekday", "time", "status", "service", "provider", "location", "customer", "email", "phone", "price", "duration"],
-  orders: ["date", "weekday", "time", "customer", "email", "phone", "fulfillment", "status", "subtotal", "items", "for_date", "for_weekday"],
   goals: ["text", "live"],
   rules: ["text", "live"],
   answers: ["question", "label", "live", "served", "draft", "answered"],
-  "booking-services": ["name", "category", "price", "duration", "enabled", "pricing"],
-  "booking-providers": ["name", "role", "enabled", "specialties", "languages"],
-  "booking-locations": ["name", "kind", "address", "enabled", "timezone"],
 };
 
 /** What the element panels are built from — the rows the dashboard already loads. */
@@ -65,179 +57,16 @@ export type CannedLike = {
 };
 
 export type ElementData = {
-  /** IANA zone the business keeps time in; dates and weekdays resolve in it. */
-  timeZone: string;
-  currency: string;
-  appointments: AppointmentDetail[];
-  orders: OrderRow[];
   goals: DirectiveRow[];
   rules: DirectiveRow[];
   canned: CannedLike[];
-  services: ServiceRow[];
-  staff: StaffRow[];
-  locations: LocationRow[];
 };
-
-// ── Dates ───────────────────────────────────────────────────────────────────
-
-function inZone(d: Date, timeZone: string, opts: Intl.DateTimeFormatOptions, locale: string): string {
-  try {
-    return d.toLocaleDateString(locale, { ...opts, timeZone });
-  } catch {
-    return d.toLocaleDateString(locale, opts);
-  }
-}
-
-/** `date` YYYY-MM-DD, `weekday` lowercase English, `time` HH:MM — all in the zone. */
-export function dateFacets(when: string | Date, timeZone: string): { date: string; weekday: string; time: string } {
-  const d = new Date(when);
-  if (Number.isNaN(d.getTime())) return { date: "", weekday: "", time: "" };
-  const date = inZone(d, timeZone, { year: "numeric", month: "2-digit", day: "2-digit" }, "en-CA");
-  const weekday = inZone(d, timeZone, { weekday: "long" }, "en-US").toLowerCase();
-  let time: string;
-  try {
-    time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone });
-  } catch {
-    time = d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false });
-  }
-  return { date, weekday, time };
-}
-
-/** The TODAY line the copilot reasons about relative days from. */
-export function todayLine(now: Date, timeZone: string): string {
-  const { date, weekday } = dateFacets(now, timeZone);
-  return `TODAY is ${date} (${weekday}) in the ${timeZone} timezone.`;
-}
-
-/** The server's own zone, when the business has not set one. */
-export function fallbackTimeZone(): string {
-  try {
-    return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
-  } catch {
-    return "UTC";
-  }
-}
-
-// The panel row shapes, owned here so lib never imports from app.
-export type CalendarAppointment = {
-  id: string;
-  /** ISO instant; rendered in the admin's local timezone. */
-  startsAt: string;
-  status: string;
-  serviceName: string;
-  staffName: string;
-  locationName: string;
-  customerName: string;
-  customerEmail: string;
-  customerPhone: string;
-  durationMinutes: number;
-  /** Formatted total ("$45", "From $45", "Quote"), or "" when unpriced. */
-  priceDisplay: string;
-  answers: Record<string, string>;
-};
-
-/** An order placed from the cart card, as the panel lists it. */
-export type CalendarOrder = {
-  id: string;
-  createdAt: string;
-  startsAt: string | null;
-  lines: { name: string; quantity: number; choices: string; note: string; lineTotal: string }[];
-  contact: { name: string; phone: string; email: string };
-  fulfillment: string;
-  notes: string;
-  subtotal: string;
-};
-
-// ── Row → panel shapes (shared with panels.tsx so both sides agree) ─────────
-
-export function toCalendarAppointment(a: AppointmentDetail): CalendarAppointment {
-  return {
-    id: a.id,
-    startsAt: a.startsAt,
-    status: a.status,
-    serviceName: a.serviceName,
-    staffName: a.staffName,
-    locationName: a.locationName,
-    customerName: [a.customer.firstName, a.customer.lastName].filter(Boolean).join(" "),
-    customerEmail: a.customer.email ?? "",
-    customerPhone: a.customer.phone ?? "",
-    durationMinutes: a.durationMinutes,
-    priceDisplay: a.pricing?.total !== undefined ? formatMoney(a.pricing.total, a.pricing.currency) : "",
-    answers: a.answers,
-  };
-}
-
-export function toCalendarOrder(o: OrderRow): CalendarOrder {
-  return {
-    id: o.id,
-    createdAt: o.createdAt.toISOString(),
-    startsAt: o.startsAt ? o.startsAt.toISOString() : null,
-    lines: o.lines.map((l) => ({
-      name: l.name,
-      quantity: l.quantity,
-      choices: l.choices.flatMap((c) => c.picks).join(", "),
-      note: l.note,
-      lineTotal: l.lineTotal,
-    })),
-    contact: o.contact,
-    fulfillment: o.fulfillment,
-    notes: o.notes,
-    subtotal: o.subtotal,
-  };
-}
 
 // ── Builders ────────────────────────────────────────────────────────────────
 
 const low = (s: string) => s.trim().toLowerCase();
 const yn = (b: boolean) => (b ? "yes" : "no");
 const clip = (s: string, n = 80) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
-/** "$45" / "From $45" / "1,200.50" → 45 / 45 / 1200.5; NaN when there is no number. */
-const money = (s: string) => Number(s.replace(/[^0-9.]/g, "")) || NaN;
-
-export function appointmentElement(a: AppointmentDetail, timeZone: string): ElementMeta {
-  const c = toCalendarAppointment(a);
-  const { date, weekday, time } = dateFacets(a.startsAt, timeZone);
-  const facets: Record<string, FacetValue> = {
-    date,
-    weekday,
-    time,
-    status: low(a.status),
-    service: low(a.serviceName),
-    provider: low(a.staffName),
-    location: low(a.locationName),
-    customer: low(c.customerName),
-    email: low(c.customerEmail),
-    phone: low(c.customerPhone),
-    duration: a.durationMinutes,
-  };
-  if (a.pricing && typeof a.pricing.total === "number") facets.price = a.pricing.total;
-  const label = [`${date} ${time}`, c.customerName, a.serviceName].filter(Boolean).join(" · ");
-  return { id: a.id, panel: "appointments", label, facets };
-}
-
-export function orderElement(o: OrderRow, timeZone: string): ElementMeta {
-  const placed = dateFacets(o.createdAt, timeZone);
-  const facets: Record<string, FacetValue> = {
-    date: placed.date,
-    weekday: placed.weekday,
-    time: placed.time,
-    customer: low(o.contact.name),
-    email: low(o.contact.email),
-    phone: low(o.contact.phone),
-    fulfillment: low(o.fulfillment),
-    status: low(o.status),
-    items: low(o.lines.map((l) => l.name).join(", ")),
-  };
-  const sub = money(o.subtotal);
-  if (!Number.isNaN(sub)) facets.subtotal = sub;
-  if (o.startsAt) {
-    const f = dateFacets(o.startsAt, timeZone);
-    facets.for_date = f.date;
-    facets.for_weekday = f.weekday;
-  }
-  const label = [placed.date, o.contact.name || "Order", o.subtotal].filter(Boolean).join(" · ");
-  return { id: o.id, panel: "orders", label, facets };
-}
 
 export function directiveElement(r: DirectiveRow, panel: "goals" | "rules"): ElementMeta {
   return { id: r.id, panel, label: clip(r.text), facets: { text: low(r.text), live: yn(r.enabled) } };
@@ -259,60 +88,12 @@ export function cannedElement(r: CannedLike): ElementMeta {
   };
 }
 
-export function serviceElement(s: ServiceRow, currency: string): ElementMeta {
-  const facets: Record<string, FacetValue> = {
-    name: low(s.name),
-    category: low(s.category),
-    duration: s.durationMinutes,
-    enabled: yn(s.enabled),
-    pricing: s.pricing.kind,
-  };
-  if (typeof s.pricing.amount === "number") facets.price = s.pricing.amount;
-  const price = typeof s.pricing.amount === "number" ? formatMoney(s.pricing.amount, currency) : s.pricing.kind;
-  return { id: s.id, panel: "booking-services", label: `${s.name} · ${price}`, facets };
-}
-
-export function staffElement(s: StaffRow): ElementMeta {
-  return {
-    id: s.id,
-    panel: "booking-providers",
-    label: [s.name, s.role].filter(Boolean).join(" · "),
-    facets: {
-      name: low(s.name),
-      role: low(s.role),
-      enabled: yn(s.enabled),
-      specialties: low(s.specialties.join(", ")),
-      languages: low(s.languages.join(", ")),
-    },
-  };
-}
-
-export function locationElement(l: LocationRow): ElementMeta {
-  return {
-    id: l.id,
-    panel: "booking-locations",
-    label: [l.name, l.kind].filter(Boolean).join(" · "),
-    facets: {
-      name: low(l.name),
-      kind: low(l.kind),
-      address: low(l.address),
-      enabled: yn(l.enabled),
-      timezone: low(l.timezone),
-    },
-  };
-}
-
 /** The whole index for one tenant, panel by panel, in each panel's own row order. */
 export function buildElementIndex(d: ElementData): ElementMeta[] {
   return [
-    ...d.appointments.map((a) => appointmentElement(a, d.timeZone)),
-    ...d.orders.map((o) => orderElement(o, d.timeZone)),
     ...d.goals.map((r) => directiveElement(r, "goals")),
     ...d.rules.map((r) => directiveElement(r, "rules")),
     ...d.canned.map(cannedElement),
-    ...d.services.map((s) => serviceElement(s, d.currency)),
-    ...d.staff.map(staffElement),
-    ...d.locations.map(locationElement),
   ];
 }
 

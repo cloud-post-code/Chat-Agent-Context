@@ -83,15 +83,6 @@ function fakeReply(args: CreateArgs): string {
       { name: "Tomas Eide", bio: "Runs the test lab." },
     ] });
   }
-  if (system.startsWith("You read text from a business's website and report (1) the services")) {
-    return JSON.stringify({
-      services: [
-        { name: "Bracket forming", description: "Custom titanium brackets." },
-        { name: "Salt spray testing", description: "Corrosion testing to spec." },
-      ],
-      booking: { takesAppointments: false, requirements: [] },
-    });
-  }
   if (system.startsWith("You distill one page")) {
     // Facts keyed on the page's own text, so every swept page yields distinct
     // chunks and a lost or doubled page changes the comparison below.
@@ -216,7 +207,9 @@ function serve(): Promise<{ server: Server; url: string }> {
 async function provePrimitives() {
   console.log("\nPool primitives");
   const { createLimiter, mapPool, createPacer } = await import("../../../lib/pool");
-  const { modelCall, onboardingConcurrency } = await import("../../../lib/onboarding/pool");
+  const { onboardingConcurrency } = await import("../../../lib/onboarding/pool");
+  // The model gate moved to lib/claude/retry.ts in the cleanup phases (Phase 7).
+  const { modelCall } = await import("../../../lib/claude/retry");
 
   // Limiter: never over the cap, even when callers arrive as slots free up.
   {
@@ -433,9 +426,8 @@ const STARTS = [
   "Looking for a blog",
   "Checking for customer testimonials",
   "Reading your team and about pages",
-  "Reading your services",
 ];
-const OUTCOMES = [/^Blog: |^No blog found/, /^Testimonials: |testimonials found|third-party widget/, /^Team: |^No team bios/, /^Services: |^No services described/];
+const OUTCOMES = [/^Blog: |^No blog found/, /^Testimonials: |testimonials found|third-party widget/, /^Team: |^No team bios/];
 
 /** Did every category start before ANY category finished? */
 function agentsOverlapped(log: string[]): boolean {
@@ -470,7 +462,7 @@ async function proveJob(siteUrl: string) {
   check("parallel: every category agent starts before any finishes", agentsOverlapped(parallel.log),
     parallel.log.slice(0, 12).join(" | "));
   check("parallel: the feed says agents are running together",
-    parallel.log.some((l) => /^Running 4 extraction agents at once/.test(l)));
+    parallel.log.some((l) => /^Running 3 extraction agents at once/.test(l)));
   const sweepAt = parallel.log.findIndex((l) => l.startsWith("Sweeping the sitemap"));
   const lastOutcome = Math.max(...OUTCOMES.map((re) => parallel.log.findIndex((l) => re.test(l))));
   check("parallel: the sweep waits for the categories it takes leftovers from",
@@ -497,9 +489,8 @@ async function proveJob(siteUrl: string) {
   check("same chunk texts", JSON.stringify(serial.chunkTexts) === JSON.stringify(parallel.chunkTexts));
   check("the sweep fanned out over the extra sheets",
     parallel.sources.filter((s) => s.url.startsWith("/extra/")).length === EXTRA_PAGES);
-  check("testimonials keep their own record beside services",
-    parallel.sources.some((s) => s.url.endsWith("#testimonials")) &&
-    parallel.sources.some((s) => s.title === "Services"));
+  check("testimonials keep their own record",
+    parallel.sources.some((s) => s.url.endsWith("#testimonials")));
 
   // The graph pass: once per source, concurrent writers converging on one row.
   for (const [name, run] of [["serial", serial], ["parallel", parallel]] as const) {

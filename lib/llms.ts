@@ -1,10 +1,6 @@
 import { flat } from "@/lib/util/text";
 import type { User } from "@prisma/client";
 import { prisma, getProfile, getPersonaConfig } from "./db";
-import { listServices, type ServiceCard } from "./cards";
-import { listMenu } from "./menu";
-import { displayPrice, type MenuItemData } from "./menuTypes";
-import { getBookingConfig } from "./appointments";
 import { personaPromptBlock } from "./persona";
 import { parseSocialLinks, type SocialLink } from "./socialLinks";
 import { foundingUser } from "./users";
@@ -18,10 +14,9 @@ import { safeJson } from "./util";
  * nothing without JavaScript. These documents are what they find instead.
  *
  * Everything here is what the chatbot would tell a visitor anyway: profile,
- * persona, services, menu, projects, approved answers, source summaries and
- * the booking questions. Nothing admin-only (directives, corrections,
- * activity, orders, contacts) and nothing invented — an empty section is left
- * out rather than padded.
+ * persona, projects, approved answers and source summaries. Nothing
+ * admin-only (directives, corrections, activity, contacts) and nothing
+ * invented — an empty section is left out rather than padded.
  */
 
 export type LlmsFacts = {
@@ -32,24 +27,19 @@ export type LlmsFacts = {
   brandValues: string[];
   persona: string;
   contact: { address: string; phone: string; email: string; hours: string; social: SocialLink[] };
-  services: ServiceCard[];
-  menu: MenuItemData[];
   projects: { name: string; blurb: string; detail: string; githubUrl: string; liveUrl: string; tags: string[] }[];
   faq: { question: string; answer: string }[];
   sources: { title: string; url: string; summary: string }[];
-  booking: { enabled: boolean; questions: { label: string; required: boolean }[] };
   isFounder: boolean;
 };
 
 /** Every public fact about one tenant, read once. */
 export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
   const userId = user.id;
-  const [profile, persona, services, menu, projects, canned, sources, booking, founder] =
+  const [profile, persona, projects, canned, sources, founder] =
     await Promise.all([
       getProfile(userId),
       getPersonaConfig(userId),
-      listServices(userId),
-      listMenu(userId),
       prisma.project.findMany({ where: { userId }, orderBy: { order: "asc" } }),
       prisma.cannedAnswer.findMany({
         where: { userId, enabled: true, NOT: { answer: "" } },
@@ -64,7 +54,6 @@ export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
         take: 60,
         select: { title: true, url: true, filename: true, summary: true },
       }),
-      getBookingConfig(userId),
       foundingUser(),
     ]);
   return {
@@ -81,8 +70,6 @@ export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
       hours: profile.company_hours.trim(),
       social: parseSocialLinks(profile.social_links),
     },
-    services,
-    menu,
     projects: projects.map((p) => ({
       name: p.name,
       blurb: p.blurb,
@@ -97,10 +84,6 @@ export async function gatherLlmsFacts(user: User): Promise<LlmsFacts> {
       url: s.url ?? "",
       summary: (s.summary ?? "").trim(),
     })),
-    booking: {
-      enabled: booking.enabled,
-      questions: booking.fields.map((f) => ({ label: f.label, required: f.required })),
-    },
     isFounder: founder?.id === userId,
   };
 }
@@ -127,7 +110,7 @@ export function renderLlmsIndex(f: LlmsFacts, origin: string): string {
   ].filter(Boolean);
   const sections = [
     `## Read`,
-    `- [Everything about ${f.name}](${page}/llms-full.txt): services, menu, projects, answers to common questions, contact details and hours, in one Markdown file`,
+    `- [Everything about ${f.name}](${page}/llms-full.txt): what it offers, projects, answers to common questions, contact details and hours, in one Markdown file`,
     ``,
     `## Talk to the agent`,
     `- [Chat page](${page}): the conversation, for people`,
@@ -147,12 +130,9 @@ export function renderLlmsFull(f: LlmsFacts, origin: string): string {
   const sections: [string, string][] = [
     ["About", aboutSection(f)],
     ["Contact and hours", contactSection(f)],
-    ["Services", servicesSection(f)],
-    ["Menu", menuSection(f)],
     ["Projects", projectsSection(f)],
     ["Frequently asked questions", faqSection(f)],
     ["Sources", sourcesSection(f)],
-    ["Booking", bookingSection(f)],
     ["How to talk to this agent", talkSection(f, origin)],
   ];
   const body = sections
@@ -183,41 +163,6 @@ function contactSection(f: LlmsFacts): string {
   return lines.filter(Boolean).join("\n");
 }
 
-function servicesSection(f: LlmsFacts): string {
-  return f.services
-    .map((s) => (s.description ? `### ${s.name}\n\n${s.description}` : `### ${s.name}`))
-    .join("\n\n");
-}
-
-function menuSection(f: LlmsFacts): string {
-  // Menu rows fall back to the services catalog; when both would say the same
-  // thing, the Services section already said it.
-  if (!f.menu.length || menuMirrorsServices(f)) return "";
-  const groups = new Map<string, MenuItemData[]>();
-  for (const item of f.menu) {
-    const key = item.category || "Menu";
-    groups.set(key, [...(groups.get(key) ?? []), item]);
-  }
-  return [...groups.entries()]
-    .map(([category, items]) => `### ${category}\n\n${items.map(menuLine).join("\n")}`)
-    .join("\n\n");
-}
-
-function menuMirrorsServices(f: LlmsFacts): boolean {
-  if (f.menu.length !== f.services.length) return false;
-  return f.menu.every((m, i) => m.name === f.services[i]?.name);
-}
-
-function menuLine(item: MenuItemData): string {
-  const price = displayPrice(item);
-  const facts = [
-    item.shortDescription,
-    item.dietaryTags.length ? `dietary: ${item.dietaryTags.join(", ")}` : "",
-    item.availability === "unavailable" ? "currently unavailable" : "",
-  ].filter(Boolean);
-  return `- ${item.name}${price ? ` — ${price}` : ""}${facts.length ? `. ${facts.join("; ")}` : ""}`;
-}
-
 function projectsSection(f: LlmsFacts): string {
   return f.projects
     .map((p) => {
@@ -240,12 +185,6 @@ function sourcesSection(f: LlmsFacts): string {
     .filter((s) => s.summary || s.url)
     .map((s) => [`### ${s.title}`, s.url ? `${s.url}` : "", s.summary].filter(Boolean).join("\n\n"))
     .join("\n\n");
-}
-
-function bookingSection(f: LlmsFacts): string {
-  if (!f.booking.enabled) return "";
-  const asks = f.booking.questions.map((q) => `- ${q.label}${q.required ? " (required)" : ""}`);
-  return `Appointments can be booked in the chat. The booking form asks:\n\n${asks.join("\n")}`;
 }
 
 function talkSection(f: LlmsFacts, origin: string): string {

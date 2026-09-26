@@ -35,9 +35,7 @@ const KEEP = new Set(["user", "profile", "gmailAuth"]);
 const PER_USER = [
   "source", "chunk", "entity", "mergeDismissal", "photo", "project", "chatSession",
   "cannedAnswer", "agentDirective", "uiCard", "itemClassification", "ingestionSource",
-  "addressBookEntry", "contact", "a2ATask", "appointmentField", "appointment", "service",
-  "staffMember", "bookingLocation", "bookingSettings", "menuItem", "order", "personaConfig",
-  "themeConfig",
+  "addressBookEntry", "contact", "a2ATask", "personaConfig", "themeConfig",
 ] as const;
 
 async function counts(userId: string): Promise<Record<string, number>> {
@@ -65,9 +63,9 @@ async function seed(tag: string, dir: string) {
   });
   const u = user.id;
   const f = {
-    photo: await file(dir, "jpg"), service: await file(dir), staff: await file(dir),
+    photo: await file(dir, "jpg"),
     logo: await file(dir), project: await file(dir), card: await file(dir),
-    menu: await file(dir), chat: await file(dir), pdf: await file(dir, "pdf"),
+    chat: await file(dir), pdf: await file(dir, "pdf"),
   };
   const src = await prisma.source.create({ data: { userId: u } });
   await prisma.chunk.create({ data: { userId: u, sourceId: src.id, text: "t" } });
@@ -99,20 +97,10 @@ async function seed(tag: string, dir: string) {
   await prisma.addressBookEntry.create({ data: { userId: u, name: "n" } });
   await prisma.contact.create({ data: { userId: u, name: "n", email: "e@x", message: "m" } });
   await prisma.a2ATask.create({ data: { id: `task-${tag}-${Date.now()}`, userId: u, contextId: "c" } });
-  await prisma.appointmentField.create({ data: { userId: u, key: "name", label: "Name" } });
-  await prisma.appointment.create({ data: { userId: u, startsAt: new Date() } });
-  await prisma.service.create({ data: { userId: u, name: "Cut", imageFilename: f.service } });
-  await prisma.staffMember.create({ data: { userId: u, name: "Sam", photoFilename: f.staff } });
-  await prisma.bookingLocation.create({ data: { userId: u, name: "Shop" } });
-  await prisma.bookingSettings.create({ data: { userId: u, config: "{}" } });
-  await prisma.menuItem.create({
-    data: { userId: u, key: "m", name: "M", data: JSON.stringify({ image: `/api/uploads/${f.menu}` }) },
-  });
-  await prisma.order.create({ data: { userId: u } });
   await prisma.personaConfig.create({ data: { userId: u, company_logo: `/api/uploads/${f.logo}` } });
   await prisma.themeConfig.create({ data: { userId: u } });
   await prisma.profile.create({
-    data: { userId: u, company_name: "Co", owner_name: "O", bookingEnabled: false },
+    data: { userId: u, company_name: "Co", owner_name: "O" },
   });
   return { user, files: Object.values(f) };
 }
@@ -133,17 +121,12 @@ async function main() {
     const leftover = Object.entries(after).filter(([, n]) => n > 0).map(([k, n]) => `${k}=${n}`);
     check("every per-user table is empty for the wiped account", leftover.length === 0,
       leftover.join(", ") || "all zero");
-    for (const m of ["appointment", "appointmentField", "service", "staffMember",
-      "bookingLocation", "bookingSettings", "menuItem", "order"]) {
-      check(`booking/menu: ${m} cleared`, after[m] === 0, String(after[m]));
-    }
 
     const user = await prisma.user.findUnique({ where: { id: a.user.id } });
     check("user row survives", !!user && user.email === a.user.email);
     check("onboardedAt cleared", user?.onboardedAt === null);
     const profile = await prisma.profile.findUnique({ where: { userId: a.user.id } });
     check("profile blanked", profile?.company_name === "" && profile?.owner_name === "");
-    check("bookingEnabled back to default", profile?.bookingEnabled === true);
 
     const onDisk = new Set(await readdir(dir));
     const stale = a.files.filter((n) => onDisk.has(n));

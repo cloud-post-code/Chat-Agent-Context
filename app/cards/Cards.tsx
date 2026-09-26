@@ -1,57 +1,23 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { useChatThread, type ChatThread } from "@/app/ChatThread";
-import type { CardStep, FlowField } from "@/lib/booking/flowSteps";
-import type { BookingFlow } from "@/lib/booking/types";
-import { toFlowFields } from "./booking/BookingFlowCard";
-import { BookingSessionCard } from "./booking/BookingSessionCard";
-import { BookingStepCard } from "./booking/BookingStepCard";
-import { BookingThread } from "./booking/BookingThread";
-import { Confirmed } from "./booking/Confirmed";
-import { useBookingSession, useBookingSessions } from "./booking/session";
-import { startOver, startSession } from "./booking/thread";
-import type { BookingField } from "./BookingQuestion";
-
-import { MenuCard, type MenuBlockView } from "./MenuCard";
-import { CartCard } from "./CartCard";
-import type { CartCheckout } from "@/lib/menu";
+import { useRef, useState } from "react";
 import { SocialCard } from "./SocialCard";
 import { HtmlFrame } from "./HtmlFrame";
-import type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "@/lib/cards.types";
-export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem };
-import { card, cf, linkBtn, liveBtn, textBtn, clamp2 } from "./styles";
+import type { ProjectCard, PhotoCard, CustomElement, SocialItem } from "@/lib/cards.types";
+export type { ProjectCard, PhotoCard, CustomElement, SocialItem };
+import { card, cf, linkBtn, liveBtn } from "./styles";
 
-export type { BookingField } from "./BookingQuestion";
 // The card idiom lives in styles.ts; re-exported so existing imports still work.
 export { card, cf } from "./styles";
 
 /** Shared A2UI block types (mirrors lib/cards.ts). */
-export type ServiceBooking = { fields: BookingField[]; flow?: BookingFlow | null };
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
   | { type: "project"; item: ProjectCard | null }
   | { type: "gallery"; layout: "carousel" | "filmstrip"; title?: string; items: PhotoCard[] }
   | { type: "contact" }
-  | {
-      type: "services";
-      title?: string;
-      focusIds?: string[];
-      items: ServiceCard[];
-      booking: ServiceBooking | null;
-    }
   | { type: "custom"; title?: string; elements: CustomElement[] }
   | { type: "html"; html: string; height?: number }
-  // The server's booking block is the START of a booking conversation: the
-  // chat gives it a sessionId the moment it arrives (or on load, for older
-  // chats), then lays the steps out below it one card at a time.
-  | { type: "booking"; fields: BookingField[]; flow?: BookingFlow | null; sessionId?: string; preselectServiceId?: string | null }
-  // Client-side kinds the server never emits: one step of a booking session,
-  // and the confirmation once it is booked.
-  | { type: "booking_step"; sessionId: string; step: { kind: CardStep["kind"]; screen?: number } }
-  | { type: "booking_confirmed"; sessionId: string }
-  | ({ type: "menu" } & MenuBlockView)
-  | { type: "cart"; checkout: CartCheckout }
   | { type: "social"; title?: string; items: SocialItem[] };
 
 export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
@@ -80,37 +46,8 @@ export function Cards({ block, slug }: { block: UiBlock; slug: string }) {
     if (block.items.length === 0) return <Empty>No photos yet.</Empty>;
     return <GalleryCard layout={block.layout} title={block.title} items={block.items} />;
   }
-  if (block.type === "services") {
-    if (!Array.isArray(block.items) || block.items.length === 0) {
-      return <Empty>No services listed yet.</Empty>;
-    }
-    return (
-      <ServicesCard
-        slug={slug}
-        title={block.title}
-        focusIds={block.focusIds}
-        items={block.items}
-        booking={block.booking}
-      />
-    );
-  }
   if (block.type === "contact") {
     return <ContactForm slug={slug} />;
-  }
-  if (block.type === "booking") {
-    return <BookingSessionCard block={block} slug={slug} />;
-  }
-  if (block.type === "booking_step") {
-    return <BookingStepCard block={block} slug={slug} />;
-  }
-  if (block.type === "booking_confirmed") {
-    return <BookingConfirmedCard sessionId={block.sessionId} />;
-  }
-  if (block.type === "menu") {
-    return <MenuCard block={block} slug={slug} />;
-  }
-  if (block.type === "cart") {
-    return <CartCard checkout={block.checkout} slug={slug} />;
   }
   if (block.type === "custom") {
     return <CustomCard title={block.title} elements={block.elements} />;
@@ -265,277 +202,6 @@ function CustomEl({ el }: { el: CustomElement }) {
     default:
       return null;
   }
-}
-
-/**
- * The end of a booking conversation: what was booked, read from the session's
- * store, and a way to start again — a fresh session below, this one locked.
- */
-function BookingConfirmedCard({ sessionId }: { sessionId: string }) {
-  const thread = useChatThread();
-  const { sessions } = useBookingSessions();
-  const { store, state } = useBookingSession(sessionId);
-  const { flow, confirmed, selection } = state;
-  if (!flow || !confirmed) return null;
-  return (
-    <div>
-      <Confirmed
-        flow={flow}
-        result={confirmed.result}
-        waitlisted={confirmed.waitlisted}
-        service={flow.services.find((s) => s.id === selection.serviceId) ?? null}
-        provider={flow.staff.find((s) => s.id === selection.staffId) ?? null}
-        location={flow.locations.find((l) => l.id === selection.locationId) ?? null}
-        selection={selection}
-      />
-      {thread && (
-        <button type="button" onClick={() => startOver(thread, sessions, store)} style={{ ...textBtn, marginTop: 8 }}>
-          Start over
-        </button>
-      )}
-    </div>
-  );
-}
-
-/**
- * Book, tapped inside a chat: the booking starts as a conversation below the
- * services card (which stays where it is). Mounted once per tap; the session
- * starts on mount and the thread carries it from there.
- */
-function StartBookingInThread({
-  thread,
-  flow,
-  fields,
-  preselectServiceId,
-}: {
-  thread: ChatThread;
-  flow: BookingFlow;
-  fields: FlowField[];
-  preselectServiceId?: string;
-}) {
-  const { sessions } = useBookingSessions();
-  const started = useRef(false);
-  useEffect(() => {
-    if (started.current) return;
-    started.current = true;
-    startSession(thread, sessions, { flow, fields, preselectServiceId });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return null;
-}
-
-/** Past this many the list folds: a chat bubble is not a menu page. */
-const SERVICES_SHOWN = 5;
-/** Longer than this and a description clamps to two lines behind "More". */
-const SERVICE_BLURB = 140;
-
-/**
- * The tenant's services, with booking one tap away. In a chat, Book starts
- * the booking conversation below — the picked service's line and the next
- * step's card append at the bottom, and this card stays put. Outside a chat
- * (a server-rendered page), Book swaps the list for a booking thread of its
- * own, opened with that service already answered, so the visitor never
- * retypes what they just tapped. The block can come from a stored sample,
- * which is admin-typed JSON: a booking config that isn't a field list means
- * "no Book button", never a crash.
- */
-function ServicesCard({
-  slug,
-  title,
-  focusIds,
-  items,
-  booking,
-}: {
-  slug: string;
-  title?: string;
-  focusIds?: string[];
-  items: ServiceCard[];
-  booking: ServiceBooking | null;
-}) {
-  const thread = useChatThread();
-  const [all, setAll] = useState(false);
-  const [picked, setPicked] = useState<ServiceCard | null>(null);
-  // Every Book tap in a chat is a session of its own: the counter remounts the starter.
-  const [started, setStarted] = useState<{ service: ServiceCard; n: number } | null>(null);
-  const fields =
-    booking && Array.isArray(booking.fields) && booking.fields.length > 0 ? booking.fields : null;
-  const flow = booking?.flow ?? null;
-  const canBook = !!(fields || flow);
-
-  function book(s: ServiceCard) {
-    if (thread && flow) {
-      setStarted((prev) => ({ service: s, n: (prev?.n ?? 0) + 1 }));
-      return;
-    }
-    setPicked(s);
-  }
-
-  if (picked && canBook) {
-    const flowService = flow?.services.find((s) => s.id === picked.id) ?? null;
-    return (
-      <div>
-        <p style={{ fontSize: 13, color: "var(--on-bg-soft)", margin: "0 0 10px" }}>
-          Booking <strong>{picked.name}</strong>{" "}
-          <button onClick={() => setPicked(null)} style={textBtn}>
-            Change
-          </button>
-        </p>
-        <BookingThread key={picked.id} slug={slug} fields={fields ?? []} flow={flow} preselectServiceId={flowService?.id} />
-      </div>
-    );
-  }
-
-  const focusSet = new Set(focusIds ?? []);
-  const hasFocus = focusSet.size > 0;
-  const focusItems = hasFocus ? items.filter((s) => focusSet.has(s?.id)) : [];
-  const restItems = hasFocus ? items.filter((s) => !focusSet.has(s?.id)) : items;
-  // A focused card, or one small enough to fit, never folds behind "Show all".
-  const noFold = hasFocus || items.length <= SERVICES_SHOWN;
-  const shownRest = noFold ? restItems : all ? restItems : restItems.slice(0, SERVICES_SHOWN);
-  const bookHandler = (s: ServiceCard) => (canBook ? () => book(s) : undefined);
-
-  return (
-    <div data-fill="bg-soft" style={{ ...card, maxWidth: 480 }}>
-      {started && thread && flow && (
-        <StartBookingInThread
-          key={started.n}
-          thread={thread}
-          flow={flow}
-          fields={toFlowFields(fields ?? [])}
-          preselectServiceId={flow.services.find((s) => s.id === started.service.id)?.id}
-        />
-      )}
-      <strong style={{ fontSize: 15, fontFamily: "var(--font-heading)" }}>{title ?? "Services"}</strong>
-      {canBook && (
-        <p style={{ color: "var(--on-bg-soft)", fontStyle: "italic", fontSize: 13, margin: "6px 0 4px" }}>
-          Tap Book on any service to pick a time.
-        </p>
-      )}
-      {hasFocus && (
-        <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0 }}>
-          {focusItems.map((s, i) => (
-            <ServiceRow key={s?.id ?? `focus-${i}`} service={s} first={i === 0} onBook={bookHandler(s)} />
-          ))}
-        </ul>
-      )}
-      {hasFocus && restItems.length > 0 && (
-        <span
-          style={{
-            display: "block",
-            fontSize: 12,
-            color: "var(--on-bg-soft)",
-            opacity: 0.75,
-            margin: "12px 0 2px",
-          }}
-        >
-          Similar
-        </span>
-      )}
-      <ul style={{ listStyle: "none", margin: hasFocus ? 0 : "8px 0 0", padding: 0 }}>
-        {shownRest.map((s, i) => (
-          <ServiceRow key={s?.id ?? i} service={s} first={i === 0 && !hasFocus} onBook={bookHandler(s)} />
-        ))}
-      </ul>
-      {!noFold && restItems.length > SERVICES_SHOWN && (
-        <button
-          onClick={() => setAll((v) => !v)}
-          aria-expanded={all}
-          style={{ ...linkBtn, cursor: "pointer", marginTop: 10 }}
-        >
-          {all ? "Show fewer ▴" : `Show all ${restItems.length} ▾`}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ServiceRow({
-  service,
-  first,
-  onBook,
-}: {
-  service: ServiceCard;
-  first: boolean;
-  onBook?: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  if (!service || typeof service.name !== "string" || !service.name) return null;
-  const blurb = typeof service.description === "string" ? service.description : "";
-  const long = blurb.length > SERVICE_BLURB;
-  return (
-    <li
-      style={{
-        display: "flex",
-        gap: 12,
-        alignItems: "flex-start",
-        padding: "10px 0",
-        borderTop: first ? "none" : "1px solid var(--border)",
-      }}
-    >
-      <div style={{ width: 56, height: 56, flex: "0 0 auto", borderRadius: "var(--radius-sm)", overflow: "hidden", background: "var(--bg)" }}>
-        {service.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img src={service.imageUrl} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        ) : (
-          <div
-            aria-hidden
-            data-testid="placeholder-image"
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: "linear-gradient(135deg, var(--primary), var(--bg-soft))",
-              color: "var(--on-primary)",
-              fontSize: 20,
-              fontWeight: 700,
-              fontFamily: "var(--font-heading)",
-            }}
-          >
-            {service.name[0]?.toUpperCase() ?? "?"}
-          </div>
-        )}
-      </div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 14, fontWeight: 600, fontFamily: "var(--font-heading)" }}>
-          {service.name}
-        </div>
-        {(service.priceLabel || service.duration) && (
-          <div style={{ fontSize: 12, color: "var(--on-bg-soft)", marginTop: 1 }}>
-            {[service.priceLabel, service.duration].filter(Boolean).join(" · ")}
-          </div>
-        )}
-        {blurb && (
-          <p
-            style={{
-              fontSize: 13,
-              color: "var(--on-bg-soft)",
-              lineHeight: 1.5,
-              margin: "3px 0 0",
-              ...(long && !open ? clamp2 : {}),
-            }}
-          >
-            {blurb}
-          </p>
-        )}
-        {long && (
-          <button onClick={() => setOpen((v) => !v)} aria-expanded={open} style={{ ...textBtn, marginTop: 3 }}>
-            {open ? "Less" : "More"}
-          </button>
-        )}
-      </div>
-      {onBook && (
-        <button
-          onClick={onBook}
-          aria-label={`Book ${service.name}`}
-          style={{ ...linkBtn, ...liveBtn, cursor: "pointer", flex: "0 0 auto" }}
-        >
-          Book
-        </button>
-      )}
-    </li>
-  );
 }
 
 function ContactForm({ slug }: { slug: string }) {
@@ -859,11 +525,6 @@ function Empty({ children }: { children: React.ReactNode }) {
   );
 }
 
-const chipRow: React.CSSProperties = {
-  display: "flex",
-  gap: 6,
-  flexWrap: "wrap",
-};
 const grid: React.CSSProperties = {
   display: "grid",
   gap: 12,

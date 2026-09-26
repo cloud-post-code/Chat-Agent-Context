@@ -249,11 +249,10 @@ export function filingSeconds(
 
 /** Count the filing work with the same queries the pass itself runs. */
 export async function estimateFilingWork(userId: string): Promise<FilingWork> {
-  const [projects, photos, approved, appointments, sources, entities, edges] = await Promise.all([
+  const [projects, photos, approved, sources, entities, edges] = await Promise.all([
     prisma.project.count({ where: { userId } }),
     prisma.photo.count({ where: { userId } }),
     prisma.chatMessage.count({ where: { role: "assistant", rating: "up", session: { userId } } }),
-    prisma.appointment.count({ where: { userId } }),
     prisma.source.count({ where: { userId, status: "scanned", chunks: { some: {} } } }),
     prisma.entity.findMany({
       where: { userId },
@@ -269,5 +268,5 @@ export async function estimateFilingWork(userId: string): Promise<FilingWork> {
     edges,
   ).length || (sources > 0 ? MAX_CLUSTERS : 0);
   // Profile and persona are always stepped through, whether or not they are filled.
-  return { origins: 2 + projects + photos + approved + appointments, sources, clusters };
+  return { origins: 2 + projects + photos + approved, sources, clusters };
 }

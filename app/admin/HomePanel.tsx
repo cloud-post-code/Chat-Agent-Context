@@ -21,7 +21,7 @@ export function HomePanel({
         <SectionTitle>Needs your attention</SectionTitle>
         {attention.length === 0 ? (
           <p style={{ color: "var(--on-surface)", fontStyle: "italic", fontSize: 14 }}>
-            All clear. New chats, bookings and orders will show up here.
+            All clear. New chats will show up here.
           </p>
         ) : (
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>

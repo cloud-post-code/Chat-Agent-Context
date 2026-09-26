@@ -48,8 +48,8 @@ export async function saveProfile(formData: FormData) {
  *
  * "Wipe" is a full content reset, not just the profile — see
  * lib/accountWipe.ts for exactly what goes (everything onboarding or the
- * dashboard populated, including the booking domain, menu, orders and the
- * uploaded files on the volume) and what stays (the login and GmailAuth).
+ * dashboard populated, including the uploaded files on the volume) and what
+ * stays (the login and GmailAuth).
  */
 export async function restartOnboarding() {
   const user = await requireUser();

@@ -1,8 +1,6 @@
 import { str } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
-import { getBookingConfig } from "@/lib/appointments";
-import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/lib/cards";
-import { listMenu, menuBlock } from "@/lib/menu";
+import { allProjectsBlock, galleryBlock } from "@/lib/cards";
 import { draftUiCard, type BuilderDeps, type CardDraft } from "@/lib/cardBuilder";
 import { writeUiCard } from "@/lib/uiCards";
 import { socialBlock } from "@/lib/social";
@@ -18,7 +16,7 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * Nothing is seeded at signup any more: the old starter set was written for a
  * personal portfolio and gave a nail salon an "All projects" card. This stage
  * is where a business's cards come from. Live-data cards (the gallery of the
- * photos onboarding imported, the services it read, the contact form, projects
+ * photos onboarding imported, the contact form, projects
  * when there are any) are written straight into the catalog with the tenant's
  * own data as their preview. Business-specific cards — hours and locations,
  * the team, what to expect — go through the same research-enabled card builder
@@ -38,37 +36,23 @@ The text contains the site's pages, each preceded by "=== <url>", then a BUSINES
 
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" (one photo at a time) or "filmstrip" (thumbnails with a lightbox).
-- "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file.
-- "menu": the business's menu the visitor can order from — items with prices, options and add-ons, each addable to a cart with a quantity, and a checkout. Only when SIGNALS says the business has something orderable without booking a visit. Plan "menu" when the business sells things a visitor picks several of and can buy right there (dishes, drinks, products, treatments with add-ons sold on their own); plan "services" when it is a plain list booked one at a time, or when SIGNALS says nothing is orderable without booking — an appointment-only service list is "services", never "menu", however many extras it has. One of the two is ALWAYS planned when services are on file, for the question about what the business offers — never both.
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
-- "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
 - "social": the business's own social media links as clickable buttons. Only when SIGNALS lists social links on file.
 - "designed": a card designed for this business from its own content. Examples span hours and locations, directions and parking, accessibility, service area, meet-the-team and staff expertise, founder story, credentials and licenses, awards and affiliations, testimonials and reviews, portfolio or before/after, pricing and packages, deposits and fees, policies (cancellation, rescheduling, no-show, refund, guarantee), an FAQ, a what-to-expect-on-your-first-visit walkthrough, insurance and financing accepted, and any other content the site itself spends real space on — plan whichever of these (or something else entirely) the site's actual pages support, and nothing the site is silent on. "brief" tells the card builder what the card shows and what to look up in the business's knowledge base. It never states a number, name or claim you are not copying from the text.
 
 Rules:
 - Every card serves what a prospective customer of THIS business needs, named in the business's own words for what it sells.
-- Never plan a "designed" card that lists services or prices: the "services" card does that from live data, and a designed copy goes stale.
 - Never plan a card for content the site does not have. Never invent a service, price, person or policy.
 - "reason" is the instruction the agent will receive about when to show the card. Write it as guidance starting "When …".
 - "questions" lists the numbers of the starter questions this card should appear with — the card answers that question visually. A question belongs to at most one card; leave the list empty when no starter question fits.
 - At most 5 cards, at most 3 of them "designed". Fewer, sharper cards beat padding. Nothing groundable? Return an empty list.
 
 Respond with ONLY this JSON, no other text:
-{"cards":[{"kind":"gallery|services|menu|contact|projects|booking|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"cards":[{"kind":"gallery|contact|projects|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
-export type CardKind =
-  | "gallery"
-  | "services"
-  | "menu"
-  | "contact"
-  | "projects"
-  | "booking"
-  | "social"
-  | "designed";
-const KINDS: readonly CardKind[] = [
-  "gallery", "services", "menu", "contact", "projects", "booking", "social", "designed",
-];
+export type CardKind = "gallery" | "contact" | "projects" | "social" | "designed";
+const KINDS: readonly CardKind[] = ["gallery", "contact", "projects", "social", "designed"];
 
 export type PlannedCard = {
   kind: CardKind;
@@ -89,14 +73,6 @@ export type CardPlan = { cards: PlannedCard[] };
 export type CardSignals = {
   photos: number;
   projects: number;
-  /** Services on file — what the services card would list. */
-  services: number;
-  /** True when some item on file can be bought without booking an appointment
-   *  for it (a real fulfillment other than "appointment") — the one thing that
-   *  makes a cart/checkout ("menu") make sense instead of a plain, booked-one-
-   *  at-a-time services list. */
-  menuOrderable: boolean;
-  takesAppointments: boolean;
   contactChannels: string[];
   /** Social links on file — what the social card would show. */
   socialLinks: number;
@@ -134,12 +110,6 @@ const PLAN_MAX_TOKENS = 2000;
 function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "gallery") return signals.photos > 0;
   if (kind === "projects") return signals.projects > 0;
-  if (kind === "services") return signals.services > 0;
-  // "menu" additionally needs something a visitor can actually check out
-  // without booking a visit — otherwise a plain appointment-only service list
-  // would get an "add to cart" it was never meant to have.
-  if (kind === "menu") return signals.services > 0 && signals.menuOrderable;
-  if (kind === "booking") return signals.takesAppointments;
   if (kind === "social") return signals.socialLinks > 0;
   // "designed" has no table of its own to gate on — hours, team, policies,
   // an FAQ, all of it — so the one hard floor is that SOME real knowledge was
@@ -203,9 +173,6 @@ export function sanitizeCardPlan(
     });
     if (out.cards.length === MAX_CARDS) break;
   }
-  // The menu lists the same items the services card does, with a cart on top:
-  // a plan naming both would give the model two cards for one question.
-  if (out.cards.some((c) => c.kind === "menu")) out.cards = out.cards.filter((c) => c.kind !== "services");
   return out;
 }
 
@@ -250,12 +217,10 @@ export async function businessBlock(userId: string): Promise<Business> {
 
 /** What the account has, read from the tables the cards would draw from. */
 export async function readSignals(userId: string, categories: string[]): Promise<CardSignals> {
-  const [photos, projects, services, booking, profile, sources] = await Promise.all([
+  const [photos, projects, profile, sources] = await Promise.all([
     // The public gallery shows the owner's curated kinds, not ingested images.
     prisma.photo.count({ where: { userId, NOT: { kind: { startsWith: "ingest:" } } } }),
     prisma.project.count({ where: { userId } }),
-    listServices(userId),
-    getBookingConfig(userId),
     prisma.profile.findUnique({ where: { userId } }),
     prisma.source.count({ where: { userId, status: "scanned" } }),
   ]);
@@ -264,16 +229,9 @@ export async function readSignals(userId: string, categories: string[]): Promise
     profile?.company_phone_number ? "phone" : "",
     profile?.company_address ? "address" : "",
   ].filter(Boolean);
-  // Items synthesized from the services catalog (no MenuItem rows yet) carry
-  // no fulfillment tag, so they read as not-orderable — the safe default when
-  // nothing on file says otherwise.
-  const menu = services.length ? await listMenu(userId) : [];
   return {
     photos,
     projects,
-    services: services.length,
-    menuOrderable: menu.some((m) => m.fulfillment.some((f) => f !== "appointment")),
-    takesAppointments: booking.enabled && booking.fields.length > 0,
     contactChannels,
     socialLinks: parseSocialLinks(profile?.social_links ?? "[]").length,
     categories: categories.filter(Boolean),
@@ -300,9 +258,6 @@ export function contextBlocks(business: Business, signals: CardSignals, question
     `=== BUSINESS\n${business.text}\n\n=== SIGNALS\n` +
     `Gallery photos on file: ${signals.photos}\n` +
     `Projects on file: ${signals.projects}\n` +
-    `Services on file: ${signals.services}\n` +
-    `Something orderable without booking (a real cart checkout makes sense): ${signals.menuOrderable ? "yes" : "no"}\n` +
-    `Takes appointments (customers can book): ${signals.takesAppointments ? "yes" : "no"}\n` +
     `Contact channels listed: ${signals.contactChannels.length ? signals.contactChannels.join(", ") : "none"}\n` +
     `Social links on file: ${signals.socialLinks}\n` +
     `Knowledge this site provided: ${signals.categories.length ? signals.categories.join(", ") : "none"}\n\n` +
@@ -356,19 +311,6 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
   if (card.kind === "projects") {
     return { tool: "show_projects", sample: JSON.stringify(await allProjectsBlock(userId, {})) };
   }
-  if (card.kind === "services") {
-    // The signal gate means services exist; the fallback only covers a record
-    // deleted between the plan and this read.
-    const block = (await servicesBlock(userId)) ?? { type: "services", items: [], booking: null };
-    return { tool: "show_services", sample: JSON.stringify(block) };
-  }
-  if (card.kind === "menu") {
-    const block = (await menuBlock(userId, {})) ?? {
-      type: "menu", title: "Menu", full: true, items: [],
-      checkout: { fulfillment: [], contact: { phone: "off", email: "required" }, currency: "" },
-    };
-    return { tool: "show_menu", sample: JSON.stringify(block) };
-  }
   if (card.kind === "social") {
     const block = (await socialBlock(userId, {})) ?? { type: "social", items: [] };
     return { tool: "show_social", sample: JSON.stringify(block) };
@@ -377,9 +319,8 @@ async function liveSample(userId: string, card: PlannedCard): Promise<{ tool: st
 }
 
 /**
- * Put one planned card in place. Booking writes no row (booking is gated by
- * its own toggle, not the catalog) and only exists to be attached. Never
- * throws: a failed draft or a rejected row is that card's loss alone.
+ * Put one planned card in place. Never throws: a failed draft or a rejected
+ * row is that card's loss alone.
  */
 export async function placeCard(
   userId: string,
@@ -390,9 +331,6 @@ export async function placeCard(
   draft: DraftFn,
   onEvent: (m: string) => void,
 ): Promise<Placed> {
-  if (card.kind === "booking") {
-    return { ok: true, card, tool: "show_booking", key: "", cardInput: null, row: false };
-  }
   try {
     let tool: string;
     let sample: string;
@@ -509,15 +447,12 @@ export async function generateOnboardingCards(
     }
     if (!plan.cards.length) return report;
 
-    // Rows take the plan's order; booking holds no slot. Cards are placed
-    // concurrently — a designed card can take the builder a minute or two,
-    // and the live ones should not wait behind it.
-    let order = 0;
+    // Rows take the plan's order. Cards are placed concurrently — a designed
+    // card can take the builder a minute or two, and the live ones should not
+    // wait behind it.
     const draft = deps.draft ?? draftUiCard;
     const placed = await Promise.all(
-      plan.cards.map((card) =>
-        placeCard(userId, card, card.kind === "booking" ? -1 : order++, business, questions, draft, onEvent),
-      ),
+      plan.cards.map((card, order) => placeCard(userId, card, order, business, questions, draft, onEvent)),
     );
     for (const p of placed) {
       if (!p.ok) report.designedFailed++;

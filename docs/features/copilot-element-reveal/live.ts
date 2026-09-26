@@ -35,7 +35,8 @@ async function main() {
   }
   const { prisma } = await import("../../../lib/db");
   const { adminAnswer } = await import("../../../lib/adminBrain");
-  const { saveBookingSettings, saveService } = await import("../../../lib/booking/store");
+  const { saveDirective } = await import("../../../lib/directives");
+  const { saveCannedAnswer } = await import("../../../lib/canned");
 
   const user = await prisma.user.create({
     data: {
@@ -58,56 +59,41 @@ async function main() {
   };
 
   try {
-    await saveBookingSettings(user.id, { timezone: "America/New_York" });
-    const fri = await prisma.appointment.create({
-      data: {
-        userId: user.id,
-        startsAt: new Date("2026-09-25T17:00:00Z"),
-        endsAt: new Date("2026-09-25T17:30:00Z"),
-        durationMinutes: 30,
-        serviceName: "Rebalance (Fill-In)",
-        customer: JSON.stringify({ firstName: "Christopher", lastName: "Mauri", email: "c@example.invalid", phone: "7819605419" }),
-        answers: "{}",
-      },
-    });
-    const sat = await prisma.appointment.create({
-      data: {
-        userId: user.id,
-        startsAt: new Date("2026-09-26T13:30:00Z"),
-        endsAt: new Date("2026-09-26T14:00:00Z"),
-        durationMinutes: 30,
-        customer: JSON.stringify({ firstName: "Blake", email: "b@example.invalid" }),
-        answers: "{}",
-      },
-    });
-    for (const [name, amount] of [["Basic Manicure", 35], ["Gel Manicure", 55], ["French", 80]] as const) {
-      await saveService(user.id, { name, pricing: { kind: "fixed", amount }, durationMinutes: 30, enabled: true });
-    }
+    await saveDirective(user.id, { kind: "goal", text: "Get interested visitors to leave their details.", enabled: true });
+    await saveDirective(user.id, { kind: "goal", text: "Mention the loyalty card.", enabled: false });
+    await saveDirective(user.id, { kind: "rule", text: "Never share my phone number.", enabled: true });
+    await saveCannedAnswer(user.id, { question: "Do you take walk-ins?", answer: "Yes, before 4pm.", enabled: true });
+    await saveCannedAnswer(user.id, { question: "Where do I park?", answer: "Behind the shop.", enabled: true });
+    const walkIns = await prisma.cannedAnswer.findFirst({ where: { userId: user.id, question: "Do you take walk-ins?" } });
+    const parking = await prisma.cannedAnswer.findFirst({ where: { userId: user.id, question: "Where do I park?" } });
+    if (walkIns) await prisma.cannedAnswer.update({ where: { id: walkIns.id }, data: { hits: 3 } });
+    const rule = await prisma.agentDirective.findFirst({ where: { userId: user.id, kind: "rule" } });
+    const offGoal = await prisma.agentDirective.findFirst({ where: { userId: user.id, kind: "goal", enabled: false } });
 
-    // 1. The recording's question.
-    const friday = await ask("what's on Friday?");
-    const els = friday.events.filter((e) => e.t === "elements").map((e) => e.v as { panel: string; ids: string[]; title: string });
-    console.log("  model said:", JSON.stringify(friday.text.slice(0, 200)), "events:", JSON.stringify(els));
-    check("friday: one elements event", els.length === 1);
-    check("friday: exactly the Friday booking", JSON.stringify(els[0]?.ids) === JSON.stringify([fri.id]), JSON.stringify(els[0]?.ids));
-    check("friday: no whole panel", !friday.events.some((e) => e.t === "panel"));
+    // 1. A rule by what it is about.
+    const phone = await ask("which rule is about my phone number?");
+    const els = phone.events.filter((e) => e.t === "elements").map((e) => e.v as { panel: string; ids: string[]; title: string });
+    console.log("  model said:", JSON.stringify(phone.text.slice(0, 200)), "events:", JSON.stringify(els));
+    check("phone: one elements event", els.length === 1);
+    check("phone: exactly the phone rule", JSON.stringify(els[0]?.ids) === JSON.stringify([rule?.id]), JSON.stringify(els[0]?.ids));
+    check("phone: no whole panel", !phone.events.some((e) => e.t === "panel"));
 
-    // 2. A name.
-    const blake = await ask("show me Blake's appointment");
-    const bl = blake.events.filter((e) => e.t === "elements").map((e) => e.v as { ids: string[] });
-    console.log("  model said:", JSON.stringify(blake.text.slice(0, 200)), "events:", JSON.stringify(bl));
-    check("blake: exactly the Saturday booking", JSON.stringify(bl[0]?.ids) === JSON.stringify([sat.id]));
+    // 2. A number.
+    const unused = await ask("which presets has nobody used yet?");
+    const un = unused.events.filter((e) => e.t === "elements").map((e) => e.v as { ids: string[] });
+    console.log("  model said:", JSON.stringify(unused.text.slice(0, 200)), "events:", JSON.stringify(un));
+    check("unused: exactly the never-served preset", JSON.stringify(un[0]?.ids) === JSON.stringify([parking?.id]));
 
-    // 3. A number.
-    const cheap = await ask("which services are under $50?");
-    const ch = cheap.events.filter((e) => e.t === "elements").map((e) => e.v as { panel: string; ids: string[] });
-    console.log("  model said:", JSON.stringify(cheap.text.slice(0, 200)), "events:", JSON.stringify(ch));
-    check("cheap: one service element from booking-services", ch[0]?.panel === "booking-services" && ch[0]?.ids.length === 1);
+    // 3. A state.
+    const off = await ask("which of my goals are switched off?");
+    const of = off.events.filter((e) => e.t === "elements").map((e) => e.v as { panel: string; ids: string[] });
+    console.log("  model said:", JSON.stringify(off.text.slice(0, 200)), "events:", JSON.stringify(of));
+    check("off: one goal element from goals", of[0]?.panel === "goals" && JSON.stringify(of[0]?.ids) === JSON.stringify([offGoal?.id]));
 
     // 4. The whole panel is still a whole-panel ask.
-    const all = await ask("show my appointments");
+    const all = await ask("show my goals");
     console.log("  model said:", JSON.stringify(all.text.slice(0, 200)), "events:", JSON.stringify(all.events.filter((e) => e.t !== "text")));
-    check("whole panel: show_panel appointments", all.events.some((e) => e.t === "panel" && e.v === "appointments"));
+    check("whole panel: show_panel goals", all.events.some((e) => e.t === "panel" && e.v === "goals"));
   } finally {
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
     await prisma.$disconnect();

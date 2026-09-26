@@ -48,7 +48,7 @@ const GOAL = "Get visitors needing a Quillhaven kiln retrofit to book a site sur
 const QUESTIONS = [
   "What retrofit packages do you offer?", // 1 → designed
   "Can I see examples of your work?", // 2 → gallery
-  "How do I book a site survey?", // 3 → booking
+  "How do I book a site survey?", // 3 → unmapped (no booking card exists)
   "How can I get in touch?", // 4 → contact, but the owner attached a card first
   "Do you work outside Harrowgate?", // 5 → unmapped
 ];
@@ -81,7 +81,6 @@ const PLAN = {
       kind: "contact", label: "Get in touch", description: "The in-chat contact form",
       reason: "When a visitor wants to reach the team or request a quote", questions: [4],
     },
-    { kind: "booking", label: "Book a site survey", description: "", reason: "When a visitor wants to book a survey", questions: [3] },
     { kind: "projects", label: "Projects", description: "", reason: "When asked about projects", questions: [] },
   ],
 };
@@ -103,7 +102,7 @@ const DRAFT = {
   sampleBlock: JSON.stringify(DRAFT_BLOCK),
 };
 
-const SIGNALS_ON = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: ["services"], hasKnowledge: true };
+const SIGNALS_ON = { photos: 2, projects: 0, contactChannels: ["email"], socialLinks: 0, categories: ["services"], hasKnowledge: true };
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
@@ -131,18 +130,20 @@ async function main() {
     return u.id;
   };
 
-  /** A tenant as the end of a site onboarding leaves it: profile, photos, goal, blank starter questions, booking on. */
+  /** A tenant as the end of a site onboarding leaves it: profile, photos, a scanned page, goal, blank starter questions. */
   const mkTenant = async (tag: string) => {
     const userId = await mkUser(tag);
+    // The designed card's research step grounds itself in extracted knowledge,
+    // so the planner only allows one when a scanned Source is on file.
+    await prisma.source.create({
+      data: { userId, type: "link", url: PAGES[0].url, title: "Services", rawText: "Full Harrowgate-spec retrofit of aging kilns.", status: "scanned" },
+    });
     await prisma.profile.create({
-      data: { userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid", bookingEnabled: true },
+      data: { userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid" },
     });
     await prisma.personaConfig.create({ data: { userId, tagline: "Kilns that outlive their owners" } });
     await prisma.themeConfig.create({ data: { userId } });
     await prisma.agentDirective.create({ data: { userId, kind: "goal", text: GOAL, enabled: true, order: 0 } });
-    await prisma.appointmentField.create({
-      data: { userId, key: "name", label: "Your name", type: "short_text", required: true, order: 0 },
-    });
     for (const [i, filename] of PHOTOS.entries()) {
       await prisma.photo.create({
         data: { userId, filename, description: `Retrofit photo ${i + 1}`, caption: `Kiln ${i + 1}`, kind: "gallery", order: i },
@@ -244,12 +245,11 @@ async function main() {
           { kind: "hologram", label: "Nope", reason: "When never", questions: [] },
           { kind: "gallery", label: "Gallery", reason: "When photos", layout: "sideways", questions: [] },
           { kind: "projects", label: "Projects", reason: "When projects", questions: [] },
-          { kind: "booking", label: "Book", reason: "When booking", questions: [] },
           { kind: "designed", label: "No brief", reason: "When designed", questions: [] },
           { kind: "contact", label: "Contact", reason: "When contact", questions: [] },
         ],
       },
-      { ...SIGNALS_ON, photos: 0, projects: 0, takesAppointments: false },
+      { ...SIGNALS_ON, photos: 0, projects: 0 },
       5,
     );
     check("unknown kind, gated kinds and a briefless designed card are all dropped",
@@ -344,7 +344,8 @@ async function main() {
     const freshSpy = await askBrain(fresh);
     const freshTools = (freshSpy.tools[0] ?? []).map((t) => t.name);
     check("brain reached the model", freshSpy.calls === 1, `${freshSpy.calls}`);
-    check("brain offers no card tool on an empty catalog", freshTools.length === 0, freshTools.join(","));
+    // search_knowledge is offered on every unscripted turn whatever the catalog holds; it draws nothing.
+    check("brain offers no card tool on an empty catalog", freshTools.filter((n) => n !== "search_knowledge").length === 0, freshTools.join(","));
 
     // ── 7. Round-trip on a real tenant ──
     const userA = await mkTenant("a");
@@ -378,7 +379,7 @@ async function main() {
       JSON.stringify(JSON.parse(rowsA[1].sampleBlock)) === JSON.stringify(DRAFT_BLOCK), rowsA[1].sampleBlock.slice(0, 200));
     check("designed row key derives from its label", rowsA[1].key === "services-pricing", rowsA[1].key);
     check("contact sample is the contact block", rowsA[2].sampleBlock === JSON.stringify({ type: "contact" }), rowsA[2].sampleBlock);
-    check("no booking or projects row was written", rowsA.every((r) => r.tool !== "show_booking" && r.tool !== "show_projects"));
+    check("no projects row was written", rowsA.every((r) => r.tool !== "show_projects"));
     check("report lists the cards with their keys",
       JSON.stringify(runA.cards.map((c) => c.key)) === JSON.stringify(["our-work", "services-pricing", "get-in-touch"]),
       JSON.stringify(runA.cards));
@@ -399,13 +400,13 @@ async function main() {
     check("Q2 carries the gallery in its planned layout",
       qA[1].cardTool === "show_gallery" && qA[1].cardInput === JSON.stringify({ layout: "filmstrip" }),
       `${qA[1].cardTool} ${qA[1].cardInput}`);
-    check("Q3 carries the booking flow", qA[2].cardTool === "show_booking" && qA[2].cardInput === null,
+    check("Q3 (nothing planned for it) stays without a card", qA[2].cardTool === null && qA[2].cardInput === null,
       `${qA[2].cardTool} ${qA[2].cardInput}`);
     check("Q4's owner attachment is untouched", qA[3].cardTool === "show_projects" && qA[3].cardInput === null,
       `${qA[3].cardTool} ${qA[3].cardInput}`);
     check("Q5 (unmapped) stays without a card", qA[4].cardTool === null && qA[4].cardInput === null,
       `${qA[4].cardTool} ${qA[4].cardInput}`);
-    check("report counts three attachments", runA.attached === 3, `${runA.attached}`);
+    check("report counts two attachments", runA.attached === 2, `${runA.attached}`);
     check("question text and order are untouched",
       qA.map((r) => r.question).join("|") === QUESTIONS.join("|") && qA.every((r) => r.answer === ""));
 
@@ -421,8 +422,8 @@ async function main() {
     const spyA = await askBrain(userA);
     const toolsA = spyA.tools[0] ?? [];
     const namesA = toolsA.map((t) => t.name);
-    check("brain offers gallery, contact, custom and booking tools",
-      ["show_gallery", "show_contact_form", "show_card", "show_booking"].every((n) => namesA.includes(n)), namesA.join(","));
+    check("brain offers gallery, contact and custom tools",
+      ["show_gallery", "show_contact_form", "show_card"].every((n) => namesA.includes(n)), namesA.join(","));
     check("brain offers no project tools", !namesA.includes("show_projects") && !namesA.includes("show_project"), namesA.join(","));
     const showCard = toolsA.find((t) => t.name === "show_card");
     check("show_card's key enum holds the designed key",
@@ -438,7 +439,6 @@ async function main() {
       sent.includes("STARTER QUESTIONS") && QUESTIONS.every((q, i) => sent.includes(`${i + 1}. ${q}`)),
       sent.slice(-600));
     check("corpus states the photo count", sent.includes("Gallery photos on file: 2"), sent.slice(-600));
-    check("corpus states the booking signal", sent.includes("Takes appointments (customers can book): yes"), sent.slice(-600));
     check("corpus states the knowledge categories", sent.includes("services"));
 
     // ── 12. Gate: an owner's catalog is never touched ──
@@ -491,7 +491,7 @@ async function main() {
     const qD = await questionRows(userD);
     check("the designed card's question stays unattached", qD[0].cardTool === null, String(qD[0].cardTool));
     check("the other questions are still attached",
-      qD[1].cardTool === "show_gallery" && qD[2].cardTool === "show_booking" && qD[3].cardTool === "show_contact_form",
+      qD[1].cardTool === "show_gallery" && qD[2].cardTool === null && qD[3].cardTool === "show_contact_form",
       qD.map((r) => r.cardTool).join(","));
 
     const userE = await mkTenant("e");

@@ -1,5 +1,7 @@
 # Proof Plan — Build A2UI cards from the imported site, on demand
 
+> **2026-09-26 — booking removed.** Booking, Service, the menu and the cart no longer exist in the product (commit `b4d06cf` on main is the last state with them). The checks below that seeded or asserted bookings, services, menu items or orders were removed from `proof.ts`; the rest stand as written.
+
 ## Definition Of Done
 - `lib/siteCards.ts` exports `SITE_CARDS_SYSTEM_PROMPT`,
   `sanitizeSiteCardPlan` and `buildCardsFromSite(userId, onEvent, deps?)`

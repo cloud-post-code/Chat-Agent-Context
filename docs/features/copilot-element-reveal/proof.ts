@@ -2,12 +2,11 @@
  * Primary proof for copilot-element-reveal (see PROOF.md).
  * Run: npx tsx docs/features/copilot-element-reveal/proof.ts
  *
- * Seeds a throwaway tenant with real rows (two bookings on a Friday and a
- * Saturday, three priced services, an enabled and a disabled provider, a
- * location, a goal, a rule, two presets), drives the admin brain's tool loop
- * with a scripted model client (the only doubled boundary), and asserts the
- * `elements` events, the index the prompt carries, the pure selector, and the
- * element nodes the panel side builds from the same rows.
+ * Seeds a throwaway tenant with real rows (a live and a disabled goal, a
+ * rule, two presets — one served three times), drives the admin brain's tool
+ * loop with a scripted model client (the only doubled boundary), and asserts
+ * the `elements` events, the index the prompt carries, the pure selector, and
+ * the element nodes the panel side builds from the same rows.
  */
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -87,10 +86,7 @@ type ElementsEvent = { panel: string; ids: string[]; title?: string };
 async function main() {
   const { prisma } = await import("../../../lib/db");
   const { adminAnswer } = await import("../../../lib/adminBrain");
-  const { saveBookingSettings, saveService, saveStaff, saveLocation } = await import(
-    "../../../lib/booking/store"
-  );
-  const { saveDirective } = await import("../../../lib/directives");
+  const { saveDirective, listDirectives } = await import("../../../lib/directives");
   const { saveCannedAnswer } = await import("../../../lib/canned");
 
   // The modules under proof — imported lazily so a red run reports the
@@ -140,127 +136,81 @@ async function main() {
   };
   const elementEvents = (events: Ev[]) =>
     events.filter((e) => e.t === "elements").map((e) => e.v as ElementsEvent);
+  const idsOf = (events: Ev[]) => JSON.stringify(elementEvents(events)[0]?.ids);
   const show = (input: Record<string, unknown>): Turn[] => [
     { tools: [{ name: "show_elements", input }] },
     { text: "Here you go." },
   ];
 
   try {
-    // ── Seed: the screen recording's situation, in a fixed zone ──
-    await saveBookingSettings(user.id, { timezone: "America/New_York" });
-    // Fri Sep 25 2026 13:00 ET = 17:00Z; Sat Sep 26 2026 09:30 ET = 13:30Z.
-    const fri = await prisma.appointment.create({
-      data: {
-        userId: user.id,
-        startsAt: new Date("2026-09-25T17:00:00Z"),
-        endsAt: new Date("2026-09-25T17:30:00Z"),
-        durationMinutes: 30,
-        serviceName: "Rebalance (Fill-In)",
-        customer: JSON.stringify({
-          firstName: "Christopher",
-          lastName: "Mauri",
-          email: "christopher@example.invalid",
-          phone: "7819605419",
-        }),
-        pricing: JSON.stringify({ currency: "USD", lines: [], subtotal: 55, total: 55, estimate: false, quoteRequired: false, deposit: null, balance: null, durationMinutes: 30, display: "$55" }),
-        answers: JSON.stringify({ services: "Rebalance (Fill-In) ($55)" }),
-      },
-    });
-    const sat = await prisma.appointment.create({
-      data: {
-        userId: user.id,
-        startsAt: new Date("2026-09-26T13:30:00Z"),
-        endsAt: new Date("2026-09-26T14:00:00Z"),
-        durationMinutes: 30,
-        customer: JSON.stringify({ firstName: "Blake", email: "blake@example.invalid" }),
-        answers: JSON.stringify({ services: "Basic Manicure, Gel Manicure, French" }),
-      },
-    });
-    const svc = async (name: string, amount: number) => {
-      const r = await saveService(user.id, { name, pricing: { kind: "fixed", amount }, durationMinutes: 30, enabled: true });
-      if (!r.ok) throw new Error(r.error);
-      return r.id;
-    };
-    const basic = await svc("Basic Manicure", 35);
-    const gel = await svc("Gel Manicure", 55);
-    const french = await svc("French", 80);
-    const ava = await saveStaff(user.id, { name: "Ava", role: "Nail tech", enabled: true });
-    const ben = await saveStaff(user.id, { name: "Ben", role: "Nail tech", enabled: false });
-    if (!ava.ok || !ben.ok) throw new Error("staff seed failed");
-    const loc = await saveLocation(user.id, { name: "Main Street", kind: "business", address: "1 Main St", enabled: true });
-    if (!loc.ok) throw new Error("location seed failed");
-    await saveDirective(user.id, { kind: "goal", text: "Get interested visitors to book.", enabled: true });
+    // ── Seed: a live and a disabled goal, a rule, two presets (one served) ──
+    await saveDirective(user.id, { kind: "goal", text: "Get interested visitors to leave their details.", enabled: true });
+    await saveDirective(user.id, { kind: "goal", text: "Mention the loyalty card.", enabled: false });
     await saveDirective(user.id, { kind: "rule", text: "Never share my phone number.", enabled: true });
     await saveCannedAnswer(user.id, { question: "Do you take walk-ins?", answer: "Yes, before 4pm.", enabled: true });
     await saveCannedAnswer(user.id, { question: "Where do I park?", answer: "Behind the shop.", enabled: true });
     const walkIns = await prisma.cannedAnswer.findFirst({ where: { userId: user.id, question: "Do you take walk-ins?" } });
     const parking = await prisma.cannedAnswer.findFirst({ where: { userId: user.id, question: "Where do I park?" } });
     if (walkIns) await prisma.cannedAnswer.update({ where: { id: walkIns.id }, data: { hits: 3 } });
-    const rule = await prisma.agentDirective.findFirst({ where: { userId: user.id, kind: "rule" } });
+    const rules = await listDirectives(user.id, "rule");
+    const goals = await listDirectives(user.id, "goal");
+    const rule = rules[0];
+    const liveGoal = goals.find((g) => g.enabled);
+    const offGoal = goals.find((g) => !g.enabled);
+    if (!rule || !liveGoal || !offGoal || !walkIns || !parking) throw new Error("seed failed");
 
-    // ── 1. The recording's question: only the Friday card ──
-    const friday = await run(show({ panel: "appointments", where: [{ facet: "weekday", op: "is", value: "friday" }] }));
-    const fe = elementEvents(friday.events);
-    check("friday filter yields exactly one elements event", fe.length === 1, JSON.stringify(friday.events));
-    check("elements event names the appointments panel", fe[0]?.panel === "appointments");
-    check("elements event ids are exactly the Friday booking", JSON.stringify(fe[0]?.ids) === JSON.stringify([fri.id]), JSON.stringify(fe[0]?.ids));
-    check("no full panel is shown for an element reveal", !friday.events.some((e) => e.t === "panel"));
-    check("loop terminates after the reveal", friday.seen.calls === 2, String(friday.seen.calls));
-    check("show_elements is offered as a tool", friday.seen.toolNames.includes("show_elements"), friday.seen.toolNames.join(","));
+    // ── 1. The recording's question: only the matching rule ──
+    const phoneRule = await run(show({ panel: "rules", where: [{ facet: "text", op: "contains", value: "phone" }] }));
+    const re = elementEvents(phoneRule.events);
+    check("text filter yields exactly one elements event", re.length === 1, JSON.stringify(phoneRule.events));
+    check("elements event names the rules panel", re[0]?.panel === "rules");
+    check("elements event ids are exactly the phone rule", JSON.stringify(re[0]?.ids) === JSON.stringify([rule.id]), JSON.stringify(re[0]?.ids));
+    check("no full panel is shown for an element reveal", !phoneRule.events.some((e) => e.t === "panel"));
+    check("loop terminates after the reveal", phoneRule.seen.calls === 2, String(phoneRule.seen.calls));
+    check("show_elements is offered as a tool", phoneRule.seen.toolNames.includes("show_elements"), phoneRule.seen.toolNames.join(","));
 
     // ── 2. Other facets and ops ──
-    const byName = await run(show({ panel: "appointments", where: [{ facet: "customer", op: "contains", value: "christopher" }] }));
-    check("customer contains selects the same booking", JSON.stringify(elementEvents(byName.events)[0]?.ids) === JSON.stringify([fri.id]));
-    const both = await run(show({ panel: "appointments", where: [{ facet: "date", op: "after", value: "2026-09-24" }] }));
-    check("date after selects both bookings in index order", JSON.stringify(elementEvents(both.events)[0]?.ids) === JSON.stringify([fri.id, sat.id]), JSON.stringify(elementEvents(both.events)));
-    const cheap = await run(show({ panel: "booking-services", where: [{ facet: "price", op: "lte", value: "50" }] }));
-    check("price lte 50 selects only the cheapest service", JSON.stringify(elementEvents(cheap.events)[0]?.ids) === JSON.stringify([basic]), JSON.stringify(elementEvents(cheap.events)));
-    const pricey = await run(show({ panel: "booking-services", where: [{ facet: "price", op: "gte", value: "55" }] }));
-    check("price gte 55 selects the two dearer services", JSON.stringify(elementEvents(pricey.events)[0]?.ids) === JSON.stringify([gel, french]));
-    const disabled = await run(show({ panel: "booking-providers", where: [{ facet: "enabled", op: "is", value: "no" }] }));
-    check("enabled is no selects only the disabled provider", JSON.stringify(elementEvents(disabled.events)[0]?.ids) === JSON.stringify([ben.id]));
-    const phoneRule = await run(show({ panel: "rules", where: [{ facet: "text", op: "contains", value: "phone" }] }));
-    check("rule text contains phone finds the rule", JSON.stringify(elementEvents(phoneRule.events)[0]?.ids) === JSON.stringify([rule?.id]));
     const unserved = await run(show({ panel: "answers", where: [{ facet: "served", op: "is", value: "0" }] }));
-    check("served is 0 finds the never-served preset", JSON.stringify(elementEvents(unserved.events)[0]?.ids) === JSON.stringify([parking?.id]));
-    const location = await run(show({ panel: "booking-locations", where: [{ facet: "kind", op: "is", value: "business" }] }));
-    check("location kind selects the branch", JSON.stringify(elementEvents(location.events)[0]?.ids) === JSON.stringify([loc.id]));
-    const anded = await run(show({ panel: "appointments", where: [{ facet: "weekday", op: "is", value: "friday" }, { facet: "customer", op: "contains", value: "blake" }] }));
-    check("filters AND together (friday + blake = nothing)", elementEvents(anded.events).length === 0);
+    check("served is 0 finds the never-served preset", idsOf(unserved.events) === JSON.stringify([parking.id]), idsOf(unserved.events));
+    const served = await run(show({ panel: "answers", where: [{ facet: "served", op: "gte", value: "3" }] }));
+    check("served gte 3 finds the preset served three times", idsOf(served.events) === JSON.stringify([walkIns.id]), idsOf(served.events));
+    const offGoals = await run(show({ panel: "goals", where: [{ facet: "live", op: "is", value: "no" }] }));
+    check("live is no selects only the disabled goal", idsOf(offGoals.events) === JSON.stringify([offGoal.id]), idsOf(offGoals.events));
+    const loyalty = await run(show({ panel: "goals", where: [{ facet: "text", op: "contains", value: "LOYALTY" }] }));
+    check("contains is case-insensitive", idsOf(loyalty.events) === JSON.stringify([offGoal.id]));
+    const anded = await run(show({ panel: "goals", where: [{ facet: "live", op: "is", value: "yes" }, { facet: "text", op: "contains", value: "loyalty" }] }));
+    check("filters AND together (live + loyalty = nothing)", elementEvents(anded.events).length === 0);
 
     // ── 3. Explicit ids, in index order, unknown dropped, limit honoured ──
-    const byIds = await run(show({ panel: "appointments", ids: [sat.id, "nope", fri.id] }));
-    check("ids select exactly those, in index order, unknown dropped", JSON.stringify(elementEvents(byIds.events)[0]?.ids) === JSON.stringify([fri.id, sat.id]), JSON.stringify(elementEvents(byIds.events)));
-    const limited = await run(show({ panel: "booking-services", limit: 1 }));
-    check("limit caps the selection", JSON.stringify(elementEvents(limited.events)[0]?.ids) === JSON.stringify([basic]));
+    const allAnswers = elementEvents((await run(show({ panel: "answers" }))).events)[0]?.ids ?? [];
+    check("an unfiltered selection lists every preset", allAnswers.length === 2, JSON.stringify(allAnswers));
+    const byIds = await run(show({ panel: "answers", ids: [parking.id, "nope", walkIns.id] }));
+    check("ids select exactly those, in index order, unknown dropped", idsOf(byIds.events) === JSON.stringify(allAnswers), idsOf(byIds.events));
+    const limited = await run(show({ panel: "goals", limit: 1 }));
+    check("limit caps the selection", (elementEvents(limited.events)[0]?.ids ?? []).length === 1, idsOf(limited.events));
 
     // ── 4. Nothing matches / bad panels: no event, loop terminates, tool told why ──
-    const sunday = await run(show({ panel: "appointments", where: [{ facet: "weekday", op: "is", value: "sunday" }] }));
-    check("no match yields no elements event", elementEvents(sunday.events).length === 0);
-    check("no match tells the model nothing matched", sunday.seen.results.some((r) => /no .*match/i.test(r)), sunday.seen.results.join(" | "));
-    check("no match still terminates", sunday.seen.calls === 2);
+    const none = await run(show({ panel: "answers", where: [{ facet: "served", op: "gte", value: "99" }] }));
+    check("no match yields no elements event", elementEvents(none.events).length === 0);
+    check("no match tells the model nothing matched", none.seen.results.some((r) => /no .*match/i.test(r)), none.seen.results.join(" | "));
+    check("no match still terminates", none.seen.calls === 2);
     const noPanel = await run(show({ panel: "sparkle" }));
     check("unknown panel yields no event", elementEvents(noPanel.events).length === 0 && noPanel.seen.calls === 2);
     const noElements = await run(show({ panel: "theme" }));
     check("a panel without elements yields no event", elementEvents(noElements.events).length === 0 && noElements.seen.calls === 2);
 
     // ── 5. show_panel unchanged ──
-    const full = await run([{ tools: [{ name: "show_panel", input: { key: "appointments" } }] }, { text: "ok" }]);
-    check("show_panel still reveals the full appointments panel", full.events.some((e) => e.t === "panel" && e.v === "appointments"));
+    const full = await run([{ tools: [{ name: "show_panel", input: { key: "goals" } }] }, { text: "ok" }]);
+    check("show_panel still reveals the full goals panel", full.events.some((e) => e.t === "panel" && e.v === "goals"));
 
-    // ── 6. The prompt: TODAY and the element index ──
-    const system = friday.seen.system[0] ?? "";
-    const todayNY = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-    const weekdayNY = new Date().toLocaleDateString("en-US", { timeZone: "America/New_York", weekday: "long" }).toLowerCase();
-    check("system prompt states today's date in the business zone", system.includes(todayNY) && system.toLowerCase().includes(weekdayNY), `${todayNY} ${weekdayNY}`);
-    check("system prompt names the timezone", system.includes("America/New_York"));
+    // ── 6. The prompt: the element index ──
+    const system = phoneRule.seen.system[0] ?? "";
     check("system prompt has an ELEMENTS section", /ELEMENTS/.test(system));
-    for (const [what, id] of [["friday booking", fri.id], ["saturday booking", sat.id], ["cheapest service", basic], ["disabled provider", ben.id], ["location", loc.id], ["rule", rule?.id ?? ""], ["preset", parking?.id ?? ""]]) {
+    for (const [what, id] of [["live goal", liveGoal.id], ["disabled goal", offGoal.id], ["rule", rule.id], ["served preset", walkIns.id], ["unserved preset", parking.id]]) {
       check(`index lists the ${what} by id`, system.includes(id));
     }
-    check("index carries the friday facets", /weekday=friday/.test(system) && /date=2026-09-25/.test(system) && /time=13:00/.test(system));
-    check("index carries the customer facet", /customer=christopher mauri/.test(system));
-    check("index carries service prices as numbers", /price=35/.test(system) && /price=80/.test(system));
+    check("index carries the live facet both ways", /live=yes/.test(system) && /live=no/.test(system));
+    check("index carries served counts as numbers", /served=3/.test(system) && /served=0/.test(system));
 
     // ── 7. Pure selector contract ──
     if (elements) {
@@ -284,45 +234,40 @@ async function main() {
     // ── 8. Panel side: nodes for every indexed element, built from the same rows ──
     if (load && nodes) {
       const { renderToStaticMarkup } = await import("react-dom/server");
-      const { AppointmentsPanel } = await import("../../../app/admin/AppointmentsPanel");
+      const { DirectivesPanel } = await import("../../../app/admin/DirectivesPanel");
       const loaded = await load.loadElementIndex(user.id);
-      const built = await nodes.buildElementNodesForUser(user.id, { cancelAction: async () => {}, confirmAction: async () => {}, deleteOrderAction: async () => {} });
+      const built = await nodes.buildElementNodesForUser(user.id);
       check("panel-side index equals brain-side index", JSON.stringify(built.index) === JSON.stringify(loaded.index), JSON.stringify(built.index).slice(0, 300));
       const missing = loaded.index.filter((e) => !built.nodes[e.panel]?.[e.id]);
       check("a node exists for every indexed element", missing.length === 0, missing.map((m) => `${m.panel}/${m.id}`).join(","));
-      const friHtml = renderToStaticMarkup(h("div", null, built.nodes.appointments?.[fri.id]));
-      check("friday node renders the customer", friHtml.includes("Christopher Mauri"));
-      check("friday node has a Cancel control", /Cancel/.test(friHtml));
-      check("friday node does not render saturday's customer", !friHtml.includes("Blake"));
-      // The same markup the full panel draws: the element's card is a substring
+      const ruleHtml = renderToStaticMarkup(h("div", null, built.nodes.rules?.[rule.id]));
+      check("rule node renders its text in an editable form", ruleHtml.includes("Never share my phone number") && /<form/.test(ruleHtml));
+      check("rule node does not render the goals", !ruleHtml.includes("loyalty card"));
+      // The same markup the full panel draws: the element's form is a substring
       // of the panel's markup (no forked row component).
-      const rows = built.appointmentRows;
-      const panelHtml = renderToStaticMarkup(
-        h(AppointmentsPanel, { rows, fieldLabels: built.fieldLabels, cancelAction: async () => {}, confirmAction: async () => {}, bookingEnabled: true }),
-      );
+      const panelHtml = renderToStaticMarkup(h(DirectivesPanel, { kind: "rule", rows: rules }));
       // React appends its form-action bootstrap <script> after the last form it
       // rendered; that trailer is placement, not markup, so it is stripped.
       const noScript = (html: string) => html.replace(/<script>[\s\S]*?<\/script>/g, "");
-      const cardHtml = noScript(renderToStaticMarkup(built.nodes.appointments?.[fri.id] as never));
-      check("element card markup is the panel's own row markup", noScript(panelHtml).includes(cardHtml), `${cardHtml.slice(0, 120)}…`);
-      const svcHtml = renderToStaticMarkup(h("div", null, built.nodes["booking-services"]?.[basic]));
-      check("service node renders the service name and price", svcHtml.includes("Basic Manicure") && svcHtml.includes("$35"));
-      const ruleHtml = renderToStaticMarkup(h("div", null, built.nodes.rules?.[rule?.id ?? ""]));
-      check("rule node renders its text in an editable form", ruleHtml.includes("Never share my phone number") && /<form/.test(ruleHtml));
+      const rowHtml = noScript(renderToStaticMarkup(built.nodes.rules?.[rule.id] as never));
+      check("element markup is the panel's own row markup", noScript(panelHtml).includes(rowHtml), `${rowHtml.slice(0, 120)}…`);
+      const presetHtml = renderToStaticMarkup(h("div", null, built.nodes.answers?.[parking.id]));
+      check("preset node renders its question", presetHtml.includes("Where do I park?"));
+      check("preset node does not render the other preset", !presetHtml.includes("walk-ins"));
     }
 
     // ── 9. The chat client's element item: ids → the panel's own nodes ──
     if (nodes) {
       const { renderToStaticMarkup } = await import("react-dom/server");
       const { ElementList } = await import("../../../app/admin/chat/AdminChat");
-      const built = await nodes.buildElementNodesForUser(user.id, { cancelAction: async () => {}, confirmAction: async () => {}, deleteOrderAction: async () => {} });
+      const built = await nodes.buildElementNodesForUser(user.id);
       const html = renderToStaticMarkup(
-        h(ElementList, { reveal: { panel: "appointments", ids: [fri.id, "nope"], title: "t" }, elements: built.nodes }),
+        h(ElementList, { reveal: { panel: "rules", ids: [rule.id, "nope"], title: "t" }, elements: built.nodes }),
       );
-      check("ElementList renders the revealed booking's card", html.includes("Christopher Mauri") && html.includes(`data-element="${fri.id}"`));
-      check("ElementList skips unknown ids and other rows", !html.includes("Blake") && !html.includes("nope"));
+      check("ElementList renders the revealed rule's form", html.includes("Never share my phone number") && html.includes(`data-element="${rule.id}"`));
+      check("ElementList skips unknown ids and other rows", !html.includes("loyalty card") && !html.includes("nope"));
       const gone = renderToStaticMarkup(
-        h(ElementList, { reveal: { panel: "appointments", ids: ["nope"], title: "t" }, elements: built.nodes }),
+        h(ElementList, { reveal: { panel: "rules", ids: ["nope"], title: "t" }, elements: built.nodes }),
       );
       check("ElementList explains when nothing is renderable", /aren(&#x27;|&apos;|')t available/.test(gone));
     }

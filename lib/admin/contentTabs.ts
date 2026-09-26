@@ -31,24 +31,7 @@ type NavKey =
   | "knowledge"
   | "agent"
   | "cards"
-  | "booking"
   | "settings";
-
-/**
- * Keys of the sub-tabs inside the Booking section (app/admin/booking/): what's
- * bookable, who does it, where, when, and the questions and money rules that
- * shape the flow. `booking` itself (Settings) holds the on/off switch and
- * general setup.
- */
-const BOOKING_TAB_KEYS = [
-  "booking-services",
-  "booking-providers",
-  "booking-locations",
-  "booking-hours",
-  "booking-questions",
-  "booking-pricing",
-] as const;
-type BookingTabKey = (typeof BOOKING_TAB_KEYS)[number];
 
 type NavSub = { key: string; label: string; operator?: boolean };
 
@@ -70,11 +53,7 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   {
     key: "inbox",
     label: "Inbox",
-    subs: [
-      { key: "activity", label: "Chats" },
-      { key: "appointments", label: "Appointments" },
-      { key: "orders", label: "Orders" },
-    ],
+    subs: [{ key: "activity", label: "Chats" }],
   },
   {
     key: "knowledge",
@@ -95,20 +74,6 @@ export const NAV_GROUPS: readonly NavGroup[] = [
   },
   { key: "cards", label: "Cards", subs: [{ key: "a2ui", label: "Cards" }] },
   {
-    key: "booking",
-    label: "Booking",
-    subs: [
-      // Always present, on or off: it holds the switch that turns booking on.
-      { key: "booking", label: "Settings" },
-      { key: "booking-services", label: "Services" },
-      { key: "booking-providers", label: "Providers" },
-      { key: "booking-locations", label: "Locations" },
-      { key: "booking-hours", label: "Hours" },
-      { key: "booking-questions", label: "Form" },
-      { key: "booking-pricing", label: "Pricing" },
-    ],
-  },
-  {
     key: "settings",
     label: "Settings",
     subs: [
@@ -123,11 +88,13 @@ export const NAV_GROUPS: readonly NavGroup[] = [
 
 /**
  * Legacy `?tab=` and show_panel keys → the panel that now holds them. The
- * combined Calendar panel became Appointments (Inbox) + Booking (Settings);
- * "me" was the old Profile nav.
+ * retired Calendar, Appointments and Orders panels land on Chats (the rest of
+ * the Inbox); "me" was the old Profile nav.
  */
 export const TAB_ALIASES: Readonly<Record<string, string>> = {
-  calendar: "appointments",
+  calendar: "activity",
+  appointments: "activity",
+  orders: "activity",
   me: "profile",
 };
 

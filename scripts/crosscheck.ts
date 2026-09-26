@@ -5,7 +5,7 @@
  * covers everything the tests deliberately can't.
  *
  *   npm run crosscheck                    every "passing"/"done" feature's proof.ts
- *   npm run crosscheck -- --only menu-cart,booking-flow
+ *   npm run crosscheck -- --only composable-a2ui-elements,llm-readable-site
  *   npm run crosscheck -- --needs db      only proofs tagged db (skip model/http)
  *   npm run crosscheck -- --list          show what would run and why
  *
@@ -49,8 +49,8 @@ function proofPath(e: Entry): string | null {
 }
 
 function detectNeeds(file: string): Need[] {
-  // The proof plus the sibling scripts it imports (booking-flow's
-  // proof.sections.ts) — not every file in the folder, since live.ts /
+  // The proof plus the sibling scripts it imports (a proof/ subfolder's
+  // helpers) — not every file in the folder, since live.ts /
   // crosscheck.ts are opt-in model runs the proof itself never touches.
   const dir = path.dirname(file);
   const seen = new Set<string>();

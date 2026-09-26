@@ -1,14 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { UiBlock } from "./cards/Cards";
 import { readNdjson } from "@/lib/client/ndjson";
 import { shownFromCards } from "./cards/shown";
-import { CartProvider, cartSummary, useCart } from "./cards/cart";
-import { BookingSessionsProvider } from "./cards/booking/session";
-import type { MenuItemData } from "@/lib/menuTypes";
 import { Bubble } from "./ChatBubble";
-import { ChatThreadContext, mergeMessages, type ChatThread } from "./ChatThread";
 import {
   listChats,
   loadMessages,
@@ -18,7 +14,6 @@ import {
   type ChatMeta,
   type StoredMsg,
 } from "@/lib/chatStore";
-import { ensureBookingSessionIds, foldBookingLines } from "@/lib/booking/session";
 import { CHIP_COUNT, chipLabel } from "@/lib/chipLabel";
 
 type Msg = StoredMsg;
@@ -48,35 +43,17 @@ type ChatProps = {
   photos?: HomePhoto[];
 };
 
-/**
- * The visitor's cart and booking sessions wrap the whole chat: every menu and
- * cart card shares the one cart, every card of a booking session shares its
- * one selection.
- */
-export default function Chat(props: ChatProps) {
-  return (
-    <CartProvider slug={props.slug}>
-      <BookingSessionsProvider slug={props.slug}>
-        <ChatInner {...props} />
-      </BookingSessionsProvider>
-    </CartProvider>
-  );
-}
-
-function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatProps) {
-  const cart = useCart();
+export default function Chat({ name, tagline, logo, starters, slug, photos = [] }: ChatProps) {
   const [messages, setMessages] = useState<Msg[]>([]);
-  // A synchronous mirror of the message list, so a card that appends two
-  // messages in one handler sees the first when it adds the second. Every
-  // change goes through setMsgs, which updates the mirror before React.
+  // A synchronous mirror of the message list, so a stream's updates compose
+  // with each other. Every change goes through setMsgs, which updates the
+  // mirror before React.
   const messagesRef = useRef<Msg[]>([]);
   const setMsgs = useCallback((fn: (m: Msg[]) => Msg[]) => {
     const next = fn(messagesRef.current);
     messagesRef.current = next;
     setMessages(next);
   }, []);
-  // Bumped when a typed intro finishes and its card mounts: the thread scrolls again.
-  const [settled, setSettled] = useState(0);
   // The assistant message a stream is filling right now; its bubble shows the dots.
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -120,10 +97,7 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
     const s = store();
     if (!s) return;
     setChatId(id);
-    // Booking blocks saved before session ids existed get one now; the save
-    // effect writes them back.
-    const { msgs } = ensureBookingSessionIds(loadMessages(s, slug, id), newChatId);
-    setMsgs(() => msgs);
+    setMsgs(() => loadMessages(s, slug, id));
     setInput("");
     setSidebarOpen(false);
   }
@@ -134,21 +108,6 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
     setInput("");
     setSidebarOpen(false);
   }
-
-  // What a card may do to the conversation it sits in (app/ChatThread.tsx).
-  const thread = useMemo<ChatThread>(
-    () => ({
-      chatId,
-      slug,
-      appendMessages: (incoming) => setMsgs((m) => mergeMessages(m, incoming)),
-      rewriteMessage: (id, patch) => setMsgs((m) => m.map((x) => (x.id === id ? { ...x, ...patch } : x))),
-      removeMessages: (pred) => setMsgs((m) => m.filter((x) => !pred(x))),
-      has: (id) => messagesRef.current.some((x) => x.id === id),
-      snapshot: () => messagesRef.current,
-      scrollToEnd: () => setSettled((n) => n + 1),
-    }),
-    [chatId, slug, setMsgs],
-  );
 
   function removeChat(id: string) {
     const s = store();
@@ -170,7 +129,7 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
       if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
-  }, [messages, loading, settled]);
+  }, [messages, loading]);
 
   async function send(text: string) {
     const q = text.trim();
@@ -188,19 +147,14 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          // A booking in progress reads as one "Booking so far" line; no empty
-          // turns. Each assistant turn also carries what its cards showed, so
-          // "book that" after a gallery can resolve against the previous card.
-          messages: foldBookingLines(
-            next.map((m) => ({
-              ...m,
-              shown: m.role === "assistant" ? shownFromCards(m.cards) : undefined,
-            })),
-          ),
+          // Each assistant turn carries what its cards showed, so "the red
+          // ones" after a gallery can resolve against the previous card.
+          messages: next.map((m) => ({
+            ...m,
+            shown: m.role === "assistant" ? shownFromCards(m.cards) : undefined,
+          })),
           sessionId: chatId,
           slug,
-          // Names and counts only, so the agent can talk about the cart.
-          cart: cartSummary(cart.store.get()),
         }),
       });
       if (!res.ok || !res.body) throw new Error(await res.text());
@@ -210,21 +164,9 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
 
       const onEvent = (obj: { t: string; v?: unknown }) => {
         if (obj.t === "text") acc += String(obj.v ?? "");
-        else if (obj.t === "card") {
-          const card = obj.v as UiBlock;
-          // The server's booking block is the start of a session; the
-          // session id is the client's to give, so it is unique here.
-          if (card?.type === "booking" && !card.sessionId) card.sessionId = newChatId();
-          cards.push(card);
-        } else if (obj.t === "cart") {
-          // The agent added something (add_to_cart): the cart is the
-          // visitor's, so it changes here, on their page.
-          const v = obj.v as { op?: string; item?: MenuItemData; quantity?: unknown } | undefined;
-          if (v?.op === "add" && v.item?.key) cart.store.add(v.item, Number(v.quantity) || 1);
-        }
+        else if (obj.t === "card") cards.push(obj.v as UiBlock);
       };
-      // By id, not position: a booking card may have appended its next
-      // step below the answer while it was still streaming.
+      // By id, not position, so nothing else that moves the list can misfile it.
       const sync = () =>
         setMsgs((m) => m.map((x) => (x.id === aid ? { ...x, content: acc, cards: [...cards] } : x)));
 
@@ -256,12 +198,11 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
 
   const showSidebarToggle = chats.length > 0 || started;
 
+  // Once a conversation is open the shell is pinned to the viewport, so the
+  // thread (flex: 1, overflow auto) is the thing that scrolls and auto-scroll
+  // lands in it. The home screen keeps minHeight so a short viewport can
+  // still scroll the page to the strip and footnote.
   return (
-    <ChatThreadContext.Provider value={thread}>
-    {/* Once a conversation is open the shell is pinned to the viewport, so the
-        thread (flex: 1, overflow auto) is the thing that scrolls and auto-scroll
-        lands in it. The home screen keeps minHeight so a short viewport can
-        still scroll the page to the strip and footnote. */}
     <main style={started ? styles.shellChat : styles.shell}>
       {showSidebarToggle && (
         <button
@@ -390,10 +331,8 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
                 role={m.role}
                 content={m.content}
                 cards={m.cards}
-                typed={m.typed}
                 loading={loading && (pendingId ? m.id === pendingId : i === messages.length - 1)}
                 slug={slug}
-                onSettled={() => setSettled((n) => n + 1)}
               />
             ))}
           </div>
@@ -414,7 +353,6 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
         </section>
       )}
     </main>
-    </ChatThreadContext.Provider>
   );
 }
 
@@ -750,7 +688,7 @@ const styles: Record<string, React.CSSProperties> = {
     color: "var(--on-bg-soft)",
     borderRadius: "var(--radius-pill)",
     // Type and side padding ease down with the viewport so a long word
-    // ("appointment") still fits a phone-width tab unbroken.
+    // ("testimonials") still fits a phone-width tab unbroken.
     padding: "8px clamp(6px, 2vw, 12px)",
     fontSize: "clamp(12.5px, 3.4vw, 14px)",
     fontWeight: 600,

@@ -111,7 +111,6 @@ export async function* runTask(input: {
         yield { kind: "text", chunk: event.v, first: firstChunk };
         firstChunk = false;
       } else if (event.t === "card") {
-        // A cart change is for the visitor's page; a calling agent has no cart.
         const artifact = cardArtifact(taskId, cards++, event.v);
         artifacts.push(artifact);
         parts.push({ data: event.v, mediaType: "application/json" });

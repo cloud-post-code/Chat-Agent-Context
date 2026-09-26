@@ -2,9 +2,6 @@ import type { User } from "@prisma/client";
 import { prisma, getProfile, getPersonaConfig, getThemeConfig } from "@/lib/db";
 import { safeJson } from "@/lib/util";
 import { safePersonaSections } from "@/lib/persona";
-import { getBookingConfig } from "@/lib/appointments";
-import { listOrders } from "@/lib/orders";
-import { listServices, listStaff, listLocations, getBookingSettings, listBookings } from "@/lib/booking/store";
 import { isOperator, listAccounts } from "@/lib/accountAdmin";
 import { listDirectives } from "@/lib/directives";
 import { listAddressBook } from "@/lib/addressBook";
@@ -20,7 +17,7 @@ import { chatMetrics } from "@/lib/activity";
 /** Everything the admin panels read, in two batches. `AdminData` is the shape every panel takes. */
 export async function loadAdminData(
   user: User,
-  query: { error?: string; gmail?: string; booking?: string } = {},
+  query: { error?: string; gmail?: string } = {},
 ) {
   const [
     profile,
@@ -42,8 +39,6 @@ export async function loadAdminData(
     ruleRows,
     addressBook,
     gmail,
-    bookingConfig,
-    orders,
   ] = await Promise.all([
       getProfile(user.id),
       getPersonaConfig(user.id),
@@ -85,20 +80,8 @@ export async function loadAdminData(
       listDirectives(user.id, "rule"),
       listAddressBook(user.id),
       gmailStatus(user.id),
-      getBookingConfig(user.id),
-      listOrders(user.id).catch(() => []),
     ]);
   const metrics = chatMetrics(chatSessions);
-  // The Booking section's own data — a separate fetch from the big
-  // Promise.all above because lib/booking/store.ts is a sibling feature's
-  // module, kept apart so this block reads as one unit.
-  const [services, staffList, locationList, bookingSettings, bookings] = await Promise.all([
-    listServices(user.id),
-    listStaff(user.id),
-    listLocations(user.id),
-    getBookingSettings(user.id),
-    listBookings(user.id),
-  ]);
   // Operator-only: account rows are fetched (and the Users tab rendered) for
   // operators alone; the actions re-check the gate on every call.
   const operator = await isOperator(user);
@@ -127,14 +110,7 @@ export async function loadAdminData(
     ruleRows,
     addressBook,
     gmail,
-    bookingConfig,
-    orders,
     metrics,
-    services,
-    staffList,
-    locationList,
-    bookingSettings,
-    bookings,
     operator,
     accounts,
     colors,

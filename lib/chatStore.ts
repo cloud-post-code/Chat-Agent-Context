@@ -17,22 +17,12 @@
 import type { UiBlock } from "@/app/cards/Cards";
 
 export type StoredMsg = {
-  /** Stable id, so a card can rewrite its own line later. Absent on messages from before ids existed. */
+  /** Stable id (the React key and the stream's target). Absent on messages from before ids existed. */
   id?: string;
   role: "user" | "assistant";
   content: string;
   cards?: UiBlock[];
-  /** Transient: type the content in letter by letter and show the cards after. Never saved. */
-  typed?: boolean;
 };
-
-/** A message as it is saved: the transient `typed` flag never survives a reload. */
-function stripTransient(m: StoredMsg): StoredMsg {
-  if (!("typed" in m)) return m;
-  const { typed, ...rest } = m;
-  void typed;
-  return rest;
-}
 
 export type ChatMeta = {
   id: string;
@@ -115,7 +105,7 @@ export function saveChat(
   messages: StoredMsg[],
   now: number = Date.now(),
 ): void {
-  storage.setItem(chatKey(slug, id), JSON.stringify(messages.map(stripTransient)));
+  storage.setItem(chatKey(slug, id), JSON.stringify(messages));
   const rest = listChats(storage, slug).filter((c) => c.id !== id);
   const index = [{ id, title: chatTitle(messages), updatedAt: now }, ...rest].sort(
     (a, b) => b.updatedAt - a.updatedAt,

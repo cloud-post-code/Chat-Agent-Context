@@ -1,13 +1,7 @@
-import type { ProjectCard, PhotoCard, ServiceCard, CustomElement } from "./cards.types";
+import type { ProjectCard, PhotoCard, CustomElement } from "./cards.types";
 import { str } from "@/lib/util/text";
-import type { FieldConfig, FieldRole, FieldType } from "./appointmentTypes";
 import { prisma } from "./db";
-import { onboardingIngestKind } from "./ingestionSources";
 import { safeTags } from "./knowledge";
-import { SERVICES_SOURCE_TITLE, parseServiceCatalog, priceFromText } from "./serviceCatalog";
-import { getBookingFlow } from "./booking/store";
-import { formatDuration, pricingLabel, type BookingFlow } from "./booking/types";
-import type { CartBlock, MenuBlock } from "./menu";
 import {
   filterPhotos,
   isEmptyPhotoFilter,
@@ -16,56 +10,25 @@ import {
   type PhotoFilter,
   type PhotoMeta,
 } from "./photoIndex";
-import {
-  filterProjects,
-  filterServices,
-  isEmptyProjectFilter,
-  isEmptyServiceFilter,
-  priceAmountFromLabel,
-  similarServices,
-  type ProjectFilter,
-  type ServiceFilter,
-  type ServiceMeta,
-} from "./serviceIndex";
+import { filterProjects, isEmptyProjectFilter, type ProjectFilter } from "./projectIndex";
 import type { SocialBlock } from "./social";
 
-export type { CartBlock, MenuBlock } from "./menu";
 export type { SocialBlock } from "./social";
-export { filterPhotos, isEmptyPhotoFilter, photoIndexLines, tagVocabulary } from "./photoIndex";
-export type { PhotoFilter, PhotoMeta } from "./photoIndex";
-export {
-  filterProjects,
-  filterServices,
-  isEmptyProjectFilter,
-  isEmptyServiceFilter,
-  serviceIndexLines,
-  similarServices,
-} from "./serviceIndex";
-export type { ProjectFilter, ServiceFilter, ServiceMeta } from "./serviceIndex";
 
 /**
  * Shapes the data the A2UI cards render. The chat route calls these to hydrate
  * the tool blocks Claude emits (show_projects / show_project / show_gallery /
- * show_services / show_booking / show_social) into concrete payloads the
- * frontend renders as cards.
+ * show_contact_form / show_social) into concrete payloads the frontend
+ * renders as cards.
  *
- * The composable elements (gallery/services/projects/booking) all take an
- * `input` bag straight from the model's tool call: an empty/no-op filter
- * means "everything" (the old whole-card behavior canned rows still rely
- * on), a non-empty filter that matches nothing means "no card" (null), and
- * a matching filter narrows the card AND — for services — the booking flow
- * riding inside it, so a focused card's Book button never reopens the full
- * list.
+ * The composable elements (gallery/projects) take an `input` bag straight
+ * from the model's tool call: an empty/no-op filter means "everything" (the
+ * old whole-card behavior canned rows still rely on), a non-empty filter that
+ * matches nothing means "no card" (null), and a matching filter narrows the
+ * card.
  */
 
-/**
- * What a services card needs to book from: the form's fields, and the full
- * booking flow (services, staff, locations, rules) the card books through
- * with the tapped service already chosen.
- */
-export type ServiceBooking = { fields: BookingField[]; flow: BookingFlow | null };
-
-export type { ProjectCard, PhotoCard, ServiceCard, CustomElement, SocialItem } from "./cards.types";
+export type { ProjectCard, PhotoCard, CustomElement, SocialItem } from "./cards.types";
 
 export type UiBlock =
   | { type: "projects"; title?: string; items: ProjectCard[] }
@@ -79,24 +42,6 @@ export type UiBlock =
   // iframe's px height, since a sandboxed document can't report its own.
   | { type: "html"; html: string; height?: number }
   | { type: "contact" }
-  // The tenant's services, read from the knowledge onboarding saved. `booking`
-  // rides in the block when appointments are on, so each service opens the
-  // wizard with itself already chosen; null draws the list with no Book button.
-  // `focusIds` marks which items are the visitor's actual ask when the card
-  // also carries "similar" neighbours, so the renderer can show those first
-  // and bigger, the rest under a "Similar" label.
-  | { type: "services"; title?: string; focusIds?: string[]; items: ServiceCard[]; booking: ServiceBooking | null }
-  // The booking conversation: the business's own steps and questions. The
-  // fields ride in the block so the card asks exactly what the tenant
-  // configured at the moment it was drawn. `flow` is the full booking flow
-  // (services, staff, locations, rules); null on an old stored sample, which
-  // the card fetches before drawing itself.
-  | { type: "booking"; fields: BookingField[]; flow: BookingFlow | null }
-  // The menu — the whole thing grouped by section, or a curated list — and the
-  // cart that every menu card feeds. Hydrated in lib/menu.ts; the cart's lines
-  // live with the visitor, so the cart block carries only how to check out.
-  | MenuBlock
-  | CartBlock
   // The business's own social links, filterable to specific platforms.
   // Owned by lib/social.ts; re-exported here rather than redefined.
   | SocialBlock;
@@ -133,7 +78,7 @@ function sanitizeIds(v: unknown): string[] | undefined {
  * All of the tenant's projects, or the ones a filter names (ids, tags, free
  * text). Null when a non-empty filter matches nothing — no card, the model
  * answers in words. `input.title` overrides the plain "everything" case; it
- * has no default when a filter is given, same as gallery/services.
+ * has no default when a filter is given, same as the gallery.
  */
 export async function allProjectsBlock(
   userId: string,
@@ -165,147 +110,6 @@ export async function singleProjectBlock(userId: string, id: string): Promise<Ui
 /** The contact form. */
 export async function contactBlock(): Promise<UiBlock> {
   return { type: "contact" };
-}
-
-/**
- * One wizard question as the card receives it. `config` is what makes the
- * card draw the right control: a choice question's options (a menu, when they
- * carry prices) or a number's bounds — empty for the text types.
- */
-export type BookingField = {
-  key: string;
-  label: string;
-  type: FieldType;
-  required: boolean;
-  config: FieldConfig;
-  /** Which answer is the customer's name/email/phone (FIELD_ROLES). */
-  role: FieldRole;
-  /** Fields sharing a screen are asked together, in order. */
-  screen: number;
-};
-
-/**
- * The booking block, hydrated from the live flow in one read. Null when
- * booking is disabled, or when there is nothing to ask and nothing to sell —
- * the guard that keeps a stale canned answer (or a model that saw the tool a
- * moment ago) from drawing a broken booker. The fields are every field the
- * form asks, role-tagged and screen-grouped, so the card walks the
- * business's own form; the flow carries the order.
- *
- * `preselect` is a service id the visitor already named — show_booking's
- * `service` input, resolved by brain.ts — carried into the flow's
- * `preselect.serviceId` so the card can skip straight past the service step.
- */
-export async function bookingBlock(userId: string, preselect?: string | null): Promise<UiBlock | null> {
-  const flowResult = await getBookingFlow(userId, { preselectServiceId: preselect ?? null });
-  if (!flowResult) return null;
-  const fields: BookingField[] = flowResult.fields.map((f) => ({
-    key: f.key,
-    label: f.label,
-    type: f.type,
-    required: f.required,
-    config: f.config,
-    role: f.role,
-    screen: f.screen,
-  }));
-  if (fields.length === 0 && flowResult.flow.services.length === 0) return null;
-  return { type: "booking", fields, flow: flowResult.flow };
-}
-
-/** The tenant's services as saved knowledge; empty when none are on file. */
-export async function listServices(userId: string): Promise<ServiceCard[]> {
-  // The sweep files its pages under the same `ingest:services` mark, so the
-  // title is what singles out the catalog. Newest wins if a re-onboard against
-  // a moved site left an older copy behind.
-  const source = await prisma.source.findFirst({
-    where: { userId, kind: onboardingIngestKind("services"), title: SERVICES_SOURCE_TITLE },
-    orderBy: { updatedAt: "desc" },
-    select: { id: true, rawText: true },
-  });
-  if (!source) return [];
-  return parseServiceCatalog(source.rawText).map((s, i) => ({
-    id: `${source.id}:${i}`,
-    name: s.name,
-    description: s.description,
-  }));
-}
-
-/** A ServiceCard's own price, in serviceIndex's numeric form, for filtering/similarity. */
-function servicePriceAmount(c: ServiceCard): number | null {
-  return c.priceLabel ? priceAmountFromLabel(c.priceLabel) : null;
-}
-
-function toServiceMeta(c: ServiceCard): ServiceMeta {
-  return {
-    id: c.id,
-    name: c.name,
-    description: c.description,
-    category: c.category,
-    priceLabel: c.priceLabel,
-    priceAmount: servicePriceAmount(c),
-  };
-}
-
-/**
- * The services card, hydrated from the live booking flow when it has any
- * services (real Service rows, or the legacy bridge's derived ones — either
- * way richer: image, price label, duration, category), else the plain
- * knowledge catalog as before (its price derived with priceFromText, same as
- * serviceIndexLines, so a price still shows). Null when neither has
- * anything on file, or a non-empty filter matches nothing: nothing is drawn
- * and the model answers in words, rather than a visitor being shown an empty
- * price list.
- *
- * `input.similar` (0-4) appends the closest other services to the filtered
- * focus (see similarServices).
- */
-export async function servicesBlock(
-  userId: string,
-  input: Record<string, unknown> = {},
-): Promise<UiBlock | null> {
-  const [catalogItems, booking] = await Promise.all([listServices(userId), bookingBlock(userId)]);
-  const flow = booking?.type === "booking" ? booking.flow : null;
-  const allItems: ServiceCard[] = flow?.services.length
-    ? flow.services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description,
-        imageUrl: s.imageUrl,
-        priceLabel: pricingLabel(s.pricing, flow.business.currency),
-        duration: formatDuration(s.durationMinutes),
-        category: s.category,
-      }))
-    : catalogItems.map((c) => ({ ...c, priceLabel: priceFromText(c.description) || undefined }));
-  if (!allItems.length) return null;
-
-  const filter: ServiceFilter = {
-    ids: sanitizeIds(input.ids),
-    category: typeof input.category === "string" ? input.category : undefined,
-    query: typeof input.query === "string" ? input.query : undefined,
-    limit: typeof input.limit === "number" ? input.limit : undefined,
-  };
-  const isEmpty = isEmptyServiceFilter(filter);
-  const meta = allItems.map(toServiceMeta);
-  const focusMeta = filterServices(meta, filter);
-  if (!isEmpty && focusMeta.length === 0) return null;
-
-  const similarN = typeof input.similar === "number" ? Math.max(0, Math.min(4, Math.floor(input.similar))) : 0;
-  const similarMeta = similarN > 0 && focusMeta.length ? similarServices(meta, focusMeta, similarN).items : [];
-
-  const byId = new Map(allItems.map((c) => [c.id, c]));
-  const combined = [...focusMeta, ...similarMeta];
-  const items = combined.map((m) => byId.get(m.id)).filter((c): c is ServiceCard => !!c);
-
-  const focusIds = !isEmpty ? focusMeta.map((m) => m.id) : undefined;
-  const title = str(input.title, MAX_TITLE) || undefined;
-  const fields = booking?.type === "booking" ? booking.fields : null;
-  return {
-    type: "services",
-    title,
-    focusIds,
-    items,
-    booking: fields ? { fields, flow } : null,
-  };
 }
 
 /** The owner's curated photos for the public home screen's bottom strip. */

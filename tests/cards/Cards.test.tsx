@@ -20,16 +20,6 @@ describe("Cards", () => {
     expect(html.match(/<img /g)).toHaveLength(3);
     expect(html).not.toMatch(/aria-label="(Next|Previous)/);
   });
-  it("services: focus items first, then a Similar label", () => {
-    const html = render({
-      type: "services",
-      focusIds: ["gel"],
-      items: [{ id: "gel", name: "Gel manicure", description: "", priceLabel: "$45" }, { id: "acrylic", name: "Acrylic set", description: "" }],
-      booking: null,
-    });
-    expect(html.indexOf("Gel manicure")).toBeLessThan(html.indexOf("Acrylic set"));
-    expect(html).toContain("Similar");
-  });
   it("contact, custom, html and social", () => {
     expect(render({ type: "contact" })).toContain("Leave your details");
     const custom = render({ type: "custom", title: "Hours", elements: [{ kind: "heading", text: "Open late" }, { kind: "list", items: ["Mon 9-5"] }, { kind: "buttons", items: [{ label: "Call", url: "tel:1" }] }] });

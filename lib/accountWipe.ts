@@ -7,10 +7,9 @@ import { deleteUpload, UPLOAD_FILENAME } from "@/lib/uploads";
  * Everything onboarding or the dashboard populated goes: knowledge (sources,
  * chunks and the entity graph hanging off them), photos, projects, chat
  * history, canned answers, directives, UI cards, ingestion sources and their
- * item classifications, address book, contacts, A2A tasks, persona, theme,
- * the whole booking domain (services, staff, locations, settings, form fields,
- * appointments), menu items and orders. The profile is blanked rather than
- * dropped. The login itself and the Gmail connection (GmailAuth) are kept.
+ * item classifications, address book, contacts, A2A tasks, persona and theme.
+ * The profile is blanked rather than dropped. The login itself and the Gmail
+ * connection (GmailAuth) are kept.
  *
  * Uploaded files are removed from the volume too. Filenames are collected
  * BEFORE the rows go (the rows are the only record of which files are ours)
@@ -37,14 +36,6 @@ export async function wipeAccountContent(userId: string): Promise<{ filesDeleted
     prisma.addressBookEntry.deleteMany(where),
     prisma.contact.deleteMany(where),
     prisma.a2ATask.deleteMany(where),
-    prisma.appointment.deleteMany(where),
-    prisma.appointmentField.deleteMany(where),
-    prisma.service.deleteMany(where),
-    prisma.staffMember.deleteMany(where),
-    prisma.bookingLocation.deleteMany(where),
-    prisma.bookingSettings.deleteMany(where),
-    prisma.menuItem.deleteMany(where),
-    prisma.order.deleteMany(where),
     prisma.personaConfig.deleteMany(where),
     prisma.themeConfig.deleteMany(where),
     prisma.profile.upsert({
@@ -52,7 +43,7 @@ export async function wipeAccountContent(userId: string): Promise<{ filesDeleted
       update: {
         company_name: "", owner_name: "", company_address: "",
         company_phone_number: "", company_email: "", company_hours: "",
-        social_links: "[]", bookingEnabled: true,
+        social_links: "[]",
       },
       create: { userId },
     }),
@@ -69,45 +60,33 @@ export async function wipeAccountContent(userId: string): Promise<{ filesDeleted
 const UPLOAD_URL = /\/api\/uploads\/([a-f0-9-]+\.(?:jpg|png|webp|gif|pdf))/gi;
 
 /**
- * Every stored upload this account's rows point at. Three columns hold a bare
- * filename (Photo, Service image, StaffMember photo); everything else — logo,
- * project image, card samples, menu item data, chat messages, canned-answer
- * card input, booking configs — carries a `/api/uploads/<name>` URL inside a
- * string or JSON blob. Scanning each row's serialized form for that URL means
- * a new column that stores an upload the same way is covered without an edit
- * here. Filenames are per-upload UUIDs, so nothing found is shared with
- * another account.
+ * Every stored upload this account's rows point at. Photo holds a bare
+ * filename; everything else — logo, project image, card samples, chat
+ * messages, canned-answer card input, ingestion source config — carries a
+ * `/api/uploads/<name>` URL inside a string or JSON blob. Scanning each row's
+ * serialized form for that URL means a new column that stores an upload the
+ * same way is covered without an edit here. Filenames are per-upload UUIDs,
+ * so nothing found is shared with another account.
  */
 async function collectUploadFilenames(userId: string): Promise<Set<string>> {
   const where = { where: { userId } };
-  const [photos, services, staff, rows] = await Promise.all([
+  const [photos, rows] = await Promise.all([
     prisma.photo.findMany({ ...where, select: { filename: true } }),
-    prisma.service.findMany({ ...where, select: { imageFilename: true, config: true } }),
-    prisma.staffMember.findMany({ ...where, select: { photoFilename: true, config: true } }),
     Promise.all([
       prisma.personaConfig.findMany(where),
       prisma.project.findMany(where),
       prisma.uiCard.findMany(where),
-      prisma.menuItem.findMany(where),
       prisma.cannedAnswer.findMany(where),
       prisma.agentDirective.findMany(where),
-      prisma.bookingSettings.findMany(where),
-      prisma.bookingLocation.findMany(where),
       prisma.ingestionSource.findMany(where),
       prisma.chatMessage.findMany({ where: { session: { userId } }, select: { content: true } }),
     ]),
   ]);
 
   const found = new Set<string>();
-  const bare = [
-    ...photos.map((p) => p.filename),
-    ...services.map((s) => s.imageFilename),
-    ...staff.map((s) => s.photoFilename),
-  ];
-  for (const name of bare) if (name && UPLOAD_FILENAME.test(name)) found.add(name);
+  for (const p of photos) if (p.filename && UPLOAD_FILENAME.test(p.filename)) found.add(p.filename);
 
-  const blobs = [...services, ...staff, ...rows.flat()];
-  for (const row of blobs) {
+  for (const row of rows.flat()) {
     for (const m of JSON.stringify(row).matchAll(UPLOAD_URL)) found.add(m[1]);
   }
   return found;
