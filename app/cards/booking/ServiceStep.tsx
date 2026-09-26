@@ -3,10 +3,21 @@
 import { useMemo, useState } from "react";
 import type { BookingFlow, BookingSelection, ServiceRow } from "@/lib/booking/types";
 import { effectivePricing, formatDuration, formatMoney, MODE_LABELS, pricingLabel } from "@/lib/booking/types";
-import { Badge, Chip, chipRow, inputStyle, linkBtn, liveBtn, optionRow, picked, PlaceholderImage, sectionLabel, stepBtn, Tile, tileGrid } from "./ui";
+import { Badge, inputStyle, linkBtn, liveBtn, optionRow, picked, sectionLabel, stepBtn, Tile, tileGrid } from "./ui";
 
 /** Past this many services, a search box appears above the grid. */
 const SEARCH_OVER = 8;
+
+/**
+ * Photos are drawn only when every service on offer has one of its own, so a
+ * picture always points at exactly one service. A menu where some services
+ * have photos and others don't gets none: a half-illustrated grid (or a
+ * placeholder standing in) reads as if the pictured ones were the real
+ * offer, and a photo beside a gap draws a connection that isn't there.
+ */
+function showServiceImages(services: ServiceRow[]): boolean {
+  return services.length > 0 && services.every((s) => !!s.imageUrl);
+}
 
 /**
  * A step's controls all sit in one fieldset: `locked` disables every input,
@@ -33,7 +44,11 @@ export function ServiceStep({
   const [detailId, setDetailId] = useState<string | null>(null);
 
   const enabledServices = useMemo(() => flow.services.filter((s) => s.enabled), [flow.services]);
-  const categories = ["All", ...flow.categories];
+  const withImages = showServiceImages(enabledServices);
+  // The categories come from the services themselves (the menu headings the
+  // business's own site lists them under), so a categorised site is a
+  // categorised menu here with nothing for the owner to set up.
+  const categories = flow.categories.filter((c) => enabledServices.some((s) => s.category === c));
   const filtered = enabledServices.filter((s) => {
     if (category !== "All" && s.category !== category) return false;
     if (query.trim() && !s.name.toLowerCase().includes(query.trim().toLowerCase())) return false;
@@ -47,6 +62,7 @@ export function ServiceStep({
         <ServiceDetail
           service={detail}
           flow={flow}
+          withImage={withImages}
           onBack={() => setDetailId(null)}
           locked={locked}
           onChoose={() => {
@@ -70,14 +86,22 @@ export function ServiceStep({
           </a>
         </p>
       )}
-      {categories.length > 1 && (
-        <div aria-label="Categories" style={chipRow}>
+      {categories.length > 0 && (
+        // One dropdown rather than a row of chips: a long menu's categories
+        // would wrap to several lines and push the services below the fold.
+        <select
+          value={category}
+          onChange={(e) => setCategory(e.target.value)}
+          aria-label="Category"
+          style={{ ...inputStyle, marginBottom: 10 }}
+        >
+          <option value="All">All categories</option>
           {categories.map((c) => (
-            <Chip key={c} selected={category === c} onClick={() => setCategory(c)}>
+            <option key={c} value={c}>
               {c}
-            </Chip>
+            </option>
           ))}
-        </div>
+        </select>
       )}
       {enabledServices.length > SEARCH_OVER && (
         <input
@@ -95,6 +119,7 @@ export function ServiceStep({
             key={s.id}
             service={s}
             currency={flow.business.currency}
+            withImage={withImages}
             selected={selection.serviceId === s.id}
             onClick={() => setDetailId(s.id)}
           />
@@ -108,41 +133,29 @@ export function ServiceStep({
 function ServiceTile({
   service,
   currency,
+  withImage,
   selected,
   onClick,
   disabled = false,
 }: {
   service: ServiceRow;
   currency: string;
+  /** True only when every service in the grid has a photo (showServiceImages). */
+  withImage: boolean;
   selected: boolean;
   onClick: () => void;
   disabled?: boolean;
 }) {
   const pricing = effectivePricing(service, null);
   const modesToShow = service.modes.filter((m) => m !== "in_person");
-  const letter = (service.name[0] || "?").toUpperCase();
   return (
     <Tile selected={selected} onClick={onClick} ariaLabel={service.name} role="button" disabled={disabled}>
-      <div
-        style={{
-          aspectRatio: "4 / 3",
-          overflow: "hidden",
-          borderRadius: "var(--radius-sm) var(--radius-sm) 0 0",
-          background: "var(--bg)",
-        }}
-      >
-        {service.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={service.imageUrl}
-            alt=""
-            loading="lazy"
-            style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }}
-          />
-        ) : (
-          <PlaceholderImage letter={letter} radius="0" />
-        )}
-      </div>
+      {withImage && service.imageUrl && (
+        <div style={{ aspectRatio: "4 / 3", overflow: "hidden", borderRadius: "var(--radius-sm) var(--radius-sm) 0 0" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={service.imageUrl} alt="" loading="lazy" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
+        </div>
+      )}
       <div style={{ padding: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 600, fontFamily: "var(--font-heading)" }}>{service.name}</div>
         <div style={{ fontSize: 12, marginTop: 2 }}>{pricingLabel(pricing, currency)}</div>
@@ -163,6 +176,7 @@ function ServiceTile({
 function ServiceDetail({
   service,
   flow,
+  withImage,
   onBack,
   nextLabel,
   locked = false,
@@ -170,6 +184,8 @@ function ServiceDetail({
 }: {
   service: ServiceRow;
   flow: BookingFlow;
+  /** Same rule as the grid: a photo only when every service has one. */
+  withImage: boolean;
   /** Left out when earlier steps stay editable in the thread: no Back button. */
   onBack?: () => void;
   /** "Next" by default; a step already answered reads "Update". */
@@ -179,31 +195,20 @@ function ServiceDetail({
   onChoose: () => void;
 }) {
   const providers = flow.staff.filter((p) => p.enabled && (service.staffIds.length === 0 || service.staffIds.includes(p.id)));
-  const letter = (service.name[0] || "?").toUpperCase();
   const policy = service.cancellationPolicy || flow.rules.cancellationPolicy;
   return (
     <div>
       {onBack && (
-        <button type="button" onClick={onBack} style={linkBtn}>
+        <button type="button" onClick={onBack} style={{ ...linkBtn, marginBottom: 10 }}>
           Back to services
         </button>
       )}
-      <div
-        style={{
-          aspectRatio: "16 / 9",
-          overflow: "hidden",
-          borderRadius: "var(--radius-sm)",
-          background: "var(--bg)",
-          margin: "10px 0",
-        }}
-      >
-        {service.imageUrl ? (
-          // eslint-disable-next-line @next/next/no-img-element
+      {withImage && service.imageUrl && (
+        <div style={{ aspectRatio: "16 / 9", overflow: "hidden", borderRadius: "var(--radius-sm)", margin: "0 0 10px" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={service.imageUrl} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />
-        ) : (
-          <PlaceholderImage letter={letter} radius="var(--radius-sm)" />
-        )}
-      </div>
+        </div>
+      )}
       <strong style={{ fontSize: 16, fontFamily: "var(--font-heading)" }}>{service.name}</strong>
       <p style={{ fontSize: 13, marginTop: 4 }}>
         {pricingLabel(effectivePricing(service, null), flow.business.currency)} · {formatDuration(service.durationMinutes)}

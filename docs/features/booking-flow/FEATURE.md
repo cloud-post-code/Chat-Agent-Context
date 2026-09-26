@@ -38,7 +38,8 @@ they already have, inside the conversation, with images.
 Stated in [DESIGN.md](DESIGN.md), which is the contract every module was
 built against. In short:
 
-- **Service**: image tiles, category chips, search past eight, a detail view
+- **Service**: tiles (name, price, duration; a photo only when every service
+  has one), a category dropdown, search past eight, a detail view
   with add-ons, variants/packages, performers, eligibility, preparation,
   policy; "Free", "$45", "From $45", "$45–$80", "$45/hr", "$12/person",
   "$40/room", "Quote", "Varies" pricing; deposit and mode badges.
@@ -100,8 +101,16 @@ off the grid — all rejections with reasons.
 
 **Images from the tenant's own material first.** Onboarding matches each
 service and person to an image on the pages that describe them; the admin can
-upload; the gallery is the fallback; a themed placeholder is the last resort,
-so every tile has an image area.
+upload; the gallery is the fallback; a themed placeholder is the last resort.
+The service-picking step is the exception: its tiles and detail view draw
+photos only when every service on offer has one, so a picture always points
+at exactly one service; a menu where some services lack a photo gets no
+images at all, and never a placeholder.
+
+**Categories come from the services.** Each service carries the heading its
+own site lists it under (onboarding reads it; the owner can edit it). When any
+service has one, the step offers the categories as a single dropdown above the
+grid, "All categories" first; when none has one, there is no category control.
 
 **There is always a way to book.** The extractor reports how the site says
 one books. A business that books by phone (or email, or walk-in) but not

@@ -132,10 +132,11 @@ creates three throwaway users and deletes them at the end. **Zero model calls.**
    asked before the browser takes over and there is no step counter; no
    network needed; the business's number as a tap-to-call link ("Prefer to
    call?"); no preview banner for a visitor, one for the owner. The service
-   step opens with a tile per service — the imaged one draws its photo, the
-   others a placeholder; prices read as the business would say them;
-   durations, the deposit and mode badges; category chips; a finished
-   booking locks the card.
+   step opens with a tile per service — with one imaged service among
+   three, no tile draws an image or a placeholder; with every service
+   imaged, every tile draws its own photo; prices read as the business
+   would say them; durations, the deposit and mode badges; the services'
+   categories as one dropdown (no chips); a finished booking locks the card.
 2. An old stored block (no flow) renders nothing until the fetch — no crash,
    no question, no step counter — and when no flow comes back the one line
    says booking is unavailable.
@@ -153,7 +154,8 @@ creates three throwaway users and deletes them at the end. **Zero model calls.**
    answered; a locked step keeps its answers in view.
 
 ## Result
-190 assertions, all passing (2026-09-25). Rewritten for the picker-free form:
+191 assertions, all passing (2026-09-26; the service step draws photos only when every
+service has one, and its categories as a dropdown). Rewritten for the picker-free form:
 no default seeding, no `customerFields`, no legacy bridge — the form is the
 tenant's own, contact details are role-tagged fields, and a booking is
 `createBooking` alone. `tsc --noEmit` and `next lint` clean for the whole

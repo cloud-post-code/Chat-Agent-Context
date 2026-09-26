@@ -258,7 +258,11 @@ function ChatInner({ name, tagline, logo, starters, slug, photos = [] }: ChatPro
 
   return (
     <ChatThreadContext.Provider value={thread}>
-    <main style={styles.shell}>
+    {/* Once a conversation is open the shell is pinned to the viewport, so the
+        thread (flex: 1, overflow auto) is the thing that scrolls and auto-scroll
+        lands in it. The home screen keeps minHeight so a short viewport can
+        still scroll the page to the strip and footnote. */}
+    <main style={started ? styles.shellChat : styles.shell}>
       {showSidebarToggle && (
         <button
           onClick={() => setSidebarOpen(true)}
@@ -531,6 +535,7 @@ const STRIP_PHOTO_HEIGHT = "clamp(104px, 19vh, 184px)";
 
 const styles: Record<string, React.CSSProperties> = {
   shell: { minHeight: "100dvh", display: "flex", flexDirection: "column" },
+  shellChat: { height: "100dvh", display: "flex", flexDirection: "column", overflow: "hidden" },
 
   // ── Chat-history sidebar (overlay, so the centered layout is untouched) ──
   sidebarToggle: {
