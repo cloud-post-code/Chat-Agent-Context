@@ -421,11 +421,14 @@ export async function sectionD(check: Check, cheerio: typeof CheerioModule) {
   const serviceProps = { flow, selection: emptySelection(null, "America/New_York"), onPick: () => {} };
   const service = renderToStaticMarkup(React.createElement(ServiceStep, serviceProps));
   const $v = cheerio.load(service);
-  check("D1 the service step opens with a tile per service", $v("img").length === 1 && $v('[data-testid="placeholder-image"]').length === 2, `${$v("img").length} img, ${$v('[data-testid="placeholder-image"]').length} placeholders`);
-  check("D1 the imaged service draws its photo", $v("img").attr("src") === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg");
+  check("D1 the service step opens with a tile per service", $v('[role="button"]').length === 3, `${$v('[role="button"]').length} tiles`);
+  check("D1 one imaged service among three: no tile draws an image or a placeholder (photos only when every service has one)", $v("img").length === 0 && $v('[data-testid="placeholder-image"]').length === 0, `${$v("img").length} img, ${$v('[data-testid="placeholder-image"]').length} placeholders`);
+  const imagedFlow = { ...flow, services: flow.services.map((s, i) => ({ ...s, imageUrl: s.imageUrl ?? `/api/uploads/svc-${i}.jpg` })) };
+  const $i = cheerio.load(renderToStaticMarkup(React.createElement(ServiceStep, { ...serviceProps, flow: imagedFlow })));
+  check("D1 every service imaged: every tile draws its own photo, still no placeholder", $i("img").length === 3 && $i('[data-testid="placeholder-image"]').length === 0 && $i("img").first().attr("src") === "/api/uploads/0f1e2d3c-1111-2222-3333-444455556666.jpg", `${$i("img").length} img`);
   check("D1 prices read as the business would say them", service.includes("$45") && service.includes("From $80") && service.includes("Quote"));
   check("D1 durations and badges", service.includes("45 min") && service.includes("1 hr 30 min") && service.includes("Deposit") && service.includes(T.MODE_LABELS.mobile));
-  check("D1 category chips", ["All", "Hair", "Color", "Advice"].every((c) => $v("button").filter((_, b) => $v(b).text().trim() === c).length > 0));
+  check("D1 the services' own categories as one dropdown", $v('select[aria-label="Category"]').length === 1 && ["All categories", "Hair", "Color", "Advice"].every((c) => $v("option").filter((_, o) => $v(o).text().trim() === c).length === 1) && $v("button").filter((_, b) => $v(b).text().trim() === "Hair").length === 0);
   check("D1 the service card carries the phone line as well", $v('a[href^="tel:"]').length === 1);
   const $locked = cheerio.load(renderToStaticMarkup(React.createElement(ServiceStep, { ...serviceProps, locked: true })));
   check("D1 a finished booking locks the service card: tiles disabled, still in view", $locked("fieldset[disabled]").length === 1 && $locked('[role="button"]').length === 3);

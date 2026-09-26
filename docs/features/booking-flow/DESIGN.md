@@ -234,12 +234,14 @@ existing theme variables (`--surface`, `--on-surface`, `--primary`,
 `--on-primary`, `--border`, `--radius-*`, `--font-heading`); no new CSS files,
 no new dependencies. Images: `<img>` with `objectFit: cover`, a fixed aspect
 box, `loading="lazy"`, and a themed placeholder (initial letter on a
-`--primary`-tinted gradient) when `imageUrl` is null so every service tile has
-an image area. Mobile: single column under 480px.
+`--primary`-tinted gradient) when a provider's `photoUrl` is null. Service
+tiles are the exception: no placeholder, and photos only when every service
+has one. Mobile: single column under 480px.
 
-The service step is a grid of image tiles (name, price label, duration, mode
-badges, deposit badge) with category chips above and a search box past eight
-services; tapping a tile opens its detail (full description, add-ons,
+The service step is a grid of tiles (name, price label, duration, mode
+badges, deposit badge; a photo only when every enabled service has one, never
+a placeholder) with a category dropdown above when any service has a category
+("All categories" first) and a search box past eight services; tapping a tile opens its detail (full description, add-ons,
 variants, who performs it, eligibility, preparation, cancellation policy) with
 a "Choose" button. `preselect.serviceId` skips straight past the step.
 
