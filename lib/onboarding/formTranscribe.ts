@@ -75,16 +75,16 @@ Steps — one "steps" entry per screen, in screen order, "screen" = the screen's
 - "service": the screen's main content lists the business's services / treatments / menu items, usually with prices (tile lists of priced rows).
 - "provider": a list of people to book with, or an "Any available" choice.
 - "location": a choice of branch / location.
-- "time": a calendar and/or time slots.
+- "time": a calendar and/or time slots — a screen with a "- [calendar]" element (its options are the slots offered).
 - "questions": a screen of inputs the customer fills in. "title" is the screen's heading exactly as written.
-- "review": the final screen whose button books / submits / pays.
+- "review": the final screen whose button books / submits / pays. Every form that can be booked ends with one — when that screen is also the last questions screen, list both for it, "questions" first, then "review" with the same "screen". A screen with nothing to answer or pick that only goes on ("Your appointment … Back / Next") is not a review and not a step: leave it out.
 Never add a step the form doesn't show and never drop one it does. A screen that lists services AND a date picker is two steps in the order they appear. "title" is the screen's first heading as written, or "" when it has none.
 
 Fields — EVERY input on every "questions" screen, in on-screen order, "screen" = that screen's number:
 - "label": exactly as written on the form, with the required asterisk removed. Never rename, shorten, merge or reword.
 - "required": exactly as the form marks it (the line says "required"); otherwise false.
 - "type", one of ${FIELD_TYPES.join(", ")}:
-  - email input → "email"; tel input → "phone".
+  - email input → "email"; tel input → "phone". A plain text box whose label or placeholder asks for a phone number or an email address is "phone" / "email" too — the form asks for that, whatever the input's own type.
   - a single-line text box → "short_text"; a multi-line box (textarea) → "long_text".
   - a dropdown (select) or a radio group → "select"; a checkbox group → "multi_select".
   - a number input / a count (guests, people) → "number".
@@ -99,12 +99,13 @@ Fields — EVERY input on every "questions" screen, in on-screen order, "screen"
 - "role": "name" when the one field asks for the whole name ("Full Name", "Your name"); "first_name" / "last_name" for split names; "email"; "phone"; "notes" for a free-text notes / comments / special requests box; "policy" for the agreement checkbox; else "none".
 - "min" / "max" only for number when the form states them; otherwise 0.
 A "Service" / "Stylist" / "Location" dropdown INSIDE a questions screen is a question (type "select", role "none"), not a step.
+A box that searches or filters the screen's own list ("Search service", "Find a stylist") belongs to that list: never a field, and a screen with only such a box beside a menu or a list of names is that "service" / "provider" step, not "questions".
 
 "services": the names the service screens list, as written (drop the price). "staff": the names the provider screen lists. "anyStaffOffered": true when the provider screen offers an "any / anyone available" choice.
 
 "found": false when no screen has inputs, choices or a booking step (a page that only says "call us") — then every list is empty.
 
-Rules: NEVER add, rename, merge, reorder or drop anything. NEVER invent an option, a label, a placeholder or a required flag. When unsure between two types, prefer the one closest to the input's own type. Copy text exactly, including capitalization.
+Rules: NEVER add, rename, merge, reorder or drop anything. NEVER invent an option, a label, a placeholder or a required flag. When unsure between two types, prefer the one closest to the input's own type. Copy text exactly, including capitalization and punctuation (a curly apostrophe stays curly).
 
 Respond with ONLY this JSON, no other text:
 {"found":true,"steps":[{"kind":"","title":"","screen":0}],"fields":[{"label":"","type":"short_text","required":false,"options":[],"allowOther":false,"role":"none","screen":1,"placeholder":"","help":"","min":0,"max":0,"text":""}],"services":[],"staff":[],"anyStaffOffered":false}`;

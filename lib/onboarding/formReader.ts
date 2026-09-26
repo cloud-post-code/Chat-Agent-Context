@@ -1,7 +1,7 @@
 import type { ElementHandle, Frame, Page as BrowserPage } from "playwright";
 import type { Element } from "domhandler";
 import { BOOKING_HOSTS, FORM_HOSTS, isReadableUrl, isSafeExternalUrl } from "./bookingPage";
-import type { Crawler, Page } from "./crawl";
+import { pageDiagnostics, type Crawler, type Page } from "./crawl";
 
 /**
  * The business's own booking form, read as it renders: screen by screen,
@@ -17,7 +17,7 @@ import type { Crawler, Page } from "./crawl";
  */
 
 type SnapElement = {
-  tag: "input" | "select" | "textarea" | "radio_group" | "checkbox_group" | "checkbox" | "button" | "tile_list";
+  tag: "input" | "select" | "textarea" | "radio_group" | "checkbox_group" | "checkbox" | "button" | "tile_list" | "calendar";
   /** label[for] → aria-label → placeholder → wrapping <label> → nearest text above. */
   label: string;
   /** The input's own type attribute: text, email, tel, number, date, file… */
@@ -92,18 +92,55 @@ const LIB = String.raw`
   const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
   const PRICE = /[$£€]\s?\d/;
   const TILE_HEAD = /service|treatment|menu|staff|technician|stylist|therapist|provider|who|location|branch/i;
-  const REQ_TAIL = /\s*(\*+|\(required\))\s*$/i;
+  const REQ_TAIL = /\s*(\*+|\(\*\)|\(required\))\s*$/i;
+  // A blank-filling mask in a placeholder ("(___) ___-____"): a format hint, not the field's name.
+  const MASK = /\s*\(?_{2,}[\s()_\-\/.:]*/g;
   // Words on a control that commit a customer to something: never clicked,
   // whether on a button or a tile.
   const NEVER = /\b(book(ing)?( now| appointment)?|reserve|pay\w*|submit|place|complete|finish|send|confirm booking|confirm appointment|checkout|check out|purchase|buy|order|request|get (a )?quote|apply|register|sign ?up|subscribe|donate|rsvp|save|done|agree|accept)\b/i;
+  // Words on a button that steer rather than offer: a calendar's paging,
+  // going back, undoing — never a tile, never a way forward as a last resort.
+  const CONTROL = /^((next|previous|prev)\s+(month|year|week|day|page)|next|continue|proceed|back|previous|prev|cancel|close|clear|reset|reload|remove|delete|edit|change|ok|okay|done|add (more|another)\b.*)$/i;
+  // What an ancestor does to everything inside it, read once per script run:
+  // faded out (opacity 0 — a modal parked off-stage), or clipped to nothing
+  // (overflow hidden on a box with no height — a collapsed accordion panel).
+  // Boxes that scroll are not clipping: a customer can scroll to what's below.
+  const boxCache = new Map();
+  const hides = (a) => {
+    let h = boxCache.get(a);
+    if (h === undefined) {
+      const cs = getComputedStyle(a);
+      h = Number(cs.opacity) === 0;
+      const clips = (o) => o === "hidden" || o === "clip";
+      if (!h && (clips(cs.overflowX) || clips(cs.overflowY))) {
+        const r = a.getBoundingClientRect();
+        h = r.width === 0 || r.height === 0;
+      }
+      boxCache.set(a, h);
+    }
+    return h;
+  };
+  const hiddenAbove = (el) => {
+    for (let a = el.parentElement; a && a !== document.body && a !== document.documentElement; a = a.parentElement) {
+      if (hides(a)) return true;
+    }
+    return false;
+  };
   const isVisible = (el) => {
     if (!el || el.nodeType !== 1) return false;
     const cs = getComputedStyle(el);
-    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    if (cs.display === "none" || cs.visibility === "hidden" || Number(cs.opacity) === 0) return false;
     const r = el.getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
+    if (!(r.width > 0 && r.height > 0)) return false;
+    return !hiddenAbove(el);
   };
   const rect = (el) => el.getBoundingClientRect();
+  // The sheet or dialog an element sits in (a fixed-position ancestor), or
+  // null: what is inside one is read against the sheet, not the page under it.
+  const overlayOf = (el) => {
+    for (let a = el; a && a !== document.body; a = a.parentElement) if (getComputedStyle(a).position === "fixed") return a;
+    return null;
+  };
   const attr = (el, name) => norm(el.getAttribute(name));
   const role = (el) => attr(el, "role").toLowerCase();
   const typeOf = (el) => (el.tagName === "INPUT" ? norm(el.getAttribute("type") || "text").toLowerCase() : "");
@@ -147,6 +184,21 @@ const LIB = String.raw`
     };
     return grab(el.nextSibling, "nextSibling") || grab(el.previousSibling, "previousSibling");
   };
+  // An element's words as shown: text nodes under it whose elements are on
+  // screen — a collapsed panel's rows, clipped to nothing, are not its words.
+  // Stops early once past max, which callers treat as "too long anyway".
+  const visibleText = (el, max) => {
+    let out = "";
+    let n = 0;
+    const walk = (node) => {
+      if (out.length > max || ++n > 400) return;
+      if (node.nodeType === 3) { out += " " + node.nodeValue; return; }
+      if (node.nodeType !== 1 || !isVisible(node)) return;
+      for (const c of node.childNodes) walk(c);
+    };
+    for (const c of el.childNodes) walk(c);
+    return norm(out);
+  };
   const TEXTY = "h1,h2,h3,h4,h5,h6,p,span,div,label,legend,strong,b,dt,td,th,li,small,em";
   let textEls = null;
   const textCandidates = () => {
@@ -167,11 +219,13 @@ const LIB = String.raw`
   };
   // The nearest short text that starts at or above the element, within ~120px.
   // strict demands it sit wholly above (a group's caption, never a member's label).
-  const nearestAbove = (el, exclude, strict) => {
+  const nearestAboveInfo = (el, exclude, strict) => {
     const r = rect(el);
+    const scope = overlayOf(el);
     let best = null;
     for (const c of textCandidates()) {
       if (c.el === el || c.el.contains(el)) continue;
+      if (scope && !scope.contains(c.el)) continue;
       if (exclude && exclude.some((x) => x === c.el || x.contains(c.el))) continue;
       if (strict ? c.bottom > r.top + 8 : c.top > r.top + 4) continue;
       if (r.top - c.bottom > 120) continue;
@@ -179,10 +233,11 @@ const LIB = String.raw`
       if (!precedes(c.el, el)) continue;
       if (!best || c.bottom > best.bottom || (c.bottom === best.bottom && precedes(best.el, c.el))) best = c;
     }
-    return best ? best.t : "";
+    return best ? { t: best.t, dist: Math.max(0, r.top - best.bottom) } : null;
   };
-  const marked = (raw) => /\*\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
-  const strip = (raw) => norm(raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "")).slice(0, ${LABEL_CAP});
+  const nearestAbove = (el, exclude, strict) => { const n = nearestAboveInfo(el, exclude, strict); return n ? n.t : ""; };
+  const marked = (raw) => /(\*|\(\*\))\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
+  const strip = (raw) => norm(raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "").replace(MASK, " ")).slice(0, ${LABEL_CAP});
   const placeholderOf = (el) => (attr(el, "placeholder") || attr(el, "data-placeholder")).slice(0, ${PLACEHOLDER_CAP});
   const optionText = (o) => norm(o.textContent).slice(0, ${OPTION_CAP});
   const resolveLabel = (el, choice) => {
@@ -232,18 +287,63 @@ const LIB = String.raw`
     const raw = nearestAbove(members[0], exclude, true);
     return { label: strip(raw), marked: marked(raw) };
   };
+  // "I have read and agree to …" beside a small clickable thing that isn't a
+  // real checkbox: a widget's own agreement toggle. Read as a checkbox with
+  // those words; never ticked by the reader.
+  const AGREE = /^(i (have read and )?(agree|accept|acknowledge|consent|understand)\b|by (checking|ticking|signing)\b)/i;
+  const agreementRows = () => {
+    const out = [];
+    let n = 0;
+    for (const el of document.querySelectorAll("p, span, div, label, li")) {
+      if (++n > 4000) break;
+      if (el.children.length > 4 || !isVisible(el)) continue;
+      const t = norm(el.textContent);
+      if (t.length > 400 || !AGREE.test(t)) continue;
+      const parent = el.parentElement;
+      if (!parent || parent.querySelector("input[type=checkbox], input[type=radio], [role=checkbox], [role=radio]")) continue;
+      const toggle = [...parent.children].find((c) => c !== el && !c.contains(el) && precedes(c, el) && isVisible(c) && clickable(c) && rect(c).width <= 48 && rect(c).height <= 48);
+      if (!toggle) continue;
+      if (out.some((o) => o.el.contains(el) || el.contains(o.el))) continue;
+      out.push({ el, t, toggle });
+    }
+    return out;
+  };
   const headingEls = () => [...document.querySelectorAll("h1, h2, h3, h4, [role=heading], legend")].filter(isVisible);
   // The last heading before an element that ends above it.
-  const headingAbove = (el) => {
+  const headingAboveInfo = (el) => {
     const r = rect(el);
+    const scope = overlayOf(el);
     let best = null;
     for (const h of headingEls()) {
       if (h.contains(el) || !precedes(h, el)) continue;
+      if (scope && !scope.contains(h)) continue;
       const hr = rect(h);
       if (hr.bottom > r.top + 8 || r.top - hr.bottom > 600) continue;
       best = h;
     }
-    return best ? norm(best.textContent) : "";
+    return best ? { t: norm(best.textContent), dist: Math.max(0, r.top - rect(best).bottom) } : null;
+  };
+  const headingAbove = (el) => { const h = headingAboveInfo(el); return h ? h.t : ""; };
+  // What a list is called: the page's own words nearest above it — a heading
+  // when one is as close as any short text (a category's own name, a sheet's
+  // title), else that text, else the nearest heading further up.
+  const listLabel = (el) => {
+    const h = headingAboveInfo(el);
+    const n = nearestAboveInfo(el, null, true);
+    if (h && (!n || h.dist <= n.dist + 8)) return h.t;
+    return n ? n.t : "";
+  };
+  // A calendar's name: the words above it that aren't the grid's own
+  // furniture (weekday letters, a month, a year), looked for from the grid
+  // outwards.
+  const FURNITURE = /^(su|mo|tu|we|th|fr|sa|sun|mon|tue|wed|thu|fri|sat|[a-z]{3,9}\.? ?\d{4}|\d{4}|[a-z]{3,9})$/i;
+  const calendarLabel = (cell) => {
+    let anchor = cell;
+    for (let i = 0; i < 5 && anchor && anchor !== document.body; i++, anchor = anchor.parentElement) {
+      const t = listLabel(anchor);
+      if (t && !FURNITURE.test(t)) return t;
+    }
+    return "";
   };
   const isSelected = (el) =>
     el.matches('[aria-selected="true"], [aria-pressed="true"], [aria-checked="true"]') ||
@@ -258,17 +358,44 @@ const LIB = String.raw`
   };
   // Sibling clickables that read as a menu: priced, or under a heading naming
   // services / staff / locations. Each list carries its members for the caller.
+  // A tile a customer clicks through what's inside it: a row whose only
+  // clickable part is a child filling it, or that carries its own radio or
+  // checkbox — the row is what the customer sees and what gets picked.
+  // The one button a row is picked by ("Book" beside a name), or null.
+  const memberButton = (el) => {
+    const bs = el.querySelectorAll("button, [role=button], input[type=button], input[type=submit]");
+    if (bs.length !== 1) return null;
+    const b = bs[0];
+    return isVisible(b) && !isDisabled(b) && !submits(b) ? b : null;
+  };
+  const tileClickable = (el) => {
+    if (clickable(el)) return true;
+    if (el.querySelector("input[type=radio], input[type=checkbox], [role=radio], [role=checkbox]")) return true;
+    const r = rect(el);
+    for (const c of el.children) {
+      if (!clickable(c)) continue;
+      const cr = rect(c);
+      if (cr.width * cr.height >= r.width * r.height * 0.6) return true;
+    }
+    return false;
+  };
   const tileLists = () => {
     const groups = new Map();
     let n = 0;
     for (const el of document.querySelectorAll("a, button, li, div, [role=button], [role=option], [role=listitem]")) {
       if (++n > 5000) break;
       if (!el.parentElement || el.closest("nav, header, footer")) continue;
-      if (!isVisible(el) || !clickable(el)) continue;
-      const t = norm(el.innerText || el.textContent);
+      if (!isVisible(el)) continue;
+      const btn = memberButton(el);
+      if (!btn && !tileClickable(el)) continue;
+      let t = visibleText(el, 200);
+      // A button that steers (Next, Back, Add more…) is a control, never a tile.
+      if ((el.tagName === "BUTTON" || role(el) === "button") && CONTROL.test(t)) continue;
+      // The row's own words, without the button's ("Katherine", not "Katherine Book").
+      if (btn) t = norm(t.replace(buttonText(btn), ""));
       if (!t || t.length > 200) continue;
       const list = groups.get(el.parentElement) || [];
-      list.push({ el, t });
+      list.push({ el, t, btn });
       groups.set(el.parentElement, list);
     }
     const out = [];
@@ -277,10 +404,32 @@ const LIB = String.raw`
       if (members.length < 3) continue;
       if (taken.some((p) => p.contains(parent))) continue;
       const priced = members.filter((m) => PRICE.test(m.t)).length;
-      const heading = headingAbove(members[0].el);
-      if (priced < Math.ceil(members.length / 2) && !(heading && TILE_HEAD.test(heading))) continue;
+      // A menu-ish word counts only on a real heading: a tab strip or a
+      // caption that happens to say "Staff" makes no list of what's under it.
+      const realHeading = headingAbove(members[0].el);
+      // Every row carrying the same one-word button ("Book" beside each
+      // name) is a list picked by its buttons: no single one of three
+      // identical buttons can be the booking's own submit.
+      const word = members[0].btn ? buttonText(members[0].btn) : "";
+      const buttoned = !!word && members.every((m) => m.btn && buttonText(m.btn) === word);
+      if (priced < Math.ceil(members.length / 2) && !(realHeading && TILE_HEAD.test(realHeading)) && !buttoned) continue;
       taken.push(parent);
-      out.push({ parent, heading, members });
+      out.push({ parent, heading: listLabel(members[0].el), members, buttoned });
+    }
+    return out;
+  };
+  // Time slots as a page lists them ("9:15 AM"): short clickable texts with a clock time.
+  const slotEls = () => {
+    const TIME = /\b\d{1,2}:\d{2}\b/;
+    const out = [];
+    let n = 0;
+    for (const el of document.querySelectorAll("button, a, li, div, span, label, [role=option], [role=button], [role=radio]")) {
+      if (++n > 6000) break;
+      if (el.children.length > 2 || !isVisible(el) || !clickable(el)) continue;
+      const t = norm(el.textContent);
+      if (t.length > 24 || !TIME.test(t)) continue;
+      if (out.some((o) => o.el.contains(el))) continue;
+      out.push({ el, t });
     }
     return out;
   };
@@ -324,9 +473,12 @@ const LIB = String.raw`
   const cellEnabled = (c) => {
     const el = c.el;
     const target = el.closest("button, td, a, [role=gridcell], [role=button]") || el;
-    if (isDisabled(el) || isDisabled(target)) return false;
-    if (/(^|[\s_-])(disabled|past|unavailable|outside|other-?month|muted|inactive)([\s_-]|$)/i.test(el.className + " " + target.className)) return false;
-    return getComputedStyle(target).pointerEvents !== "none";
+    // A grid cell's one child often carries the day's state (a datepicker's inner cell).
+    const inner = el.children.length === 1 ? el.firstElementChild : el;
+    if (isDisabled(el) || isDisabled(target) || isDisabled(inner)) return false;
+    const names = el.className + " " + target.className + " " + inner.className;
+    if (/(^|[\s_-])(disabled|past|unavailable|outside|offset|other-?month|muted|inactive)([\s_-]|$)/i.test(names)) return false;
+    return getComputedStyle(target).pointerEvents !== "none" && getComputedStyle(inner).pointerEvents !== "none";
   };
 `;
 
@@ -382,12 +534,21 @@ const SNAPSHOT_BODY = String.raw`
         value: type === "password" ? "" : norm(el.value).slice(0, ${VALUE_CAP}), disabled });
     }
   }
+  for (const row of agreementRows()) {
+    push(row.el, { tag: "checkbox", label: strip(row.t), inputType: "checkbox", required: marked(row.t), value: isSelected(row.toggle) ? "checked" : "" });
+  }
   const tileMembers = new Set();
   for (const list of tileLists()) {
     list.members.forEach((m) => tileMembers.add(m.el));
     const selected = list.members.filter((m) => isSelected(m.el)).map((m) => m.t);
     push(list.members[0].el, { tag: "tile_list", label: list.heading, required: false,
       options: list.members.map((m) => m.t).slice(0, ${OPTIONS_CAP}), value: selected.join(" | ") });
+  }
+  // A month grid is a screen of its own kind: the calendar and the slots it
+  // offers, named by the text above it ("Select Date/Time").
+  const cells = calendarCells();
+  if (cells.length) {
+    push(cells[0].el, { tag: "calendar", label: calendarLabel(cells[0].el), required: false, options: slotEls().map((o) => o.t).slice(0, ${OPTIONS_CAP}) });
   }
   let buttons = 0;
   const seenBtn = new Set();
@@ -427,10 +588,16 @@ const SNAPSHOT_BODY = String.raw`
 
 /** The first tile when a tile list shows and nothing is picked yet — never one whose words commit ("Pay $25"). */
 const PLAN_TILE_BODY = String.raw`
+  const picked = new Set(__PICKED__);
   const lists = tileLists();
-  if (!lists.length || lists.some((l) => l.members.some((m) => isSelected(m.el)))) return { el: null, state: "" };
-  const pick = lists[0].members.find((m) => !NEVER.test(m.t));
-  return { el: pick ? pick.el : null, state: pick ? "tile" : "" };
+  // A list in an overlay (a "Select Staff" sheet over the menu) is the one
+  // in front of the customer; the menu behind it is done with.
+  const front = lists.filter((l) => !!overlayOf(l.members[0].el));
+  const pool = front.length ? front : lists;
+  if (!pool.length || pool.some((l) => l.members.some((m) => isSelected(m.el) || picked.has(m.t)))) return { el: null, state: "", text: "" };
+  const pick = pool[0].members.find((m) => !NEVER.test(m.t));
+  if (!pick) return { el: null, state: "", text: "" };
+  return { el: pool[0].buttoned ? pick.btn : pick.el, state: "tile", text: pick.t };
 `;
 
 /** Picks the first option of every required, still-empty radio group / select. Evaluates to a count. */
@@ -469,9 +636,21 @@ const FILL_CHOICES_BODY = String.raw`
 const PLAN_DAY_BODY = String.raw`
   const cells = calendarCells();
   if (!cells.length) return { el: null, state: "" };
-  if (cells.some((c) => isSelected(c.el) || isSelected(c.el.parentElement))) return { el: null, state: "selected" };
-  const todayAt = cells.findIndex((c) => /(^|[\s_-])today([\s_-]|$)/i.test(c.el.className + " " + (c.el.parentElement ? c.el.parentElement.className : ""))
-    || c.el.getAttribute("aria-current") === "date" || (c.el.parentElement && c.el.parentElement.getAttribute("aria-current") === "date"));
+  const cellSelected = (c) => isSelected(c.el) || isSelected(c.el.parentElement) || (c.el.children.length === 1 && isSelected(c.el.firstElementChild));
+  const selectedAt = cells.findIndex(cellSelected);
+  // LATER: the day already chosen offers nothing — the next enabled day after it.
+  if (__LATER__) {
+    const later = selectedAt >= 0 ? cells.slice(selectedAt + 1).find(cellEnabled) : null;
+    if (!later) return { el: null, state: "" };
+    return { el: later.el.closest("button, td, a, [role=gridcell], [role=button]") || later.el, state: "day" };
+  }
+  if (selectedAt >= 0) return { el: null, state: "selected" };
+  const todayAt = cells.findIndex((c) => {
+    const inner = c.el.children.length === 1 ? c.el.firstElementChild : c.el;
+    const names = c.el.className + " " + inner.className + " " + (c.el.parentElement ? c.el.parentElement.className : "");
+    return /(^|[\s_-])today([\s_-]|$)/i.test(names)
+      || [c.el, inner, c.el.parentElement].some((e) => e && e.getAttribute("aria-current") === "date");
+  });
   const dom = new Date().getDate();
   let pick = null;
   if (todayAt >= 0) pick = cells.slice(todayAt + 1).find(cellEnabled);
@@ -483,11 +662,8 @@ const PLAN_DAY_BODY = String.raw`
 
 /** The first enabled time slot ("9:15 AM"). */
 const PLAN_SLOT_BODY = String.raw`
-  const TIME = /\b\d{1,2}:\d{2}\b/;
-  for (const el of document.querySelectorAll("button, a, li, div, span, label, [role=option], [role=button], [role=radio]")) {
-    if (el.children.length > 2 || !isVisible(el) || !clickable(el) || isDisabled(el)) continue;
-    const t = norm(el.textContent);
-    if (t.length > 24 || !TIME.test(t) || isSelected(el)) continue;
+  for (const { el } of slotEls()) {
+    if (isDisabled(el) || isSelected(el)) continue;
     return { el, state: "slot" };
   }
   return { el: null, state: "" };
@@ -504,10 +680,18 @@ const PLAN_NEXT_BODY = String.raw`
   const GO = /^(next|continue|proceed|select|choose)\b/i;
   const GO2 = /^(select|choose|confirm|book) (service|staff|provider|time|date)/i;
   const DISMISS = /^(ok|okay|close|dismiss|got it)$/i;
+  // A calendar's own paging is not a way forward.
+  const PAGING = /^(next|previous|prev)\s+(month|year|week|day|page)\b/i;
+  // "Continue booking" goes on with the booking: behind a forward word, the
+  // booking word is the topic, not a commit. Any other committing word
+  // ("Next: Request quote") still refuses the button.
+  const FORWARD = /^(next|continue|proceed)\b/i;
+  const TOPIC = /\b(book(ing)?|appointments?|reserv(e|ation)|schedul(e|ing))\b/gi;
+  const commits = (t) => NEVER.test(t) && !(FORWARD.test(t) && !NEVER.test(t.replace(TOPIC, " ")));
   for (const b of buttonEls()) {
     if (!isVisible(b) || isDisabled(b) || submits(b)) continue;
     const t = buttonText(b);
-    if (!t || NEVER.test(t)) continue;
+    if (!t || PAGING.test(t) || commits(t)) continue;
     const inDialog = !!b.closest("dialog, [role=dialog], [role=alertdialog], [aria-modal=true]");
     if (!(GO.test(t) || GO2.test(t) || (inDialog && DISMISS.test(t)))) continue;
     return { el: b, state: t };
@@ -520,6 +704,27 @@ const PLAN_NEXT_BODY = String.raw`
  *  page answered but a client-rendered app hasn't painted its form yet. */
 const HAS_CONTENT_BODY = String.raw`
   return controls().length > 0 || tileLists().length > 0 || calendarCells().length > 0 || headingEls().length > 0;
+`;
+
+/**
+ * Last resort, tried only once every other plan has found nothing: the first
+ * enabled, visible button whose text doesn't read like a commitment (the
+ * same `NEVER` list `PLAN_NEXT` refuses) and that the browser wouldn't
+ * submit a form for. Some widgets show their menu as an accordion of plain
+ * category buttons — no shared parent for `tileLists()` to group, no
+ * "next"/"continue" wording for `PLAN_NEXT` to match, nothing to fill or
+ * pick — so a customer's only way forward is to click the category itself.
+ * Since this runs after every other plan came up empty, it can never
+ * preempt a real tile, choice, day, slot or Next button.
+ */
+const PLAN_EXPAND_BODY = String.raw`
+  for (const b of buttonEls()) {
+    if (!isVisible(b) || isDisabled(b) || submits(b)) continue;
+    const t = buttonText(b);
+    if (!t || NEVER.test(t) || CONTROL.test(t)) continue;
+    return { el: b, state: t };
+  }
+  return { el: null, state: "" };
 `;
 
 const COUNT_INPUTS = String.raw`(() => {
@@ -544,11 +749,12 @@ const MUTATION_COUNTER = String.raw`(() => {
 const script = (body: string) => `(() => {${LIB}\n${body}\n})()`;
 const SNAPSHOT = script(SNAPSHOT_BODY);
 const HAS_CONTENT = script(HAS_CONTENT_BODY);
-const PLAN_TILE = script(PLAN_TILE_BODY);
 const FILL_CHOICES = script(FILL_CHOICES_BODY);
-const PLAN_DAY = script(PLAN_DAY_BODY);
+const PLAN_DAY = script(PLAN_DAY_BODY.replace("__LATER__", "false"));
+const PLAN_LATER_DAY = script(PLAN_DAY_BODY.replace("__LATER__", "true"));
 const PLAN_SLOT = script(PLAN_SLOT_BODY);
 const PLAN_NEXT = script(PLAN_NEXT_BODY);
+const PLAN_EXPAND = script(PLAN_EXPAND_BODY);
 
 // ── Driving ────────────────────────────────────────────────────────────────
 
@@ -560,14 +766,15 @@ export async function hasVisibleContent(frame: Frame): Promise<boolean> {
   return (await frame.evaluate(HAS_CONTENT).catch(() => false)) as boolean;
 }
 
-/** What a screen IS, for telling one from the next: headings, labels, option counts. Buttons excluded — a slot list appearing is the same screen. */
+/** What a screen IS, for telling one from the next: headings, labels, option counts. Buttons and a calendar's slots excluded — a slot list appearing is the same screen. */
 export function fingerprint(s: Pick<Screen, "headings" | "elements">): string {
   return (
     s.headings.map((h) => h.slice(0, HEADING_CAP)).join("|") +
     "||" +
     s.elements
       .filter((e) => e.tag !== "button")
-      .map((e) => `${e.tag}:${e.label.slice(0, LABEL_CAP)}:${e.options?.length ?? 0}`)
+      // A calendar's slots come and go with the day picked; the grid itself is the screen.
+      .map((e) => `${e.tag}:${e.label.slice(0, LABEL_CAP)}:${e.tag === "calendar" ? 0 : (e.options?.length ?? 0)}`)
       .join("|")
   );
 }
@@ -578,9 +785,9 @@ export async function snapshotFrame(frame: Frame): Promise<Shot> {
   return { url: frame.url(), headings: raw.headings, elements: raw.elements, text: raw.text };
 }
 
-type Plan = { el: ElementHandle | null; state: string };
+type Plan = { el: ElementHandle | null; state: string; text: string };
 
-/** Run a plan script: the element it chose, as a handle the caller disposes, and its word. */
+/** Run a plan script: the element it chose, as a handle the caller disposes, its word, and (for a tile) the tile's text. */
 async function plan(frame: Frame, script: string): Promise<Plan> {
   const h = await frame.evaluateHandle(script);
   try {
@@ -588,11 +795,18 @@ async function plan(frame: Frame, script: string): Promise<Plan> {
     const el = elH.asElement();
     if (!el) await elH.dispose();
     const state = String((await (await h.getProperty("state")).jsonValue()) ?? "");
-    return { el, state };
+    const text = String((await (await h.getProperty("text")).jsonValue()) ?? "");
+    return { el, state, text };
   } finally {
     await h.dispose().catch(() => {});
   }
 }
+
+/** What one read has already picked, so a menu that stays on screen after a pick is not picked from twice. */
+export type ReadMemory = { picked: Set<string> };
+
+/** The tile plan with the read's own picks written in — as a JSON literal, never as a marker on the page. */
+const planTile = (memory: ReadMemory) => script(PLAN_TILE_BODY.replace("__PICKED__", JSON.stringify([...memory.picked].slice(0, 200))));
 
 /**
  * Click the element a plan chose, as a customer would: Playwright's own
@@ -616,7 +830,19 @@ async function mark(frame: Frame): Promise<number | null> {
   return (await frame.evaluate(MUTATION_COUNTER).catch(() => null)) as number | null;
 }
 
-/** Wait for the frame to react to an action taken after `before`: a DOM mutation, a navigation, or `ms`, then a beat for paint. */
+/** Nothing moved for this long: the page has finished reacting. */
+const QUIET_MS = 400;
+/** How long to keep listening after the page went quiet, for a reaction that
+ *  comes late — a sheet that opens only once a request the click started
+ *  has answered. */
+const LATE_MS = 1500;
+
+/**
+ * Wait for the frame to react to an action taken after `before`: the first
+ * DOM mutation, then quiet (no mutation for QUIET_MS and no request in
+ * flight), plus LATE_MS of listening for a late reaction — all within `ms`.
+ * With no counter (`before` null) it waits for a navigation to load instead.
+ */
 async function settle(frame: Frame, ms: number, before: number | null): Promise<void> {
   const page = frame.page();
   if (before === null) {
@@ -624,9 +850,23 @@ async function settle(frame: Frame, ms: number, before: number | null): Promise<
     await page.waitForLoadState("networkidle", { timeout: ms }).catch(() => {});
     return;
   }
-  await frame.waitForFunction(`window.__frMut > ${before}`, undefined, { timeout: ms }).catch(() => {});
-  await page.waitForTimeout(250);
-  await page.waitForLoadState("networkidle", { timeout: 1500 }).catch(() => {});
+  const deadline = Date.now() + ms;
+  const left = () => Math.max(1, deadline - Date.now());
+  await frame.waitForFunction(`window.__frMut > ${before}`, undefined, { timeout: left() }).catch(() => {});
+  let last = await mark(frame);
+  while (last !== null && Date.now() < deadline) {
+    await page.waitForTimeout(Math.min(QUIET_MS, left()));
+    await page.waitForLoadState("networkidle", { timeout: left() }).catch(() => {});
+    let now = await mark(frame);
+    if (now !== last) {
+      last = now;
+      continue;
+    }
+    await frame.waitForFunction(`window.__frMut > ${last}`, undefined, { timeout: Math.min(LATE_MS, left()) }).catch(() => {});
+    now = await mark(frame);
+    if (now === last) break;
+    last = now;
+  }
 }
 
 /**
@@ -638,7 +878,11 @@ async function settle(frame: Frame, ms: number, before: number | null): Promise<
  * form offers nothing more to do here. `halted` is asked before every action:
  * once it says so (the caller's clock ran out) nothing more is clicked.
  */
-export async function advanceFrame(frame: Frame, halted: () => boolean = () => false): Promise<string[]> {
+export async function advanceFrame(
+  frame: Frame,
+  halted: () => boolean = () => false,
+  memory: ReadMemory = { picked: new Set() },
+): Promise<string[]> {
   const actions: string[] = [];
   const start = fingerprint(await snapshotFrame(frame));
   const changed = async () => fingerprint(await snapshotFrame(frame)) !== start;
@@ -654,9 +898,11 @@ export async function advanceFrame(frame: Frame, halted: () => boolean = () => f
 
   if (halted()) return actions;
   let before = await mark(frame);
-  if (await act(await plan(frame, PLAN_TILE))) {
+  const tile = await plan(frame, planTile(memory));
+  if (await act(tile)) {
     actions.push("tile");
-    await settle(frame, 2500, before);
+    if (tile.text) memory.picked.add(tile.text);
+    await settle(frame, 4000, before);
     if (await changed()) return actions;
   }
   if (halted()) return actions;
@@ -677,7 +923,20 @@ export async function advanceFrame(frame: Frame, halted: () => boolean = () => f
   if (day.state === "day" || day.state === "selected") {
     if (halted()) return actions;
     before = await mark(frame);
-    if (await act(await plan(frame, PLAN_SLOT))) {
+    let slotTaken = await act(await plan(frame, PLAN_SLOT));
+    // A day the widget picked for us (today, say) may offer no slot that
+    // can still be taken; a customer would move to the next day that does.
+    if (!slotTaken && day.state === "selected" && !halted()) {
+      const later = await plan(frame, PLAN_LATER_DAY);
+      if (later.state === "day" && (await act(later))) {
+        actions.push("day");
+        await settle(frame, 2500, before);
+        if (halted()) return actions;
+        before = await mark(frame);
+        slotTaken = await act(await plan(frame, PLAN_SLOT));
+      }
+    }
+    if (slotTaken) {
       actions.push("slot");
       await settle(frame, 2500, before);
     }
@@ -689,6 +948,19 @@ export async function advanceFrame(frame: Frame, halted: () => boolean = () => f
   if (next.state && (await act(next))) {
     actions.push(`next:${next.state}`);
     await settle(frame, 4000, before);
+    return actions;
+  }
+  // Nothing to fill, pick or advance with: some widgets show their menu as
+  // an accordion of plain category buttons with no shared parent and no
+  // "next"-like wording, so the only way forward is the button itself.
+  if (!actions.length) {
+    if (halted()) return actions;
+    before = await mark(frame);
+    const expand = await plan(frame, PLAN_EXPAND);
+    if (expand.state && (await act(expand))) {
+      actions.push(`expand:${expand.state}`);
+      await settle(frame, 2500, before);
+    }
   }
   return actions;
 }
@@ -795,6 +1067,7 @@ export async function readBookingForm(
       // over from a prior pass), then walk screens until the form ends, the
       // clock runs out, or nothing changes twice in a row.
       const once = async (): Promise<FormSnapshot | null> => {
+        const memory: ReadMemory = { picked: new Set() };
         const screens: Screen[] = [];
         const seen = new Set<string>();
         let truncated = false;
@@ -842,7 +1115,7 @@ export async function readBookingForm(
             onEvent?.(`Booking form screen ${screens.length}: ${shot.headings[0] ?? "(no heading)"}`);
           }
           if (screens.length >= MAX_SCREENS) return isNew ? "new" : "same";
-          const actions = await advanceFrame(frame, halted);
+          const actions = await advanceFrame(frame, halted, memory);
           if (!actions.length) return "end";
           if (!safeHere(page.url())) return "unsafe";
           return isNew ? "new" : "same";
@@ -885,10 +1158,17 @@ export async function readBookingForm(
       // A page that answered but never showed anything a customer could act
       // on is more often a slow first paint than an actual empty form — one
       // more full reload, while there's still time left, before giving up.
+      // Either way the line says what the page's own requests ran into, so a
+      // blocked or failing widget is named rather than guessed at.
+      const why = () => {
+        const d = pageDiagnostics(page);
+        return d ? ` — ${d}` : "";
+      };
       if (first && snapshotIsEmpty(first) && Date.now() < deadline) {
-        onEvent?.("Booking page loaded but showed nothing yet — trying once more");
+        onEvent?.(`Booking page loaded but showed nothing yet${why()} — trying once more`);
         const second = await once();
         if (second && !snapshotIsEmpty(second)) return second;
+        onEvent?.(`Booking page showed nothing twice${why()}`);
       }
       return first;
     });
@@ -900,9 +1180,12 @@ export async function readBookingForm(
 
 // ── Static fallback ────────────────────────────────────────────────────────
 
-const REQ_TAIL = /\s*(\*+|\(required\))\s*$/i;
-const isMarked = (raw: string) => /\*\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
-const stripMark = (raw: string) => raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "").replace(/\s+/g, " ").trim().slice(0, LABEL_CAP);
+const REQ_TAIL = /\s*(\*+|\(\*\)|\(required\))\s*$/i;
+/** A blank-filling mask in a placeholder ("(___) ___-____"): a format hint, not the field's name. */
+const MASK = /\s*\(?_{2,}[\s()_\-\/.:]*/g;
+const isMarked = (raw: string) => /(\*|\(\*\))\s*$/.test(raw) || /\(required\)\s*$/i.test(raw) || /^\*/.test(raw);
+const stripMark = (raw: string) =>
+  raw.replace(/^\*+\s*/, "").replace(REQ_TAIL, "").replace(MASK, " ").replace(/\s+/g, " ").trim().slice(0, LABEL_CAP);
 const PRICE = /[$£€]\s?\d/;
 const TILE_HEAD = /service|treatment|menu|staff|technician|stylist|therapist|provider|who|location|branch/i;
 

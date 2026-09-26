@@ -27,7 +27,9 @@ function score(name: string, ok: boolean, detail?: string) {
   if (!ok) misses++;
   console.log(`  ${ok ? "MATCH" : "MISS "}  ${name}${detail ? ` — ${detail}` : ""}`);
 }
-const same = (a: string, b: string) => a.trim().toLowerCase() === b.trim().toLowerCase();
+/** Same words: case, surrounding space and the shape of an apostrophe or quote (’ vs ') aside. */
+const plain = (s: string) => s.trim().toLowerCase().replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"');
+const same = (a: string, b: string) => plain(a) === plain(b);
 
 async function main() {
   const { prisma } = await import("../../../lib/db");

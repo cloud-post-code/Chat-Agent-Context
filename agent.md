@@ -147,9 +147,18 @@ business's own booking page in the job's Playwright browser (`Crawler.drive`),
 screen by screen: every input's label, type, required mark and options, read
 exactly as a customer would meet them (caps on screens/time; a static cheerio
 fallback, `snapshotStatic`, when the browser can't; never clicks a "book" or
-"submit"-like button). One model call transcribes that snapshot verbatim
-(`lib/onboarding/formTranscribe.ts`, `FORM_SYSTEM_PROMPT`: never add, rename,
-merge, reorder or drop anything; `sanitizeFormSpec` caps for safety only) and
+"submit"-like button). It reads what a customer sees, not what the DOM holds:
+collapsed accordion panels and parked dialogs are invisible to it; a service
+row is picked through its inner control, a staff row through the one "Book"
+button every row shares; a sheet in front wins over the menu behind it; a
+click's late reaction is waited for; a month grid becomes a `[calendar]`
+element with its slots; "(*)" is a required mark and a placeholder's
+"(___) ___-____" mask is not a name; a widget's own "I have read and agree …"
+box is a checkbox it never ticks. One model call transcribes that snapshot
+verbatim (`lib/onboarding/formTranscribe.ts`, `FORM_SYSTEM_PROMPT`: never add,
+rename, merge, reorder or drop anything; a search box that filters a list is
+no question, a summary page with only Back/Next is no step, a text box asking
+for a phone or an email is that type; `sanitizeFormSpec` caps for safety only) and
 `lib/booking/formSpec.ts` `writeFormSpec` writes the fields (role, screen,
 placeholder/help, `generated`) and the step order into the tenant, only over a
 form nobody has edited (`isUntouchedForm`) — the one coercion is a choice
