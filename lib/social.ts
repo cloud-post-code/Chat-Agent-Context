@@ -7,7 +7,7 @@ import { parseSocialLinks, type SocialLink } from "@/lib/socialLinks";
  * profiles, filterable to the platforms a visitor actually asked about
  * ("just Instagram") instead of always showing every link on file.
  *
- * Owns the block the way lib/menu.ts owns MenuBlock: lib/cards.ts re-exports
+ * Owns the block the way lib/photoIndex.ts owns PhotoFilter: lib/cards.ts re-exports
  * this type into UiBlock rather than redefining it. Reads Profile.social_links
  * through lib/socialLinks.ts, which already owns sanitizing and storing that
  * column — this module only filters and shapes what's already clean.
@@ -40,7 +40,7 @@ export function normalizePlatform(p: string): string {
 
 /**
  * `platforms` undefined or empty means "every link on file" — the same
- * empty-filter-is-everything rule as filterPhotos/filterServices. Otherwise
+ * empty-filter-is-everything rule as filterPhotos/filterProjects. Otherwise
  * keep links whose normalized platform is in the normalized filter set, in
  * the links' own stored order.
  */

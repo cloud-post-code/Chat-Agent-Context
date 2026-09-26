@@ -7,7 +7,7 @@ the third at the end of every cleanup phase and before a deploy.
 |---|---|---|---|
 | Unit (Vitest) | `npm test` | nothing | pure logic and server-rendered markup: `tests/**`, `lib/**/*.test.ts` |
 | Proofs (crosscheck) | `npm run crosscheck` | Postgres via `.env`; a model key or a running server for some | one `docs/features/<id>/proof.ts` per feature, against the real local database |
-| Smoke | `PROOF_BASE_URL=http://localhost:3120 npm run smoke` | a running dev server + Postgres | signup → admin → public page → llms.txt → A2A card → chat stream → booking → account wipe |
+| Smoke | `PROOF_BASE_URL=http://localhost:3120 npm run smoke` | a running dev server + Postgres | signup → admin → public page → llms.txt → A2A card → chat stream → account wipe |
 
 The gate (`~/.claude/scripts/gate`) runs `npm run lint` (ESLint **and** `tsc --noEmit`),
 `npm test`, then `npm run build`. It does not run proofs or the smoke: those need a
@@ -21,10 +21,6 @@ database, so run them yourself and record the result in the PR.
 - Server-rendered components are checked with `react-dom/server`
   (`renderToStaticMarkup`), asserting content rather than whole-HTML snapshots so a
   style refactor doesn't trip them but a broken card does.
-- `tests/lib/price.test.ts` pins the current outputs of the codebase's several
-  price / duration / money parsers in a snapshot. It exists so merging those parsers is
-  a no-behaviour-change refactor; update the snapshot only when a behaviour change is
-  intended (`npx vitest run -u`).
 - Add a test beside the feature it covers: `tests/<area>/<thing>.test.ts(x)`.
 
 ## Proofs

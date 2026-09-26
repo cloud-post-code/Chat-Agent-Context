@@ -61,7 +61,6 @@ const PLAN = {
       reason: "When a visitor asks to see the work", layout: "filmstrip", questions: [2],
     },
     { need: "Reaching the team", evidence: "", kind: "contact", label: "Reach us", description: "", reason: "When …", questions: [] },
-    { need: "Booking a survey", evidence: "", kind: "booking", label: "Book a survey", description: "", reason: "When …", questions: [3] },
     { need: "Contacting", evidence: "", kind: "designed", label: "get in TOUCH", description: "", reason: "When …", brief: "dup", questions: [] },
     { need: "", evidence: "", kind: "designed", label: "Needless card", description: "", reason: "When …", brief: "x", questions: [] },
   ],
@@ -144,7 +143,7 @@ async function main() {
 
   try {
     // ── 1. Sanitizer ──
-    const signals = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: [], hasKnowledge: true };
+    const signals = { photos: 2, projects: 0, contactChannels: ["email"], socialLinks: 0, categories: [], hasKnowledge: true };
     const existing = [{ label: "Get in touch", tool: "show_contact_form" }];
     const urls = [VISIT_URL, WORK_URL];
     for (const junk of [null, "x", { needs: 7 }, { needs: [null, 3, {}] }]) {

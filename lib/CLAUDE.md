@@ -10,22 +10,19 @@ prisma-free modules from here (see the test in `tests/arch/`).
 | admin copilot (`/admin/chat`) | `adminBrain.ts`, elements in `adminElements.ts` / `adminElementsLoad.ts` |
 | retrieval: chunk, embed, entities, graph, search | `retrieval/` (`indexer.ts` writes, `search.ts` reads) |
 | onboarding: read a site into the account | `onboarding/jobs.ts` runs the stages; `onboarding/save.ts` writes; `onboarding/knowledgeLlm.ts` is the extraction helper |
-| booking model: services, staff, locations, settings, bookings | `booking/store.ts` (only writer: `createBooking`), shapes in `booking/types.ts` |
-| A2UI cards: hydrate tool blocks / card catalog / AI card builder | `cards.ts` / `uiCards.ts` / `cardBuilder.ts`; first-run set `onboarding/cards.ts`; gap-fill `siteCards.ts` |
+| A2UI cards: hydrate tool blocks / card catalog / AI card builder | `cards.ts` / `uiCards.ts` / `cardBuilder.ts`; the filters behind the composable cards in `photoIndex.ts`, `projectIndex.ts`, `social.ts` (tokenizer `terms.ts`); first-run set `onboarding/cards.ts`; gap-fill `siteCards.ts` |
 | ingestion sources and items | `ingestionSources.ts` (catalog), `ingestedItems.ts` (read), `customIngest.ts` (write) |
 | accounts: passwords, sessions, login (`authenticate`), signup, operator tools, wipe | `auth.ts`, `users.ts`, `accountAdmin.ts`, `accountWipe.ts` (covered by `tests/lib/accountWipe.test.ts`) |
 | Claude | `claude/index.ts` — the only Anthropic client (`claudeModel()`, `cardBuilderModel()`, `textOf`); `claude/retry.ts` — `modelCall`, the shared gate with 429/529 backoff |
 | Prisma | `db.ts` — the only client, plus `getProfile` / `getPersonaConfig` / `getThemeConfig` upserts |
 | theme, fonts, brand voice | `theme.ts`, `fonts.ts`, `brand.ts` (voice, not visuals) |
-| menu, cart, orders | `menu.ts`, `menuTypes.ts`, `orders.ts` |
 | A2A protocol | `a2a/` (`rpc.ts` dispatch, `run.ts` over `brain.ts`) |
 | llms.txt | `llms.ts` |
-| shared helpers (text, money, duration, images, async) | `util/` — the only place for generic helpers; `util/index.ts` holds the request helpers (`clientIp`, `siteOrigin`, `safeJson`) |
+| shared helpers (text, images, async) | `util/` — the only place for generic helpers; `util/index.ts` holds the request helpers (`clientIp`, `siteOrigin`, `safeJson`) |
 
 ## Invariants
-- No new local copy of `str` / `flat` / `slugify` / `parsePrice` / `durationMinutes` /
-  `sniffImageType` / `sleep` / `textOf` / `pad2`: import them from `lib/util/*`,
-  `lib/claude.ts` (`textOf`) or `lib/booking/time.ts` (`pad2`). `authSecret()` in
+- No new local copy of `str` / `flat` / `slugify` / `sniffImageType` / `sleep` /
+  `textOf`: import them from `lib/util/*` or `lib/claude/` (`textOf`). `authSecret()` in
   `lib/auth.ts` is the one HMAC key accessor. `str`/`flat` take `(value, max)`: never
   pass them point-free to `.map` (the index would become the cap) — write `(v) => flat(v)`.
 - Every tenant-scoped read or write takes `userId`. No query without it.

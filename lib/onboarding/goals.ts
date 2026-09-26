@@ -14,7 +14,7 @@ import { llmCorpus, llmExtract } from "./knowledgeLlm";
  * prompt picks them up via goalsPromptSection) and the owner edits, disables,
  * or deletes them on the tab that already exists.
  *
- * Seeding follows the booking-form rule: only into an EMPTY catalog. A tenant
+ * Seeding follows one rule: only into an EMPTY catalog. A tenant
  * who has written a goal — even a disabled one — keeps exactly what they have.
  */
 
@@ -25,7 +25,6 @@ The text contains multiple pages, each preceded by "=== <url>", and then a SIGNA
 Rules:
 - Each goal is one concrete outcome, phrased as a directive to the agent ("Get ...", "Steer ...", "Surface ..."). Use the business's own words for what it sells.
 - Ground every goal in the pages. Never invent an offering, channel, or audience the text does not describe.
-- Only propose a booking or appointment goal if SIGNALS says the business takes appointments.
 - Never write generic assistant behavior ("be helpful", "answer accurately", "be polite"). That is already the agent's job and is not a goal.
 - Order them by how much this business would care, most important first.
 - At most 5. Fewer is better than padding. Nothing groundable? Return an empty list.
@@ -35,8 +34,6 @@ Respond with ONLY this JSON, no other text:
 
 /** What the run found, so the model proposes goals the tenant can act on. */
 export type GoalSignals = {
-  /** Whether the site says customers can book — booking is on by default. */
-  takesAppointments: boolean;
   /** Knowledge categories that produced content this run. */
   categories: string[];
 };
@@ -57,7 +54,7 @@ const MAX_GOAL_CHARS = 200;
 
 /**
  * Model output → typed, capped, de-duplicated goals. Never throws: junk of
- * any shape comes back as an empty list (the sanitizeServices contract).
+ * any shape comes back as an empty list (the sanitizer contract every extractor keeps).
  */
 export function sanitizeGoals(raw: Record<string, unknown> | null): string[] {
   if (!raw || typeof raw !== "object" || !Array.isArray((raw as { goals?: unknown }).goals)) {
@@ -84,7 +81,6 @@ function goalsCorpus(pages: Page[], signals: GoalSignals): string {
   const categories = signals.categories.filter(Boolean);
   return (
     `${llmCorpus(pages)}\n\n=== SIGNALS\n` +
-    `Takes appointments (customers can book): ${signals.takesAppointments ? "yes" : "no"}\n` +
     `Knowledge this site provided: ${categories.length ? categories.join(", ") : "none"}`
   );
 }

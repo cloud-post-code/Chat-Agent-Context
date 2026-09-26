@@ -1,5 +1,7 @@
 # Proof Plan — Chat-first admin: the dashboard as A2UI elements
 
+> **2026-09-26 — booking removed.** Booking, Service, the menu and the cart no longer exist in the product (commit `b4d06cf` on main is the last state with them). The checks below that seeded or asserted bookings, services, menu items or orders were removed from `proof.ts`; the rest stand as written.
+
 ## Definition Of Done
 - `lib/adminBrain.ts` exists and exports the admin tool loop (`adminAnswer`), the live
   panel-key derivation (`adminPanelKeys`), the ingestion routing (`ingestPlanFor`), and

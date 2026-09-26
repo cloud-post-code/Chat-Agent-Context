@@ -4,8 +4,8 @@ import { meaningfulWords, overlapScore } from "./terms";
  * The gallery's small addressable items: what a `show_gallery` filter can
  * name (ids, tags, free text) and how the prompt lists them, so the model
  * can ask for "the red ones" instead of getting the whole gallery every
- * time. Pure and import-free apart from the shared tokenizer, like
- * lib/menuTypes.ts, so a proof can drive it with no setup.
+ * time. Pure and import-free apart from the shared tokenizer, so a proof can
+ * drive it with no setup.
  */
 
 export type PhotoMeta = {

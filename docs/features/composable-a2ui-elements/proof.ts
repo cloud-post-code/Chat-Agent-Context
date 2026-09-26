@@ -3,13 +3,12 @@
  * Run: npx tsx docs/features/composable-a2ui-elements/proof.ts
  *
  * Seeds a throwaway tenant with real rows (8 tagged photos + 1 caption-only
- * red photo, 5 priced services across 3 categories, 2 social links, booking
- * enabled, UiCard rows for show_gallery/show_services only), drives the real
+ * red photo, 2 social links, a UiCard row for show_gallery only), drives the real
  * brain's tool loop with a scripted model client (the only doubled
  * boundary), and asserts the filtered/composed cards, the prompt sections,
  * the pure selectors, card memory across turns, and rendered markup.
  *
- * lib/photoIndex.ts, lib/serviceIndex.ts and lib/social.ts do not exist yet
+ * lib/photoIndex.ts, lib/projectIndex.ts and lib/social.ts do not exist yet
  * (this proof is written red, before Phase 1/2 implementation) — each
  * scenario group that needs one of them is guarded by its own dynamic
  * `await import()` in a try/catch, so a missing module fails only that
@@ -107,21 +106,19 @@ async function main() {
   const { answer } = await import("../../../lib/brain");
   const { CARD_TOOLS } = await import("../../../lib/canned");
   const { writeUiCard, parseSampleBlock } = await import("../../../lib/uiCards");
-  const { saveBookingSettings, saveService } = await import("../../../lib/booking/store");
-  const { setBookingEnabled } = await import("../../../lib/appointments");
 
   // Modules under proof — imported lazily so a red run reports the missing
   // module as a FAIL instead of crashing before any check prints.
   let photoIndex: typeof import("../../../lib/photoIndex") | null = null;
-  let serviceIndex: typeof import("../../../lib/serviceIndex") | null = null;
+  let projectIndex: typeof import("../../../lib/projectIndex") | null = null;
   let social: typeof import("../../../lib/social") | null = null;
   let terms: typeof import("../../../lib/terms") | null = null;
   try { photoIndex = await import("../../../lib/photoIndex"); } catch { /* red */ }
-  try { serviceIndex = await import("../../../lib/serviceIndex"); } catch { /* red */ }
+  try { projectIndex = await import("../../../lib/projectIndex"); } catch { /* red */ }
   try { social = await import("../../../lib/social"); } catch { /* red */ }
   try { terms = await import("../../../lib/terms"); } catch { /* red */ }
   check("lib/photoIndex.ts exists", photoIndex !== null);
-  check("lib/serviceIndex.ts exists", serviceIndex !== null);
+  check("lib/projectIndex.ts exists", projectIndex !== null);
   check("lib/social.ts exists", social !== null);
   check("lib/terms.ts exists", terms !== null);
 
@@ -205,32 +202,12 @@ async function main() {
     photoIds.push(captionOnlyRed.id);
     const redNailIds = [photoIds[0], photoIds[1], photoIds[2], captionOnlyRed.id];
 
-    await setBookingEnabled(user.id, true);
-    await saveBookingSettings(user.id, { timezone: "America/New_York" });
-    const svc = async (name: string, amount: number, category: string) => {
-      const r = await saveService(user.id, { name, category, pricing: { kind: "fixed", amount }, durationMinutes: 30, enabled: true });
-      if (!r.ok) throw new Error(r.error);
-      return r.id;
-    };
-    const gel = await svc("Gel Manicure", 45, "nails");
-    const classic = await svc("Classic Manicure", 30, "nails");
-    const french = await svc("French Tips", 50, "nails");
-    const pedicure = await svc("Pedicure", 55, "feet");
-    const browWax = await svc("Brow Wax", 20, "brows");
-    const nailsIds = [gel, classic, french];
-
     const gallerySample = JSON.stringify({ type: "gallery", layout: "carousel", items: [] });
-    const servicesSample = JSON.stringify({ type: "services", items: [], booking: null });
     const wroteGallery = await writeUiCard(user.id, {
       key: "", label: "Gallery", tool: "show_gallery", description: "Photo gallery",
       reason: "When a visitor asks to see photos", note: "", sampleBlock: gallerySample,
     });
-    const wroteServices = await writeUiCard(user.id, {
-      key: "", label: "Services", tool: "show_services", description: "Service list",
-      reason: "When a visitor asks about services or price", note: "", sampleBlock: servicesSample,
-    });
     check("UiCard row for show_gallery written", wroteGallery.ok, JSON.stringify(wroteGallery));
-    check("UiCard row for show_services written", wroteServices.ok, JSON.stringify(wroteServices));
     check("no show_social UiCard row exists (data-gated instead)", true);
 
     // ══ 1. Pure: filterPhotos / tagVocabulary ═══════════════════════════════
@@ -265,52 +242,21 @@ async function main() {
       );
     }
 
-    // ══ 2. Pure: filterServices / similarServices / filterProjects ═════════
-    if (serviceIndex) {
-      const { filterServices, similarServices, filterProjects, isEmptyServiceFilter } = serviceIndex;
-      const svcs = [
-        { id: "gel", name: "Gel Manicure", description: "Long-lasting gel polish manicure.", category: "nails", priceAmount: 45 },
-        { id: "classic", name: "Classic Manicure", description: "Traditional polish manicure.", category: "nails", priceAmount: 30 },
-        { id: "french", name: "French Tips", description: "Manicure with french tip style.", category: "nails", priceAmount: 50 },
-        { id: "pedi", name: "Pedicure", description: "Foot and toenail care treatment.", category: "feet", priceAmount: 55 },
-        { id: "brow", name: "Brow Wax", description: "Eyebrow shaping with hot wax.", category: "brows", priceAmount: 20 },
-      ];
-      check("isEmptyServiceFilter: no ids/category/query is empty", isEmptyServiceFilter({}));
-      check("filterServices: empty filter returns all, no limit", filterServices(svcs, {}).length === svcs.length);
-      check(
-        "filterServices: category case-insensitive exact",
-        filterServices(svcs, { category: "NAILS" }).map((s) => s.id).sort().join(",") === "classic,french,gel",
-      );
-      check(
-        "filterServices: ids ordered, unknown dropped",
-        filterServices(svcs, { ids: ["pedi", "zz", "gel"] }).map((s) => s.id).join(",") === "pedi,gel",
-      );
-      const near = similarServices(svcs, [svcs[0]], 2);
-      check(
-        "similarServices: excludes focus, prefers same category",
-        !near.items.some((s) => s.id === "gel") && near.items.every((s) => s.category === "nails"),
-        JSON.stringify(near),
-      );
-      // No shared category/terms at all: never empty, falls back to catalog order.
-      const noCatalogInfo = [
-        { id: "x1", name: "Alpha", description: "", priceAmount: null },
-        { id: "x2", name: "Beta", description: "", priceAmount: null },
-        { id: "x3", name: "Gamma", description: "", priceAmount: null },
-      ];
-      const fallback = similarServices(noCatalogInfo, [noCatalogInfo[0]], 2);
-      check(
-        "similarServices: never empty even with zero score overlap",
-        fallback.items.length === 2 && !fallback.close,
-        JSON.stringify(fallback),
-      );
+    // ══ 2. Pure: filterProjects ═══════════════════════════════════════════
+    if (projectIndex) {
+      const { filterProjects, isEmptyProjectFilter } = projectIndex;
       const projects = [
         { id: "p1", name: "Alpha", blurb: "red project", tags: ["red"] },
         { id: "p2", name: "Beta", blurb: "blue project", tags: ["blue"] },
       ];
+      check("isEmptyProjectFilter: no ids/tags/query is empty", isEmptyProjectFilter({}));
+      check("filterProjects: empty filter returns all, no limit", filterProjects(projects, {}).length === projects.length);
+      check("filterProjects: tag filter", filterProjects(projects, { tags: ["red"] }).map((p) => p.id).join(",") === "p1");
       check(
-        "filterProjects: tag filter",
-        filterProjects(projects, { tags: ["red"] }).map((p) => p.id).join(",") === "p1",
+        "filterProjects: ids ordered, unknown dropped",
+        filterProjects(projects, { ids: ["p2", "zz", "p1"] }).map((p) => p.id).join(",") === "p2,p1",
       );
+      check("filterProjects: query overlap scoring", filterProjects(projects, { query: "blue" }).map((p) => p.id).join(",") === "p2");
     }
 
     // ══ 3. System prompt sections ════════════════════════════════════════
@@ -319,8 +265,6 @@ async function main() {
       const system = await buildSystemPrompt(user.id);
       check("system prompt has a PHOTO INDEX section (show_gallery is in the catalog)", /PHOTO INDEX/.test(system), system.slice(0, 200));
       check("PHOTO INDEX carries tags", /nails/.test(system) && /red/.test(system));
-      check("system prompt has a SERVICE INDEX section (show_services in catalog + booking on)", /SERVICE INDEX/.test(system));
-      check("SERVICE INDEX carries prices", /45|\$45/.test(system));
       check("system prompt has a COMPOSING CARDS section", /COMPOSING CARDS/i.test(system));
       check("system prompt explains the [shown: …] history marker", /\[shown:/.test(system));
 
@@ -399,25 +343,7 @@ async function main() {
       }
     }
 
-    // ══ 5. show_services with similar ═══════════════════════════════════════
-    {
-      const similarRun = await run(show("show_services", { ids: [gel], similar: 2 }));
-      const s = cardsOf(similarRun.events, "services")[0] as
-        | { focusIds?: string[]; items?: { id: string }[]; booking?: { flow?: { services?: { id: string }[] } } | null }
-        | undefined;
-      check("show_services focusIds is exactly the gel id", JSON.stringify(s?.focusIds) === JSON.stringify([gel]), JSON.stringify(s?.focusIds));
-      const ids = (s?.items ?? []).map((i) => i.id);
-      check(
-        "show_services items are gel + two nails services, no other category",
-        ids.includes(gel) && ids.length === 3 && ids.every((id) => nailsIds.includes(id)),
-        JSON.stringify(ids),
-      );
-      check("similar services never spill into feet/brows categories", !ids.includes(pedicure) && !ids.includes(browWax));
-    }
-
     // ══ 6. Card memory ══════════════════════════════════════════════════════
-    // (show_booking's own narrowing was retired when booking became a
-    // conversation of cards — the wizard it narrowed no longer exists.)
     {
       const redRun2 = await run(show("show_gallery", { layout: "carousel", tags: ["red"] }));
       const shownIds = (cardsOf(redRun2.events, "gallery")[0] as { items?: { id: string }[] } | undefined)?.items?.map((i) => i.id) ?? [];
@@ -425,15 +351,19 @@ async function main() {
         { role: "user", content: "red nails" },
         { role: "assistant", content: "Here are the red ones.", shown: [{ type: "gallery", ids: shownIds, tags: ["red"] }] },
       ];
-      const bookRun = await run(show("show_booking", {}), history);
-      const historyPayload = JSON.stringify(bookRun.seen.messages);
+      const followUp = await run(show("show_gallery", { layout: "carousel", ids: shownIds.slice(0, 2) }), history);
+      const historyPayload = JSON.stringify(followUp.seen.messages);
       check(
         "the messages the client received carry the folded shown marker",
         historyPayload.includes("[shown: gallery ids="),
         historyPayload.slice(0, 300),
       );
-      const b = cardsOf(bookRun.events, "booking")[0] as { flow?: { services?: unknown[] } } | undefined;
-      check("show_booking draws the full booking block", (b?.flow?.services ?? []).length >= 5, JSON.stringify(b).slice(0, 200));
+      const again = cardsOf(followUp.events, "gallery")[0] as { items?: { id: string }[] } | undefined;
+      check(
+        "ids from the marker draw exactly those photos again",
+        JSON.stringify((again?.items ?? []).map((i) => i.id)) === JSON.stringify(shownIds.slice(0, 2)),
+        JSON.stringify(again),
+      );
     }
 
     // ══ 7. show_social ═══════════════════════════════════════════════════════
@@ -497,23 +427,6 @@ async function main() {
         }
 
         try {
-          const servicesBlockSample = {
-            type: "services",
-            title: "Gel Manicure",
-            focusIds: [gel],
-            items: [
-              { id: gel, name: "Gel Manicure", description: "", priceLabel: "$45" },
-              { id: classic, name: "Classic Manicure", description: "", priceLabel: "$30" },
-            ],
-            booking: null,
-          };
-          const servicesHtml = renderToStaticMarkup(h(Cards as never, { block: servicesBlockSample } as never));
-          check("services card with focusIds renders a Similar label", /Similar/i.test(servicesHtml), servicesHtml.slice(0, 300));
-        } catch (e) {
-          check("services card with focusIds renders a Similar label", false, String(e));
-        }
-
-        try {
           const socialBlockSample = { type: "social", items: [{ platform: "instagram", url: "https://instagram.com/x" }] };
           const socialHtml = renderToStaticMarkup(h(Cards as never, { block: socialBlockSample } as never));
           check("social card renders one button with the instagram URL", socialHtml.includes("https://instagram.com/x"), socialHtml.slice(0, 300));
@@ -535,7 +448,6 @@ async function main() {
     }
   } finally {
     await prisma.photo.deleteMany({ where: { userId: user.id } }).catch(() => {});
-    await prisma.service.deleteMany({ where: { userId: user.id } }).catch(() => {});
     await prisma.uiCard.deleteMany({ where: { userId: user.id } }).catch(() => {});
     await prisma.user.delete({ where: { id: user.id } }).catch(() => {});
     await prisma.$disconnect();

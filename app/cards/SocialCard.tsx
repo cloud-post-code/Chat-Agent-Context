@@ -2,8 +2,7 @@
 
 // Explicit default import, not just the ReactElement type: the ICONS map
 // below builds its JSX at module load time, and some proof harnesses (e.g.
-// docs/features/services-card/proof.ts, docs/features/menu-cart/proof.ts)
-// import this file — via app/cards/Cards.tsx's social dispatch — under a
+// docs/features/composable-a2ui-elements/proof.ts) import this file — via app/cards/Cards.tsx's social dispatch — under a
 // tsx transform that does not reliably apply the automatic JSX runtime to a
 // nested .tsx module, falling back to bare `React.createElement` calls that
 // need `React` as an actual binding rather than only a global one proof
@@ -16,8 +15,8 @@ void React;
 /**
  * The social-links A2UI element: one button per profile the visitor asked
  * about (or every one on file when they didn't narrow it), each opening the
- * real profile in a new tab. Small and composable like ContactForm/
- * ServicesCard — a handful of buttons, not a whole "connect with us" section.
+ * real profile in a new tab. Small and composable like ContactForm — a
+ * handful of buttons, not a whole "connect with us" section.
  */
 
 const ICONS: Record<string, ReactElement> = {

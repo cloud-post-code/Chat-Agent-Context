@@ -20,7 +20,6 @@ import {
 } from "@/lib/customIngest";
 import { extractDocument, extractLink, extractText } from "@/lib/scrape";
 import { indexSource } from "@/lib/retrieval/indexer";
-import { getBookingConfig } from "@/lib/appointments";
 import { COLOR_ROLES, type ThemeColors } from "@/lib/theme";
 import { fixedPanelEntries, TAB_ALIASES } from "@/lib/admin/contentTabs";
 import {
@@ -29,7 +28,6 @@ import {
   elementIndexLines,
   selectElements,
   selectionTitle,
-  todayLine,
   type ElementFilter,
   type ElementMeta,
   type ElementSelection,
@@ -72,7 +70,7 @@ export type FocusedEdit = {
 };
 
 /**
- * A slice of a panel: the elements (bookings, services, rules, …) that matched
+ * A slice of a panel: the elements (goals, rules, presets) that matched
  * the copilot's filter, by id. The chat renders the panel's own pre-rendered
  * node for each id, so "what's on Friday?" shows only Friday's card.
  */
@@ -102,16 +100,9 @@ export type AdminDeps = { client?: ModelClient };
  * for. Keyed on the fixed panel keys from contentTabs.ts's NAV_GROUPS.
  */
 const PANEL_HINTS: Readonly<Record<string, string>> = {
-  appointments: "the booked appointments themselves, and a pointer to the booking on/off switch",
-  booking: "the booking on/off switch",
-  "booking-services":
-    "what's bookable — pricing, duration, who performs it, where; asked to add/edit/price a service",
-  "booking-providers": "the staff who perform services — their hours, time off, bios, per-service overrides",
-  "booking-locations": "branches, the online option, and the mobile service area",
-  "booking-hours": "business hours, holidays, lead time, cutoff, buffers, waitlist, recurring, provider selection",
-  "booking-questions":
-    "the booking form as the visitor meets it — its steps in order, each screen's questions, roles, and conditions",
-  "booking-pricing": "currency, tax, service fee, tips, promo codes, memberships, cancellation/deposit policy",
+  activity: "every visitor conversation, with the owner's thumbs up/down on answers",
+  answers: "the presets — canned answers the starter questions are served from",
+  graph: "the knowledge index's health: entities, relations, suggested merges",
 };
 
 /**
@@ -383,12 +374,11 @@ function adminTools(
     {
       name: "show_elements",
       description:
-        "Reveal only the matching elements of a panel — one or a few bookings, orders, " +
-        "goals, rules, presets, services, providers or locations — instead of the whole " +
-        "panel. Use it whenever the admin asks about a specific item, day, person, or " +
-        "subset (\"what's on Friday\", \"Christopher's appointment\", \"services under " +
-        "$50\"). Pick ids straight from the ELEMENTS index, or give where-filters over " +
-        "its facets (ANDed); filters are evaluated exactly, in code.",
+        "Reveal only the matching elements of a panel — one or a few goals, rules or " +
+        "presets — instead of the whole panel. Use it whenever the admin asks about a " +
+        "specific item or subset (\"my rule about phone numbers\", \"the presets nobody " +
+        "has used\", \"the disabled goals\"). Pick ids straight from the ELEMENTS index, " +
+        "or give where-filters over its facets (ANDed); filters are evaluated exactly, in code.",
       input_schema: {
         type: "object",
         properties: {
@@ -484,7 +474,7 @@ function systemPrompt(
   panels: Array<{ key: string; label: string; hint?: string }>,
   sources: IngestionSourceRow[],
   colors: Record<string, string>,
-  elements: { index: ElementMeta[]; timeZone: string },
+  elements: { index: ElementMeta[] },
 ): string {
   const colorLines = COLOR_ROLES.map((r) => `- ${r.key} (${r.label}): ${colors[r.key]}`).join(
     "\n",
@@ -510,14 +500,11 @@ function systemPrompt(
     "the exact right panel — or just the right piece of it — in front of them, in as",
     "few steps as possible.",
     "",
-    todayLine(new Date(), elements.timeZone),
-    "",
     "PANELS you can reveal with show_panel (fully interactive, inline):",
     panelLines,
     "",
     "ELEMENTS you can reveal one by one with show_elements — each line is",
-    "`id | label | facet=value …`; facet values are lowercase, dates YYYY-MM-DD, times",
-    "HH:MM, all in the timezone above:",
+    "`id | label | facet=value …`; facet values are lowercase:",
     elementIndexLines(elements.index),
     "",
     "INGESTION SOURCES for propose_ingestion (pick the best match for the content):",
@@ -529,13 +516,12 @@ function systemPrompt(
     '"Ask me anything." line renders in the accent.',
     "",
     "Rules:",
-    "- Asked about a specific item, day, person or subset of a panel (\"what's on",
-    "  Friday?\", \"Christopher's appointment\", \"the disabled providers\", \"my rule",
-    "  about phone numbers\"): call show_elements — ids from the index for a named or",
-    "  positional pick, where-filters for a criterion (weekday is friday; customer",
-    "  contains …; price lte 50). Resolve relative days from TODAY. Never show the",
-    "  whole panel when a slice answers the question. If nothing matches, say so in",
-    "  one sentence and offer the panel.",
+    "- Asked about a specific item or subset of a panel (\"my rule about phone",
+    "  numbers\", \"the presets nobody has used\", \"the disabled goals\"): call",
+    "  show_elements — ids from the index for a named or positional pick,",
+    "  where-filters for a criterion (text contains phone; served is 0; live is no).",
+    "  Never show the whole panel when a slice answers the question. If nothing",
+    "  matches, say so in one sentence and offer the panel.",
     "- Asked to see or work with a whole section: call show_panel with its key. Keep",
     "  any accompanying text to one short sentence.",
     "- Asked to add a goal WITH its text given: call save_goal, then confirm.",

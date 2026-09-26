@@ -1,5 +1,7 @@
 # Proof Plan
 
+> **2026-09-26 — booking removed.** Booking, Service, the menu and the cart no longer exist in the product (commit `b4d06cf` on main is the last state with them). The checks below that seeded or asserted bookings, services, menu items or orders were removed from `proof.ts`; the rest stand as written.
+
 ## Definition Of Done
 - `wipeAccountContent(userId)` leaves zero rows in every per-user table except
   `User`, `Profile` (blanked, `bookingEnabled` true) and `GmailAuth`.

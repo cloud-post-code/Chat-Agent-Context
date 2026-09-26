@@ -22,18 +22,6 @@ export type PhotoCard = {
   tags?: string[];
 };
 
-export type ServiceCard = {
-  id: string;
-  name: string;
-  description: string;
-  /** Present when the service comes from the live booking flow (a Service
-   *  row) rather than the plain knowledge catalog. */
-  imageUrl?: string | null;
-  priceLabel?: string;
-  duration?: string;
-  category?: string;
-};
-
 /**
  * One element of a custom-designed card. A closed vocabulary rather than
  * markup: the card builder's model output becomes visitor-facing UI, and a

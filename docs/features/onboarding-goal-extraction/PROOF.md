@@ -1,5 +1,7 @@
 # Proof Plan — Onboarding derives the agent's goals
 
+> **2026-09-26 — booking removed.** Booking, Service, the menu and the cart no longer exist in the product (commit `b4d06cf` on main is the last state with them). The checks below that seeded or asserted bookings, services, menu items or orders were removed from `proof.ts`; the rest stand as written.
+
 ## Definition Of Done
 - `lib/onboarding/goals.ts` exists in the sibling-extractor shape: a system
   prompt (`GOALS_SYSTEM_PROMPT`), a sanitizer (`sanitizeGoals`), and

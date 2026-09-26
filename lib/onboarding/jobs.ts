@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { getProfile } from "@/lib/db";
 import { Crawler, type Page } from "./crawl";
 import {
-  extractCoreInfo, extractTheme, emptyHours, type CoreInfo, type Location, type ThemeExtract,
+  extractCoreInfo, extractTheme, type CoreInfo, type Location, type ThemeExtract,
 } from "./extract";
 import { discoverLocationPages, extractLocations } from "./locations";
 import { discoverOwnerPages, extractOwners, ownersToOwnerName } from "./owners";
@@ -11,8 +10,6 @@ import { extractBrandIdentity, type BrandIdentity } from "./brand";
 import {
   extractBlog, extractTestimonials, extractTeam, sweepSitemap, type KnowledgeReport,
 } from "./knowledge";
-import { discoverServicePages, extractServicesAndBooking, type ServicesReport } from "./services";
-import { seedLocations, seedSettings, seedStaff } from "./bookingSeed";
 import {
   finishOnboardingIndex, estimateFilingWork, filingSeconds,
   type GraphIndexReport,
@@ -33,14 +30,7 @@ import { mapPool, onboardingConcurrency } from "./pool";
  *   start(url)                 -> core stage   -> phase "core-done", step1 set
  *   advance("social")          -> social stage -> phase "social-done", stepSocial set
  *   advance("theme")           -> theme stage  -> phase "theme-done", step2 set
- *   advance("booking")         -> booking stage -> phase "booking-done", stepBooking set
  *   advance("knowledge", [..]) -> selected extractions -> phase "done"
- *
- * The booking stage is the services extractor run on its own, ahead of the
- * knowledge stage, so the chat can show the booking form it built — and let
- * the owner try it and change it — before extraction runs in the background.
- * The knowledge stage then skips services (the unattended runner, which has
- * no review, still runs it there).
  *
  * Within a stage the work fans out (pool.ts): the knowledge stage runs its
  * category extractors as agents side by side, each of which reads its own pages
@@ -53,8 +43,8 @@ import { mapPool, onboardingConcurrency } from "./pool";
  * so pages loaded for the contact form aren't re-fetched for the theme.
  */
 
-export type Extractor = "blog" | "testimonials" | "team" | "services" | "sweep";
-export const EXTRACTORS: Extractor[] = ["blog", "testimonials", "team", "services", "sweep"];
+export type Extractor = "blog" | "testimonials" | "team" | "sweep";
+export const EXTRACTORS: Extractor[] = ["blog", "testimonials", "team", "sweep"];
 
 export type Job = {
   id: string;
@@ -66,10 +56,9 @@ export type Job = {
     | "social" | "social-done"
     | "images" | "images-done"
     | "theme" | "theme-done"
-    | "booking" | "booking-done"
     /** The category extractors, running together. */
     | "knowledge"
-    | "blog" | "testimonials" | "team" | "services" | "sweep"
+    | "blog" | "testimonials" | "team" | "sweep"
     | "done" | "failed";
   progress: number; // 0–100 within the currently running stage
   step1?: CoreInfo;
@@ -83,9 +72,6 @@ export type Job = {
   /** Brand voice extracted alongside the theme: tagline (flagged extracted
    *  vs suggested), brand values, tone of voice. */
   stepBrand?: BrandIdentity;
-  /** The booking stage's result: what the services read built. `report` is
-   *  null when the read failed — the form on file is shown as it is. */
-  stepBooking?: { report: ServicesReport | null; chunks: number };
   chunkCount?: number;
   report?: Partial<KnowledgeReport>;
   /** Entities/relations built from the saved chunks (lib/onboarding/graphIndex.ts). */
@@ -106,8 +92,6 @@ export type Job = {
   crawler?: Crawler;
   home?: Page;
   extras?: Page[];
-  /** @internal the pages the booking stage read, for the knowledge stage's goals and cards. */
-  servicePages?: Page[];
   busy?: boolean;
 };
 
@@ -123,7 +107,7 @@ export function getJob(id: string, userId: string): Job | null {
 
 /** The polling wire shape — everything except the internal crawl state. */
 export function jobPayload(job: Job) {
-  const { userId: _u, crawler: _c, home: _h, extras: _e, servicePages: _s, busy: _b, filing, ...rest } = job;
+  const { userId: _u, crawler: _c, home: _h, extras: _e, busy: _b, filing, ...rest } = job;
   return { ...rest, eta: etaFor(filing, job.phase) };
 }
 
@@ -260,7 +244,7 @@ export function startJob(userId: string, url: string): Job {
 /** Run the next stage. Returns false when the job isn't ready for it. */
 export function advanceJob(
   job: Job,
-  stage: "locations" | "social" | "images" | "theme" | "booking" | "knowledge",
+  stage: "locations" | "social" | "images" | "theme" | "knowledge",
   extractors?: Extractor[],
 ): boolean {
   if (job.busy || job.phase === "failed") return false;
@@ -304,21 +288,8 @@ export function advanceJob(
     return true;
   }
   if (
-    stage === "booking" &&
-    (job.phase === "theme-done" || job.phase === "images-done" ||
-      job.phase === "social-done" || job.phase === "locations-done" ||
-      job.phase === "core-done")
-  ) {
-    job.phase = "booking";
-    job.busy = true;
-    void runBooking(job)
-      .catch((err) => fail(job, err))
-      .finally(() => (job.busy = false));
-    return true;
-  }
-  if (
     stage === "knowledge" &&
-    (job.phase === "booking-done" || job.phase === "theme-done" || job.phase === "images-done" ||
+    (job.phase === "theme-done" || job.phase === "images-done" ||
       job.phase === "social-done" || job.phase === "locations-done" ||
       job.phase === "core-done")
   ) {
@@ -414,33 +385,6 @@ async function runLocations(job: Job): Promise<void> {
   job.stepLoc = { locations };
   job.phase = "locations-done";
   job.progress = 100;
-
-  // Booking seeding: BookingLocation rows and (from the first one) the
-  // tenant's timezone and hours. Best-effort — a failure here never costs
-  // the locations review the chat shows next.
-  try {
-    let seedLocs = locations;
-    if (seedLocs.length === 0) {
-      // A re-onboard of a tenant who already has an address on file (but no
-      // location the crawl could find this time, e.g. an online-only page
-      // now) still gets one bookable location instead of none.
-      const profile = await getProfile(job.userId).catch(() => null);
-      if (profile?.company_address) {
-        seedLocs = [{ address: profile.company_address, phone: job.step1?.company_phone_number ?? "", hours: emptyHours() }];
-      }
-    }
-    if (seedLocs.length) {
-      const businessName = job.step1?.company_name || "Business";
-      const locResult = await seedLocations(job.userId, seedLocs, businessName, (m) => log(job, m));
-      if (locResult.seeded) {
-        log(job, `Booking: added ${locResult.seeded} location${locResult.seeded === 1 ? "" : "s"} with hours`);
-      }
-    }
-    const primary = seedLocs[0];
-    await seedSettings(job.userId, { address: primary?.address ?? "", hours: primary?.hours }, (m) => log(job, m));
-  } catch {
-    // Left as-is; Locations and Hours & rules stay open under Booking.
-  }
 }
 
 /**
@@ -518,76 +462,18 @@ async function runTheme(job: Job): Promise<void> {
   job.progress = 100;
 }
 
-/**
- * The services-and-booking read (lib/onboarding/services.ts) as its own stage:
- * the services pages and the business's real booking page, the services saved
- * to knowledge and the booking catalog, and the site's own booking form copied
- * into the tenant's. Fail-soft, unlike the other stages: the chat's next step
- * shows whatever form is on file and lets the owner shape it, so a read that
- * fails costs a pre-filled form, not the onboarding.
- */
-/** What the booking-form read did, in one line for the log. */
-function formCopiedLine(r: ServicesReport): string {
-  if (!r.formFound) return "No booking form found on your site — you'll build one in the next step";
-  if (!r.seededFields) return "Found your booking form — your existing booking questions were left as they are";
-  const k = r.seededFields;
-  const m = Math.max(1, r.formScreens);
-  return `Copied your booking form: ${k} question${k === 1 ? "" : "s"} on ${m} screen${m === 1 ? "" : "s"}`;
-}
-
-async function runBooking(job: Job): Promise<void> {
-  const onEvent = (m: string) => log(job, m);
-  job.progress = 10;
-  log(job, "Reading your services and how you take bookings");
-  try {
-    const svcPages = await discoverServicePages(job.crawler!, job.home!, job.extras ?? []);
-    job.servicePages = svcPages;
-    job.progress = 50;
-    const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent, { crawler: job.crawler });
-    job.stepBooking = { report: svc.report, chunks: svc.chunks };
-    log(job, svc.report.services
-      ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
-      : "No services described on this site");
-    log(job, formCopiedLine(svc.report));
-    if (svc.report.seededServices) {
-      log(job, `Booking: added ${svc.report.seededServices} service${svc.report.seededServices === 1 ? "" : "s"}${svc.report.imagedServices ? `, ${svc.report.imagedServices} with photos` : ""}`);
-    }
-  } catch (err) {
-    job.stepBooking = { report: null, chunks: 0 };
-    log(job, `Couldn't read your services — ${err instanceof Error ? err.message.slice(0, 120) : String(err)}. You can build the form in the next step.`);
-  }
-  job.phase = "booking-done";
-  job.progress = 100;
-}
-
 async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
   const crawler = job.crawler!;
   const home = job.home!;
   const covered = new Set<string>([home.url]);
   const report: Partial<KnowledgeReport> = {};
-  // The pages the goals stage reads at the end. Starts as what every run has
-  // loaded; the services stage widens it, since services/booking pages are the
-  // ones that say what this business actually wants out of a conversation.
-  let goalPages: Page[] = [home, ...(job.extras ?? [])];
+  // The pages the goals and cards passes read at the end: what every run has loaded.
+  const goalPages: Page[] = [home, ...(job.extras ?? [])];
   let chunks = 0;
   const onEvent = (m: string) => log(job, m);
 
-  // The guided flow already ran services as the booking stage: its pages,
-  // report and chunks carry over, and the services agent is not run again.
-  const booked = job.stepBooking;
-  if (booked) {
-    if (booked.report) {
-      report.services = booked.report;
-      chunks += booked.chunks;
-    }
-    if (job.servicePages?.length) {
-      goalPages = job.servicePages;
-      job.servicePages.forEach((p) => covered.add(p.url));
-    }
-    picked = picked.filter((e) => e !== "services");
-  }
   // What the goals and cards passes are told produced content this run.
-  const producing: string[] = booked?.report?.services ? [...new Set([...picked, "services"])] : picked;
+  const producing: string[] = picked;
 
   // The bar moves as agents FINISH, whatever order that happens in. The extra
   // step is everything after the extractors — indexing, goals, questions and
@@ -631,33 +517,6 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
       log(job, team.report.blocks
         ? `Team: saved ${team.report.blocks} bio${team.report.blocks === 1 ? "" : "s"}`
         : "No team bios found");
-
-      // StaffMember rows from the same bios, best-effort — a failure here
-      // never costs the team knowledge saved above.
-      try {
-        const staff = await seedStaff(job.userId, team.people, team.loaded, onEvent);
-        if (staff.seeded) {
-          log(job, `Booking: added ${staff.seeded} staff member${staff.seeded === 1 ? "" : "s"}${staff.imaged ? `, ${staff.imaged} with photos` : ""}`);
-        }
-      } catch {
-        // Left as-is; Providers stays open under Booking.
-      }
-    },
-    services: async () => {
-      log(job, "Reading your services and how you take bookings");
-      const svcPages = await discoverServicePages(crawler, home, job.extras ?? []);
-      svcPages.forEach((p) => covered.add(p.url));
-      goalPages = svcPages;
-      const svc = await extractServicesAndBooking(svcPages, job.userId, onEvent, { crawler });
-      report.services = svc.report;
-      chunks += svc.chunks;
-      log(job, svc.report.services
-        ? `Services: saved ${svc.report.services} service${svc.report.services === 1 ? "" : "s"} to knowledge`
-        : "No services described on this site");
-      log(job, formCopiedLine(svc.report));
-      if (svc.report.seededServices) {
-        log(job, `Booking: added ${svc.report.seededServices} service${svc.report.seededServices === 1 ? "" : "s"}${svc.report.imagedServices ? `, ${svc.report.imagedServices} with photos` : ""}`);
-      }
     },
   };
 
@@ -737,10 +596,7 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
         job.goals = await deriveGoals(
           goalPages,
           job.userId,
-          {
-            takesAppointments: report.services?.takesAppointments ?? false,
-            categories: producing,
-          },
+          { categories: producing },
           onEvent,
         );
         const g = job.goals;
@@ -796,6 +652,5 @@ async function runKnowledge(job: Job, picked: Extractor[]): Promise<void> {
     job.crawler = undefined;
     job.home = undefined;
     job.extras = undefined;
-    job.servicePages = undefined;
   }
 }

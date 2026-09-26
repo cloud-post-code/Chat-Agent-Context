@@ -6,8 +6,7 @@ import { broadOverviews } from "./retrieval/clusters";
 import { cardCatalog, type CardGuidance } from "./uiCards";
 import { parseSocialLinks } from "./socialLinks";
 import { parsePhotoTags, photoIndexLines } from "./photoIndex";
-import { priceFromText } from "./serviceCatalog";
-import { serviceIndexLines, type ServiceMeta } from "./serviceIndex";
+import { hasSocialLinks } from "./social";
 
 /**
  * Assembles the chatbot's system prompt: a persona core (profile, projects,
@@ -63,7 +62,7 @@ async function loadPromptData(userId: string) {
 
 /**
  * Every prompt section that depends on the fetched rows (project index,
- * knowledge, corrections, card catalog, photo/service indexes, persona) plus
+ * knowledge, corrections, card catalog, photo index, persona) plus
  * the speaker names the final template needs. Pulled out of
  * buildSystemPrompt so that function stays under the line-count limit;
  * behaviour is unchanged.
@@ -104,15 +103,6 @@ async function promptSections(userId: string, query: string | undefined, data: P
   const cards = await cardCatalog(userId);
   const cardTools = new Set(cards.map((c) => c.tool));
 
-  // Booking config and flow are each read at most once per prompt build, then
-  // threaded through the sections that need them (serviceIndexSection,
-  // hasBookingOrSocialTools, bookingPromptSection) instead of every section
-  // re-fetching its own copy.
-  const { getBookingConfig } = await import("./appointments");
-  const bookingConfig = await getBookingConfig(userId);
-  const { getBookingFlow } = await import("./booking/store");
-  const bookingFlow = await getBookingFlow(userId);
-
   // The full PHOTO INDEX (id | caption | tags) only when show_gallery is
   // actually offered — naming photos the model can't draw is how you get an
   // apology instead of a card. Otherwise the old count-only line.
@@ -140,8 +130,6 @@ async function promptSections(userId: string, query: string | undefined, data: P
     correctionBlock,
     cards,
     cardTools,
-    bookingConfig,
-    bookingFlow,
     photoBlock,
     personaBlock,
     owner,
@@ -160,9 +148,6 @@ export async function buildSystemPrompt(userId: string, query?: string): Promise
     sourceBlock,
     correctionBlock,
     cards,
-    cardTools,
-    bookingConfig,
-    bookingFlow,
     photoBlock,
     personaBlock,
     owner,
@@ -184,12 +169,12 @@ PROJECT INDEX (ids for show_project; details come through KNOWLEDGE below):
 ${projectBlock}
 
 ${photoBlock}
-${await serviceIndexSection(userId, cardTools, bookingConfig, bookingFlow)}
+
 KNOWLEDGE FOR THIS QUESTION (retrieved from everything ${speaker} curates —
 profile and experience, persona, project write-ups, photo descriptions, saved
 sources, and approved answers. Each block is labelled with where it came
 from):
-${sourceBlock}${cardRulesSection(cards, { hasBookingOrSocial: await hasBookingOrSocialTools(bookingConfig, userId) })}${bookingPromptSection(bookingConfig)}${goalsPromptSection(directives)}
+${sourceBlock}${cardRulesSection(cards, { hasSocial: await hasSocialLinks(userId) })}${goalsPromptSection(directives)}
 
 RULES:
 - Only state facts present above or returned by a search — never invent a price, service or policy.
@@ -255,93 +240,33 @@ function photoIndexSection(photos: { id: string; caption: string | null; descrip
   return `PHOTO INDEX (id | caption | tags):\n${photoIndexLines(metas)}`;
 }
 
-type BookingConfigLike = Awaited<ReturnType<typeof import("./appointments").getBookingConfig>>;
-type BookingFlowLike = Awaited<ReturnType<typeof import("./booking/store").getBookingFlow>>;
-
-/**
- * "SERVICE INDEX (id | name | category | price | terms):" whenever
- * show_services is offered OR booking is enabled — the same gate
- * bookingPromptSection used to name services in prose. Built from the live
- * booking flow's services when there are any, else the knowledge catalog
- * (priceFromText gives it a price the same way serviceIndexLines expects).
- * "" when there is nothing to index. `bookingConfig`/`bookingFlow` are read
- * once by buildSystemPrompt and passed in rather than each section fetching
- * its own copy.
- */
-async function serviceIndexSection(
-  userId: string,
-  cardTools: Set<string>,
-  bookingConfig: BookingConfigLike,
-  bookingFlow: BookingFlowLike,
-): Promise<string> {
-  const bookingOn = bookingConfig.enabled && bookingConfig.fields.length > 0;
-  if (!cardTools.has("show_services") && !bookingOn) return "";
-
-  // The flow (real Service rows, or the legacy bridge's derived ones) is
-  // richer whenever it has anything on file — same rule servicesBlock uses —
-  // regardless of whether the booking WIZARD itself has questions configured
-  // yet; the knowledge catalog is only the fallback when neither does.
-  let metas: ServiceMeta[] = [];
-  if (bookingFlow?.flow.services.length) {
-    const { pricingLabel } = await import("./booking/types");
-    metas = bookingFlow.flow.services.map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      category: s.category,
-      priceLabel: pricingLabel(s.pricing, bookingFlow.flow.business.currency),
-    }));
-  }
-  if (!metas.length) {
-    const { listServices } = await import("./cards");
-    const catalog = await listServices(userId);
-    metas = catalog.map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      priceLabel: priceFromText(s.description) || undefined,
-    }));
-  }
-  if (!metas.length) return "";
-  return `SERVICE INDEX (id | name | category | price | terms):\n${serviceIndexLines(metas)}\n`;
-}
-
-/** Whether either data-gated tool (booking, social) exists, so COMPOSING
- *  CARDS still gets appended when the catalog itself has no reason lines. */
-async function hasBookingOrSocialTools(bookingConfig: BookingConfigLike, userId: string): Promise<boolean> {
-  const { hasSocialLinks } = await import("./social");
-  const social = await hasSocialLinks(userId);
-  return (bookingConfig.enabled && bookingConfig.fields.length > 0) || social;
-}
-
 const COMPOSING_CARDS_SECTION = `
 COMPOSING CARDS:
 Several small, focused cards beat one big one. The catalog above tells you WHEN to reach for a
-card; the PHOTO INDEX and SERVICE INDEX tell you WHICH items to put in it. Narrow every card to
-the exact need of the moment — a few matching photos, the one service asked about plus its close
-neighbours, the booking card opened on the service they named — rather than the whole gallery
-or catalog. Combine several small cards in one answer when the visitor's
-need spans them (e.g. a few photos of a service plus that service's card plus booking). Show the
-whole gallery or full list only when the visitor explicitly asks for everything. When nothing
-matches a filter, show no card and say so in words — never force an empty or wrong one. An earlier
-assistant turn may end with a line like "[shown: gallery ids=p1,p2 tags=red,gel · services
-ids=s1]" listing the ids/tags of cards the visitor was actually shown — that line is bookkeeping,
-never repeat or mention it. When the visitor then says "those", "that one", "the red ones", or
-"book that", use those ids/tags: pass the tags as \`query\` to show_services or show_booking, or
-pass the ids straight through to \`services\`/\`ids\`, instead of asking them to repeat themselves.`;
+card; the PHOTO INDEX and PROJECT INDEX tell you WHICH items to put in it. Narrow every card to
+the exact need of the moment — a few matching photos, the one project asked about — rather than
+the whole gallery or portfolio. Combine several small cards in one answer when the visitor's
+need spans them (e.g. a few photos plus the contact form). Show the whole gallery or full list
+only when the visitor explicitly asks for everything. When nothing matches a filter, show no
+card and say so in words — never force an empty or wrong one. An earlier assistant turn may end
+with a line like "[shown: gallery ids=p1,p2 tags=red,gel · projects ids=x1]" listing the
+ids/tags of cards the visitor was actually shown — that line is bookkeeping, never repeat or
+mention it. When the visitor then says "those", "that one" or "the red ones", use those
+ids/tags: pass them straight through to \`ids\`/\`tags\` instead of asking them to repeat
+themselves.`;
 
 /**
  * The USING RICH CARDS section, from the already-gated card list, plus the
  * COMPOSING CARDS paragraph. One line per card with a written reason; a card
  * whose reason is blank contributes its tool's existence (the PHOTO INDEX
- * line, the tool list in brain.ts) but no guidance line. `hasBookingOrSocial`
- * keeps COMPOSING CARDS present even when the catalog itself has no reason
- * lines but booking or social — gated on data, not the catalog — still
- * exist as tools; with neither cards nor those tools, nothing renders:
+ * line, the tool list in brain.ts) but no guidance line. `hasSocial` keeps
+ * COMPOSING CARDS present even when the catalog itself has no reason lines
+ * but social — gated on data, not the catalog — still exists as a tool; with
+ * neither cards nor that tool, nothing renders:
  * instructing the model about cards it cannot draw is how you get an apology
  * instead of a card.
  */
-function cardRulesSection(cards: CardGuidance[], opts: { hasBookingOrSocial: boolean } = { hasBookingOrSocial: false }): string {
+function cardRulesSection(cards: CardGuidance[], opts: { hasSocial: boolean } = { hasSocial: false }): string {
   const lines = cards
     .filter((c) => c.reason.trim())
     // Custom cards share one tool, so the key is part of the instruction:
@@ -351,7 +276,7 @@ function cardRulesSection(cards: CardGuidance[], opts: { hasBookingOrSocial: boo
         ? `- show_card with key "${c.key}": ${c.reason.trim()}`
         : `- ${c.tool}: ${c.reason.trim()}`,
     );
-  if (!lines.length && !opts.hasBookingOrSocial) return "";
+  if (!lines.length && !opts.hasSocial) return "";
   const usingCards = lines.length
     ? `
 
@@ -361,21 +286,6 @@ ${lines.join("\n")}
 Always add a short spoken sentence alongside a card — the card supplements your words, it doesn't replace them.`
     : "";
   return `${usingCards}\n${COMPOSING_CARDS_SECTION}`;
-}
-
-/**
- * One instruction paragraph when booking is live, none otherwise — telling
- * the model about a tool it doesn't have is how you get an apology instead of
- * a card. `bookingConfig` is read once by buildSystemPrompt and passed in.
- */
-function bookingPromptSection(bookingConfig: BookingConfigLike): string {
-  if (!bookingConfig.enabled) return "";
-  // Services live in SERVICE INDEX above rather than a prose list here — the
-  // model picks show_booking's `service` from there.
-  return `
-
-BOOKING:
-Visitors can book an appointment right here in the chat: the card walks them through the steps in the business's own order (services with prices and photos, provider, location, live open times, its own questions), then a confirmation. When someone wants to book, schedule, or meet, draw show_booking (pass its \`service\` input when they named which one) instead of collecting their details in conversation — and never promise a specific time until the card has shown you one is actually open. A booking in progress shows in the conversation as the visitor's lines starting with Picked:, Options:, Provider:, Where:, When:, Details: or one 'Booking so far:' line; answer questions using those picks and let the booking continue — do not call show_booking again unless the visitor asks to start over or a booking was already completed ('Booked:').`;
 }
 
 /** The person the prompt refers to when citing the owner by name. */

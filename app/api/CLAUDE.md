@@ -2,9 +2,8 @@
 
 | Route | Auth | What |
 |---|---|---|
-| `chat` | none; tenant by `slug` (`tenantBySlug`) | the visitor chat: NDJSON stream of `{t, v}` events (`text`, `card`, `cart`, `error`) from `lib/brain.answer` |
-| `booking`, `booking/availability`, `booking/quote`, `booking/upload` | tenant by `slug` | the booking flow's transport over `lib/booking/store` |
-| `order`, `contact` | tenant by `slug` | cart checkout, contact form |
+| `chat` | none; tenant by `slug` (`tenantBySlug`) | the visitor chat: NDJSON stream of `{t, v}` events (`text`, `card`) from `lib/brain.answer` |
+| `contact` | tenant by `slug` | the contact form |
 | `uploads/[name]` | none | serves files from `UPLOAD_DIR` |
 | `a2a`, `a2a/rest/[[...path]]` | bearer token (`lib/a2a/guard.authorize`) + per-IP rate limit | the A2A protocol (JSON-RPC / SSE / REST) over `lib/brain` |
 | `admin/chat`, `admin/build-card`, `admin/build-source`, `admin/site-cards`, `admin/import-github`, `admin/onboarding/*`, `admin/gmail/*` | session (`currentUser()` / `isAuthed()`) | streaming or long-running admin work that a server action can't stream; `admin/bulk-build` is operator-only |
@@ -21,5 +20,5 @@ Discovery documents live in `app/.well-known/*` over `lib/a2a/wellKnown.founderD
 - Anything that mutates without needing a stream belongs in `app/admin/actions/*`, not here.
 
 ## Testing
-`npm run smoke` hits chat, booking, llms.txt, the agent card and A2A's auth gate;
+`npm run smoke` hits chat, llms.txt, the agent card and A2A's auth gate;
 `scripts/proof-multi-tenant.ts` probes cross-tenant isolation over HTTP.

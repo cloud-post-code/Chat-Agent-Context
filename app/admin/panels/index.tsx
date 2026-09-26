@@ -5,21 +5,9 @@ import { safeTags } from "@/lib/knowledge";
 import { addProject, uploadPhoto, updatePhoto } from "@/app/admin/actions/content";
 import { ingestCustomTextAction, ingestCustomImageAction, ingestCustomUrlAction, ingestCustomFileAction, deleteIngestedItemAction } from "@/app/admin/actions/ingestion";
 import { updateAccountAction, setAccountDisabledAction, issuePasswordAction, createAccountAction, deleteAccountAction, impersonateAction } from "@/app/admin/actions/accounts";
-import { cancelBookingAction, confirmBookingAction, deleteOrderAction } from "@/app/admin/actions/booking";
-import { AppointmentsPanel } from "../AppointmentsPanel";
 import { buildElementNodes, type ElementNodes } from "../elements";
-import { fallbackTimeZone, toCalendarAppointment, toCalendarOrder } from "@/lib/adminElements";
-import { OrdersPanel } from "../OrdersPanel";
-import { BookingSettings } from "../BookingSettingsPanel";
 import { HomePanel } from "../HomePanel";
 import { attentionItems, checklistItems } from "../homeItems";
-import { siteUrlFor } from "@/lib/onboarding/refreshServices";
-import { ServicesPanel } from "../booking/ServicesPanel";
-import { ProvidersPanel } from "../booking/ProvidersPanel";
-import { LocationsPanel } from "../booking/LocationsPanel";
-import { HoursPanel } from "../booking/HoursPanel";
-import { FormPanel } from "../booking/FormPanel";
-import { PricingPanel } from "../booking/PricingPanel";
 import { UsersPanel } from "../UsersPanel";
 import { BulkBuilderPanel } from "../BulkBuilderPanel";
 import { listBulkBuilds, bulkBuildPayload } from "@/lib/bulkBuild";
@@ -64,10 +52,10 @@ export type AdminPanelSet = {
 
 export async function buildAdminPanels(
   user: User,
-  query: { error?: string; gmail?: string; booking?: string } = {},
+  query: { error?: string; gmail?: string } = {},
 ): Promise<AdminPanelSet> {
   const data = await loadAdminData(user, query);
-  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, uiCards, ingestionSources, goalRows, ruleRows, addressBook, gmail, bookingConfig, orders, metrics, services, staffList, locationList, bookingSettings, bookings, operator, accounts, colors, personaSections } = data;
+  const { profile, personaConfig, themeConfig, projects, sources, photos, chatSessions, gStats, gEntities, gEdges, gSuggestions, gOverviews, canned, uiCards, ingestionSources, goalRows, ruleRows, addressBook, gmail, metrics, operator, accounts, colors, personaSections } = data;
 
   const profileTab = <ProfilePanel data={data} />;
 
@@ -326,48 +314,17 @@ export async function buildAdminPanels(
   };
   for (const t of contentTabs) flat[t.key] = t.content;
 
-  // Rows for Appointments/Home come from the richer booking store
-  // (service/staff/location/customer/pricing/status) rather than the old
-  // intake-only listAppointments.
-  const appointmentRows = bookings.map(toCalendarAppointment);
-
-  const fieldLabels = Object.fromEntries(bookingConfig.fields.map((f) => [f.key, f.label]));
-  flat.appointments = (
-    <AppointmentsPanel
-      rows={appointmentRows}
-      fieldLabels={fieldLabels}
-      cancelAction={cancelBookingAction}
-      confirmAction={confirmBookingAction}
-      bookingEnabled={bookingConfig.enabled}
-    />
-  );
-  flat.orders = (
-    <OrdersPanel
-      orders={orders.map(toCalendarOrder)}
-      deleteAction={deleteOrderAction}
-    />
-  );
-  // Always present, on or off: Settings › Booking holds the only switch that
-  // turns booking back on.
-  flat.booking = <BookingSettings config={bookingConfig} />;
   flat.home = (
     <HomePanel
       attention={attentionItems({
         flaggedDown: metrics.flaggedDown,
         unreviewed: cannedStats(canned).unreviewed,
-        appointments: appointmentRows.map((a) => ({
-          id: a.id,
-          startsAt: new Date(a.startsAt),
-          answers: a.answers,
-        })),
-        orders,
         topQuestions: metrics.topQuestions,
       })}
       checklist={checklistItems({
         profile,
         taglineSource: personaConfig.taglineSource,
         cardCount: uiCards.length,
-        bookingEnabled: bookingConfig.enabled,
         sources: contentTabs.map((t) => ({
           key: t.key,
           label: t.label,
@@ -377,33 +334,6 @@ export async function buildAdminPanels(
     />
   );
 
-  // ── Booking section (app/admin/booking/) ──
-  flat["booking-services"] = (
-    <ServicesPanel
-      services={services}
-      staff={staffList}
-      locations={locationList}
-      currency={bookingSettings.currency}
-      bookingEnabled={bookingConfig.enabled}
-      siteUrl={await siteUrlFor(user.id).catch(() => null)}
-      notice={query.booking}
-    />
-  );
-  flat["booking-providers"] = <ProvidersPanel staff={staffList} services={services} />;
-  flat["booking-locations"] = <LocationsPanel locations={locationList} services={services} />;
-  flat["booking-hours"] = <HoursPanel settings={bookingSettings} />;
-  // Keyed "booking-questions" still, so `?tab=`, show_panel and the copilot's
-  // links keep working; the tab reads "Form".
-  flat["booking-questions"] = (
-    <FormPanel
-      config={bookingConfig}
-      settings={bookingSettings}
-      services={services}
-      staff={staffList}
-      locations={locationList}
-    />
-  );
-  flat["booking-pricing"] = <PricingPanel settings={bookingSettings} />;
   if (operator) {
     flat.users = (
       <UsersPanel
@@ -422,22 +352,7 @@ export async function buildAdminPanels(
 
   // The element registry: the same rows, one node per row, for the copilot's
   // show_elements (lib/adminElements.ts decides ids and facets).
-  const { nodes: elements } = buildElementNodes(
-    {
-      timeZone: bookingSettings.timezone || fallbackTimeZone(),
-      currency: bookingSettings.currency,
-      appointments: bookings,
-      orders,
-      goals: goalRows,
-      rules: ruleRows,
-      canned,
-      services,
-      staff: staffList,
-      locations: locationList,
-      fieldLabels,
-    },
-    { cancelAction: cancelBookingAction, confirmAction: confirmBookingAction, deleteOrderAction },
-  );
+  const { nodes: elements } = buildElementNodes({ goals: goalRows, rules: ruleRows, canned });
 
   return {
     flat,

@@ -1,7 +1,5 @@
 import { describe, expect, it } from "vitest";
 import { capTags, flat, slugify, str } from "@/lib/util/text";
-import { parsePrice, priceAmountOf } from "@/lib/util/money";
-import { durationMinutes } from "@/lib/util/duration";
 import { sniffImageType } from "@/lib/util/images";
 
 describe("text helpers", () => {
@@ -25,25 +23,6 @@ describe("text helpers", () => {
     expect(capTags([" Red ", "red", "Gel", 3, "", "nails"])).toEqual(["red", "gel", "nails"]);
     expect(capTags("nope")).toEqual([]);
     expect(capTags(Array.from({ length: 12 }, (_, i) => `t${i}`), 3)).toHaveLength(3);
-  });
-});
-
-describe("money and duration", () => {
-  it("parsePrice reads amount, exactness and symbol", () => {
-    expect(parsePrice("$35")).toEqual({ amount: 35, exact: true, symbol: "$" });
-    expect(parsePrice("$40+")).toMatchObject({ amount: 40, exact: false });
-    expect(parsePrice("+$5")).toMatchObject({ amount: 5, exact: true });
-    expect(parsePrice("$1,200")).toMatchObject({ amount: 1200 });
-    expect(parsePrice("Free")).toEqual({ amount: 0, exact: true, symbol: "" });
-    expect(parsePrice("call us")).toBeNull();
-    expect(priceAmountOf("from £25")).toBe(25);
-    expect(priceAmountOf("")).toBeNull();
-  });
-  it("durationMinutes", () => {
-    expect(durationMinutes("45 min")).toBe(45);
-    expect(durationMinutes("1h 30m")).toBe(90);
-    expect(durationMinutes("1.5 hours")).toBe(90);
-    expect(durationMinutes("soon")).toBeNull();
   });
 });
 

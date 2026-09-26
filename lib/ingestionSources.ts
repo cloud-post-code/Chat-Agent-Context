@@ -175,11 +175,12 @@ export async function setIngestionSourceHidden(
 }
 
 /**
- * The starter ingestion sources, in display order. These mirror the four
- * things onboarding extracts from a business's website (lib/onboarding/jobs.ts
+ * The starter ingestion sources, in display order. These mirror what
+ * onboarding extracts from a business's website (lib/onboarding/jobs.ts
  * EXTRACTORS): blog posts, testimonials, the people behind the business, and
- * services. Onboarding fills these tabs; the admin adds to them by hand
- * afterwards through the same generic ingest panel.
+ * the sitemap sweep's facts (services, pricing, hours, policies). Onboarding
+ * fills these tabs; the admin adds to them by hand afterwards through the
+ * same generic ingest panel.
  *
  * Seeded once into an empty table (seedStarterIngestionSources); after that
  * the rows are the account's to edit or reorder — the starters never
@@ -285,7 +286,6 @@ export const ONBOARDING_SOURCE_KEYS = {
   blog: "blog",
   testimonials: "testimonials",
   team: "about-team",
-  services: "services",
   sweep: "services",
 } as const;
 

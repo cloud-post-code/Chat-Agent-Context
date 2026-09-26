@@ -35,7 +35,7 @@ function deletedByCascade(model: string, seen = new Set<string>()): boolean {
 describe("wipeAccountContent covers every per-user table", () => {
   const models = perUserModels();
   it("found the per-user models", () => {
-    expect(models.length).toBeGreaterThan(20);
+    expect(models.length).toBeGreaterThan(15);
   });
   it.each(models.filter((m) => !KEPT.has(m)))("%s is deleted, directly or by cascade", (model) => {
     expect(deletedDirectly(model) || deletedByCascade(model)).toBe(true);

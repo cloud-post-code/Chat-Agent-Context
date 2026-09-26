@@ -38,8 +38,6 @@ Work in two steps. First determine the NEEDS: what does a prospective customer o
 
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" or "filmstrip".
-- "services": the business's services from live data. Only when SIGNALS lists services on file.
-- "menu": the business's orderable menu from live data — items with prices, options and add-ons, a cart with quantities, and checkout. Only when SIGNALS lists services on file, and instead of "services" when visitors pick several things.
 - "contact": the in-chat contact form.
 - "projects": the project portfolio. Only when SIGNALS lists projects.
 - "social": the business's own social media links as clickable buttons. Only when SIGNALS lists social links on file.
@@ -48,14 +46,13 @@ Card kinds:
 Rules:
 - Every need is grounded in a page: "evidence" is the URL, copied exactly from a "=== <url>" line, where the site shows this need. "need" is one sentence naming the visitor and what they want.
 - Never plan a card the EXISTING CARDS already cover, and never a second card with an existing card's name.
-- Never plan a "designed" card that lists services or prices: the "services" card does that from live data.
 - Never plan a card for content the site does not have. Never invent a service, price, person or policy.
 - "reason" is the instruction the agent will receive about when to show the card, starting "When …".
 - "questions" lists the numbers of the starter questions this card should appear with; a question belongs to at most one card; empty when none fits.
 - At most 4 needs, at most 3 of them "designed". Nothing missing? Return an empty list — that is a good answer.
 
 Respond with ONLY this JSON, no other text:
-{"needs":[{"need":"","evidence":"https://…","kind":"gallery|services|menu|contact|projects|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
+{"needs":[{"need":"","evidence":"https://…","kind":"gallery|contact|projects|social|designed","label":"","description":"one line on what it renders","reason":"When …","layout":"carousel|filmstrip","brief":"","questions":[1]}]}`;
 
 type SiteCard = PlannedCard & {
   /** The visitor need this card serves, in one sentence. */
@@ -97,8 +94,6 @@ const PLAN_MAX_TOKENS = 2500;
 /** The tool a live-data kind draws with; the catalog holds one row per such tool. */
 const LIVE_TOOL: Partial<Record<CardKind, string>> = {
   gallery: "show_gallery",
-  services: "show_services",
-  menu: "show_menu",
   contact: "show_contact_form",
   projects: "show_projects",
   social: "show_social",
@@ -132,7 +127,7 @@ export function sanitizeSiteCardPlan(
     const need = typeof item.need === "string" ? item.need.trim().slice(0, MAX_NEED) : "";
     const label = typeof item.label === "string" ? item.label.trim().toLowerCase() : "";
     const kind = String(item.kind ?? "") as CardKind;
-    if (!need || !label || kind === "booking") continue;
+    if (!need || !label) continue;
     if (takenLabels.has(label) || takenTools.has(LIVE_TOOL[kind] ?? "")) continue;
     const evidence = typeof item.evidence === "string" && urls.has(item.evidence.trim())
       ? item.evidence.trim()

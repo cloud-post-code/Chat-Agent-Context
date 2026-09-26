@@ -54,8 +54,6 @@ export type KnowledgeReport = {
   };
   team: { existed: boolean; blocks: number; embeddingDim: number; pagesChecked: string[] };
   sweep: { pages: string[] };
-  /** The services-and-booking extractor (lib/onboarding/services.ts). */
-  services: import("./services").ServicesReport;
 };
 
 const norm = (s: string) => s.replace(/\s+/g, " ").trim();
@@ -80,7 +78,7 @@ const PAGE_AGENTS = () => {
 };
 
 /** One Source row + one Chunk per piece, through the existing pipeline.
- *  Exported for the services extractor (lib/onboarding/services.ts). */
+ *  Exported for the proofs that drive the same write path. */
 export async function saveKnowledgeRecord(
   userId: string,
   src: { url: string; title: string; kind: string; summary?: string; rawText: string },
@@ -334,15 +332,7 @@ export async function extractTestimonials(
 
 export async function extractTeam(
   crawler: Crawler, home: Page, userId: string, log: (m: string) => void = () => {},
-): Promise<{
-  report: KnowledgeReport["team"]; chunks: number; covered: Set<string>;
-  /** The people the prompt found — name and bio — for the booking seeder
-   *  (lib/onboarding/bookingSeed.ts seedStaff) to write as StaffMember rows. */
-  people: { name: string; bio: string }[];
-  /** The team/about pages actually loaded, so the seeder can match a photo
-   *  against the same pages the bios came from. */
-  loaded: Page[];
-}> {
+): Promise<{ report: KnowledgeReport["team"]; chunks: number; covered: Set<string> }> {
   const candidates = linksMatching(crawler, home,
     /team|about( us)?|our people|leadership/i,
     ["/team", "/about", "/about-us", "/people", "/leadership"]);
@@ -383,7 +373,7 @@ export async function extractTeam(
   }
   return {
     report: { existed: pagesChecked.length > 0 && blocks.length > 0, blocks: blocks.length, embeddingDim, pagesChecked },
-    chunks, covered, people: blocks, loaded,
+    chunks, covered,
   };
 }
 

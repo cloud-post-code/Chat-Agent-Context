@@ -1,5 +1,4 @@
 import * as cheerio from "cheerio";
-import { isSafeExternalUrl } from "./bookingPage";
 import { isPublicHostname, isPublicTarget } from "./netGuard";
 import { createLimiter, onboardingConcurrency, type Limiter } from "./pool";
 
@@ -165,7 +164,7 @@ type BrowserPage = import("playwright").Page;
 /**
  * The browser's own user agent with the one word that marks an automated
  * launch removed: headless Chromium calls itself "HeadlessChrome", and some
- * booking widgets refuse to render for that name alone. Version and platform
+ * sites refuse to render for that name alone. Version and platform
  * stay exactly what the browser reports.
  */
 export function plainUserAgent(ua: string): string {
@@ -211,7 +210,7 @@ export function summarizeDiag(d: PageDiag): string {
 }
 
 /** The diagnostic line for a page guardedContext opened; "" for any other page. */
-export function pageDiagnostics(page: BrowserPage): string {
+function pageDiagnostics(page: BrowserPage): string {
   const d = diags.get(page);
   return d ? summarizeDiag(d) : "";
 }
@@ -237,7 +236,7 @@ async function requestAllowed(url: string): Promise<boolean> {
  * blocked, popups closed as they open, and dialogs dismissed so a page can't
  * hold the read. The caller closes the context.
  */
-export async function guardedContext(
+async function guardedContext(
   browser: Browser,
   userAgent?: string,
 ): Promise<{ context: BrowserContext; page: BrowserPage }> {
@@ -392,22 +391,7 @@ export class Crawler {
     return render;
   }
 
-  /**
-   * The one way off the entered site: render a single offsite page — the
-   * business's booking widget (bookingPage.ts). Public https hosts only, and
-   * a page that redirects somewhere that isn't one is discarded.
-   */
-  async loadExternal(url: string): Promise<Page | null> {
-    if (!isSafeExternalUrl(url)) return null;
-    if (this.cache.has(url)) return this.cache.get(url)!;
-    const pending = this.inflight.get(url);
-    if (pending) return pending;
-    const render = this.limit(() => this.render(url, true)).finally(() => this.inflight.delete(url));
-    this.inflight.set(url, render);
-    return render;
-  }
-
-  private async render(abs: string, external = false): Promise<Page | null> {
+  private async render(abs: string): Promise<Page | null> {
     // A closed crawler never relaunches: when one agent fails the job, the
     // others' queued loads must wind down, not reopen a browser nobody closes.
     if (this.closed) return null;
@@ -432,7 +416,7 @@ export class Crawler {
           | Rendered
           | undefined;
         if (rendered && ground) rendered.bg = ground;
-        html = external && !isSafeExternalUrl(p.url()) ? null : await p.content();
+        html = await p.content();
         // A page that answered but painted no words at all is worth a line
         // of its own — with what its requests ran into, so a blocked or
         // failing widget is named rather than guessed at.
@@ -451,46 +435,6 @@ export class Crawler {
     const page = html !== null ? { url: abs, html, $: cheerio.load(html), rendered } : null;
     this.cache.set(abs, page);
     return page;
-  }
-
-  /**
-   * Drive one page in the browser: `fn` gets a live Playwright page in a fresh
-   * context (its own cookies and storage, so a booking widget's session never
-   * leaks into the site crawl) and may click through it — this is how the form
-   * reader (formReader.ts) walks a widget's screens. Held to the same url
-   * policy as loads: the site's own origin or a public https host, and either
-   * way a host that resolves to the public internet (netGuard.ts) — the site's
-   * own origin is not trusted for that, since it is what the tenant typed.
-   * The context is guarded the way renders are (guardedContext). Shares the
-   * tab limiter with renders. Never throws: null once closed, on a refused url,
-   * or when the browser or `fn` fails, with the reason reported through onEvent.
-   */
-  async drive<T>(url: string, fn: (page: BrowserPage) => Promise<T>): Promise<T | null> {
-    if (!this.resolve(url) && !isSafeExternalUrl(url)) {
-      this.onEvent?.(`Not driving ${url.slice(0, 120)}: not a public https page`);
-      return null;
-    }
-    if (!(await isPublicTarget(url))) {
-      this.onEvent?.(`Not driving ${url.slice(0, 120)}: not a public website`);
-      return null;
-    }
-    if (this.closed) return null;
-    return this.limit(async () => {
-      if (this.closed) return null;
-      let context: BrowserContext | null = null;
-      try {
-        const tab = await this.tab();
-        if (!tab) return null;
-        context = tab.context;
-        return await fn(tab.page);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message.slice(0, 120) : String(err);
-        this.onEvent?.(`Could not drive ${url.slice(0, 120)}: ${msg}`);
-        return null;
-      } finally {
-        await context?.close().catch(() => {});
-      }
-    });
   }
 
   /** Fetch an on-domain non-HTML resource (feeds, sitemaps). Null on failure. */

@@ -7,7 +7,7 @@
  * (manual) → dashboard and admin chat
  * render → the public agent page, llms.txt and the A2A agent card serve →
  * /api/a2a refuses an anonymous caller → /api/chat streams NDJSON for the
- * new tenant → /api/booking answers → the account is wiped and deleted, and
+ * new tenant → the account is wiped and deleted, and
  * nothing of it remains. Needs Postgres (via .env) and the server; a chat
  * answer needs ANTHROPIC_API_KEY on the SERVER, otherwise the stream is only
  * checked for shape. Prints SMOKE PASS or exits 1.
@@ -121,11 +121,6 @@ async function main() {
   check("chat stream reports no error", !errored, errored ? JSON.stringify(errored).slice(0, 160) : "");
   const badSlug = await fetch(`${BASE}/api/chat`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug: "no-such-agent", sessionId: "x", messages: [{ role: "user", content: "hi" }] }) });
   check("chat with an unknown slug → 404", badSlug.status === 404, `status ${badSlug.status}`);
-
-  // ── booking ──
-  const booking = await fetch(`${BASE}/api/booking?slug=${user.slug}`);
-  const bookingBody = await booking.json().catch(() => null);
-  check("booking flow endpoint answers for the tenant", booking.status === 200 && bookingBody?.ok === true, `status ${booking.status}`);
 
   // ── wipe + delete: nothing of the account remains ──
   await wipeAccountContent(user.id);

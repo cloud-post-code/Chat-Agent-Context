@@ -1,5 +1,7 @@
 # Proof Plan
 
+> **2026-09-26 — booking removed.** Booking, Service, the menu and the cart no longer exist in the product (commit `b4d06cf` on main is the last state with them). The checks below that seeded or asserted bookings, services, menu items or orders were removed from `proof.ts`; the rest stand as written.
+
 ## Definition Of Done
 - A fresh user's first admin login lands on the onboarding page — a chat that
   asks for the website link and offers the manual path. Extraction is STAGED

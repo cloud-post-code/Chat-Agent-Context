@@ -1,11 +1,10 @@
 /**
  * Shared tokenizer and scoring for every small addressable index (photos,
- * services, projects): one place decides what counts as a "meaningful word"
- * and how two bags of words overlap, so a photo filter, a service filter, and
- * "similar services" all agree on what a shared term is worth.
+ * projects): one place decides what counts as a "meaningful word" and how two
+ * bags of words overlap, so a photo filter and a project filter agree on what
+ * a shared term is worth.
  *
- * Pure and import-free on purpose, like lib/menuTypes.ts and
- * lib/adminElements.ts — either side of the app can reach it cheaply, and a
+ * Pure and import-free on purpose, like lib/adminElements.ts — either side of the app can reach it cheaply, and a
  * proof can drive it with no setup.
  */
 

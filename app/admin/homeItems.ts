@@ -8,7 +8,7 @@ export type AttentionItem = {
   count: number;
   /** Panel key the row deep-links to (`?tab=`). */
   tab: string;
-  /** A short second line: the next appointment, the top question. */
+  /** A short second line: the top questions. */
   detail?: string;
 };
 
@@ -17,37 +17,14 @@ export type ChecklistItem = { label: string; done: boolean; tab: string };
 export type AttentionInput = {
   flaggedDown: number;
   unreviewed: number;
-  appointments: ReadonlyArray<{ id: string; startsAt: Date; answers: Record<string, string> }>;
-  orders: ReadonlyArray<{ id: string; status: string; contact: { name: string }; createdAt: Date }>;
   topQuestions: ReadonlyArray<{ label: string; count: number }>;
 };
 
-const whenShort = (d: Date) =>
-  d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
-
 /** The needs-attention queue: only rows with something in them. */
-export function attentionItems(input: AttentionInput, now: Date = new Date()): AttentionItem[] {
-  const upcoming = input.appointments
-    .filter((a) => a.startsAt >= now)
-    .sort((a, b) => a.startsAt.getTime() - b.startsAt.getTime());
-  const fresh = input.orders.filter((o) => o.status === "new");
-  const next = upcoming[0];
-  const nextWho = next ? Object.values(next.answers).find((v) => v.trim()) : undefined;
+export function attentionItems(input: AttentionInput): AttentionItem[] {
   const items: AttentionItem[] = [
     { label: "Answers flagged 👎", count: input.flaggedDown, tab: "activity" },
     { label: "Presets waiting for review", count: input.unreviewed, tab: "answers" },
-    {
-      label: "Upcoming appointments",
-      count: upcoming.length,
-      tab: "appointments",
-      detail: next ? `Next: ${whenShort(next.startsAt)}${nextWho ? ` · ${nextWho}` : ""}` : undefined,
-    },
-    {
-      label: "New orders",
-      count: fresh.length,
-      tab: "orders",
-      detail: fresh[0]?.contact.name ? `Latest from ${fresh[0].contact.name}` : undefined,
-    },
     {
       label: "Most asked this month",
       count: input.topQuestions.length,
@@ -71,7 +48,6 @@ export type ChecklistInput = {
   };
   taglineSource: string;
   cardCount: number;
-  bookingEnabled: boolean;
   /** Enabled knowledge sources with how many items each holds. */
   sources: ReadonlyArray<{ key: string; label: string; count: number }>;
 };
@@ -90,7 +66,6 @@ export function checklistItems(input: ChecklistInput): ChecklistItem[] {
     { label: "Fill in your business profile", done: profileDone, tab: "profile" },
     { label: "Confirm your tagline", done: input.taglineSource !== "suggested", tab: "theme" },
     { label: "Build at least one card", done: input.cardCount > 0, tab: "a2ui" },
-    { label: "Turn on appointment booking", done: input.bookingEnabled, tab: "booking" },
     ...input.sources.map((s) => ({
       label: `Add something to ${s.label}`,
       done: s.count > 0,

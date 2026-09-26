@@ -7,10 +7,10 @@
  * a proof script alike. `ShownCard` itself lives in lib/brain.ts (the wire
  * type the contract defines it against) rather than being redefined here.
  *
- * Per card: gallery/services/projects -> ids of items (tags only for
- * gallery, the union across its items, capped); social -> ids = platforms;
- * booking -> just { type: "booking" }. `title` is carried through when
- * present. Caps: 4 cards per message, 12 ids per card (tags capped at 12 too).
+ * Per card: gallery/projects -> ids of items (tags only for gallery, the
+ * union across its items, capped); social -> ids = platforms. `title` is
+ * carried through when present. Caps: 4 cards per message, 12 ids per card
+ * (tags capped at 12 too).
  */
 
 import type { ShownCard } from "@/lib/brain";
@@ -50,7 +50,7 @@ function tagUnionFrom(items: unknown): string[] {
 
 function shownForCard(c: AnyCard): ShownCard | null {
   const title = typeof c.title === "string" && c.title ? c.title : undefined;
-  if (c.type === "gallery" || c.type === "services" || c.type === "projects") {
+  if (c.type === "gallery" || c.type === "projects") {
     const ids = idsFrom(c.items);
     const shown: ShownCard = { type: c.type };
     if (ids.length > 0) shown.ids = ids;
@@ -71,9 +71,6 @@ function shownForCard(c: AnyCard): ShownCard | null {
     if (ids.length > 0) shown.ids = ids;
     if (title) shown.title = title;
     return shown;
-  }
-  if (c.type === "booking") {
-    return { type: "booking" };
   }
   return null;
 }

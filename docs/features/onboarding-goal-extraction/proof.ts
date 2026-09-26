@@ -49,7 +49,7 @@ const PAGES = [
   page("https://example.invalid/book", "<p>Book a site survey online.</p>"),
 ];
 
-const SIGNALS = { takesAppointments: true, categories: ["services", "team"] };
+const SIGNALS = { categories: ["services", "team"] };
 
 async function main() {
   const { prisma } = await import("../../../lib/db");
@@ -139,7 +139,6 @@ async function main() {
     // ── 5. Signals reach the corpus handed to the model ──
     const sent = doubleA.seen[0] ?? "";
     check("corpus carries the page urls", PAGES.every((p) => sent.includes(p.url)), sent.slice(0, 200));
-    check("corpus states the booking signal", /appointment|booking|book/i.test(sent));
     check("corpus states the knowledge categories", sent.includes("services") && sent.includes("team"));
 
     // ── 6. Re-run is idempotent (catalog is no longer empty) ──
