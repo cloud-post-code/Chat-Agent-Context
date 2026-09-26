@@ -130,9 +130,14 @@ async function main() {
     return u.id;
   };
 
-  /** A tenant as the end of a site onboarding leaves it: profile, photos, goal, blank starter questions. */
+  /** A tenant as the end of a site onboarding leaves it: profile, photos, a scanned page, goal, blank starter questions. */
   const mkTenant = async (tag: string) => {
     const userId = await mkUser(tag);
+    // The designed card's research step grounds itself in extracted knowledge,
+    // so the planner only allows one when a scanned Source is on file.
+    await prisma.source.create({
+      data: { userId, type: "link", url: PAGES[0].url, title: "Services", rawText: "Full Harrowgate-spec retrofit of aging kilns.", status: "scanned" },
+    });
     await prisma.profile.create({
       data: { userId, company_name: COMPANY, company_email: "hello@quillhaven.invalid" },
     });
@@ -339,7 +344,8 @@ async function main() {
     const freshSpy = await askBrain(fresh);
     const freshTools = (freshSpy.tools[0] ?? []).map((t) => t.name);
     check("brain reached the model", freshSpy.calls === 1, `${freshSpy.calls}`);
-    check("brain offers no card tool on an empty catalog", freshTools.length === 0, freshTools.join(","));
+    // search_knowledge is offered on every unscripted turn whatever the catalog holds; it draws nothing.
+    check("brain offers no card tool on an empty catalog", freshTools.filter((n) => n !== "search_knowledge").length === 0, freshTools.join(","));
 
     // ── 7. Round-trip on a real tenant ──
     const userA = await mkTenant("a");

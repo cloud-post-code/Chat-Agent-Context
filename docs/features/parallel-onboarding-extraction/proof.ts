@@ -207,7 +207,9 @@ function serve(): Promise<{ server: Server; url: string }> {
 async function provePrimitives() {
   console.log("\nPool primitives");
   const { createLimiter, mapPool, createPacer } = await import("../../../lib/pool");
-  const { modelCall, onboardingConcurrency } = await import("../../../lib/onboarding/pool");
+  const { onboardingConcurrency } = await import("../../../lib/onboarding/pool");
+  // The model gate moved to lib/claude/retry.ts in the cleanup phases (Phase 7).
+  const { modelCall } = await import("../../../lib/claude/retry");
 
   // Limiter: never over the cap, even when callers arrive as slots free up.
   {

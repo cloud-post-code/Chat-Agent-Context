@@ -168,13 +168,14 @@ async function main() {
     const custom = await prisma.ingestionSource.findUnique({
       where: { userId_key: { userId: user.id, key: "field-notes" } },
     });
-    const links = await prisma.ingestionSource.findUnique({
-      where: { userId_key: { userId: user.id, key: "links" } },
-    });
+    // The built-in Links panel has no IngestionSource row of its own (the
+    // starters are the four generic tabs), so the builtin routing is checked
+    // on the row shape ingestPlanFor reads rather than a seeded row.
+    const links = { key: "links", builtin: true, uploadMethod: "url", storageKinds: "text" };
     check("plan: custom textarea source accepts text", ingestPlanFor(custom!, "text").ok);
     check("plan: custom textarea source refuses url", !ingestPlanFor(custom!, "url").ok);
-    check("plan: builtin links source accepts url", !!links && ingestPlanFor(links, "url").ok);
-    check("plan: builtin links source refuses text", !!links && !ingestPlanFor(links, "text").ok);
+    check("plan: builtin links source accepts url", ingestPlanFor(links, "url").ok);
+    check("plan: builtin links source refuses text", !ingestPlanFor(links, "text").ok);
 
     // ── 5. propose_ingestion → approval payload → approveIngestion writes ──
     const proposed = await collect([
