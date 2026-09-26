@@ -2,7 +2,7 @@ import { str } from "@/lib/util/text";
 import { prisma } from "@/lib/db";
 import { getBookingConfig } from "@/lib/appointments";
 import { allProjectsBlock, galleryBlock, listServices, servicesBlock } from "@/lib/cards";
-import { menuBlock } from "@/lib/menu";
+import { listMenu, menuBlock } from "@/lib/menu";
 import { draftUiCard, type BuilderDeps, type CardDraft } from "@/lib/cardBuilder";
 import { writeUiCard } from "@/lib/uiCards";
 import { socialBlock } from "@/lib/social";
@@ -39,7 +39,7 @@ The text contains the site's pages, each preceded by "=== <url>", then a BUSINES
 Card kinds:
 - "gallery": the business's own photos. Only when SIGNALS lists gallery photos. "layout" is "carousel" (one photo at a time) or "filmstrip" (thumbnails with a lightbox).
 - "services": the business's services, listed straight from what onboarding saved, each with a Book button when the business takes appointments. Only when SIGNALS lists services on file.
-- "menu": the business's menu the visitor can order from — items with prices, options and add-ons, each addable to a cart with a quantity, and a checkout. Only when SIGNALS lists services on file. Plan "menu" when the business sells things a visitor picks several of (dishes, drinks, products, treatments with add-ons); plan "services" when it is a plain list booked one at a time. One of the two is ALWAYS planned when services are on file, for the question about what the business offers — never both.
+- "menu": the business's menu the visitor can order from — items with prices, options and add-ons, each addable to a cart with a quantity, and a checkout. Only when SIGNALS says the business has something orderable without booking a visit. Plan "menu" when the business sells things a visitor picks several of and can buy right there (dishes, drinks, products, treatments with add-ons sold on their own); plan "services" when it is a plain list booked one at a time, or when SIGNALS says nothing is orderable without booking — an appointment-only service list is "services", never "menu", however many extras it has. One of the two is ALWAYS planned when services are on file, for the question about what the business offers — never both.
 - "contact": the in-chat contact form — the visitor leaves their name, email and a message for the business.
 - "projects": the business's project portfolio. Only when SIGNALS lists projects.
 - "booking": the in-chat appointment flow. Only when SIGNALS says the business takes appointments. Use it for the question about booking or scheduling.
@@ -91,12 +91,22 @@ export type CardSignals = {
   projects: number;
   /** Services on file — what the services card would list. */
   services: number;
+  /** True when some item on file can be bought without booking an appointment
+   *  for it (a real fulfillment other than "appointment") — the one thing that
+   *  makes a cart/checkout ("menu") make sense instead of a plain, booked-one-
+   *  at-a-time services list. */
+  menuOrderable: boolean;
   takesAppointments: boolean;
   contactChannels: string[];
   /** Social links on file — what the social card would show. */
   socialLinks: number;
   /** Knowledge categories that produced content this run. */
   categories: string[];
+  /** True when the account has any real extracted knowledge (a scanned
+   *  Source) on file — the one thing a "designed" card's research step can
+   *  actually ground itself in, instead of relying on the model's own
+   *  restraint not to invent one. */
+  hasKnowledge: boolean;
 };
 
 export type CardsReport = {
@@ -124,9 +134,18 @@ const PLAN_MAX_TOKENS = 2000;
 function kindAllowed(kind: CardKind, signals: CardSignals): boolean {
   if (kind === "gallery") return signals.photos > 0;
   if (kind === "projects") return signals.projects > 0;
-  if (kind === "services" || kind === "menu") return signals.services > 0;
+  if (kind === "services") return signals.services > 0;
+  // "menu" additionally needs something a visitor can actually check out
+  // without booking a visit — otherwise a plain appointment-only service list
+  // would get an "add to cart" it was never meant to have.
+  if (kind === "menu") return signals.services > 0 && signals.menuOrderable;
   if (kind === "booking") return signals.takesAppointments;
   if (kind === "social") return signals.socialLinks > 0;
+  // "designed" has no table of its own to gate on — hours, team, policies,
+  // an FAQ, all of it — so the one hard floor is that SOME real knowledge was
+  // actually extracted for the builder to research and copy from, on top of
+  // the prompt's own instruction never to invent a claim the site never made.
+  if (kind === "designed") return signals.hasKnowledge;
   return true;
 }
 
@@ -231,27 +250,34 @@ export async function businessBlock(userId: string): Promise<Business> {
 
 /** What the account has, read from the tables the cards would draw from. */
 export async function readSignals(userId: string, categories: string[]): Promise<CardSignals> {
-  const [photos, projects, services, booking, profile] = await Promise.all([
+  const [photos, projects, services, booking, profile, sources] = await Promise.all([
     // The public gallery shows the owner's curated kinds, not ingested images.
     prisma.photo.count({ where: { userId, NOT: { kind: { startsWith: "ingest:" } } } }),
     prisma.project.count({ where: { userId } }),
     listServices(userId),
     getBookingConfig(userId),
     prisma.profile.findUnique({ where: { userId } }),
+    prisma.source.count({ where: { userId, status: "scanned" } }),
   ]);
   const contactChannels = [
     profile?.company_email ? "email" : "",
     profile?.company_phone_number ? "phone" : "",
     profile?.company_address ? "address" : "",
   ].filter(Boolean);
+  // Items synthesized from the services catalog (no MenuItem rows yet) carry
+  // no fulfillment tag, so they read as not-orderable — the safe default when
+  // nothing on file says otherwise.
+  const menu = services.length ? await listMenu(userId) : [];
   return {
     photos,
     projects,
     services: services.length,
+    menuOrderable: menu.some((m) => m.fulfillment.some((f) => f !== "appointment")),
     takesAppointments: booking.enabled && booking.fields.length > 0,
     contactChannels,
     socialLinks: parseSocialLinks(profile?.social_links ?? "[]").length,
     categories: categories.filter(Boolean),
+    hasKnowledge: sources > 0,
   };
 }
 
@@ -275,6 +301,7 @@ export function contextBlocks(business: Business, signals: CardSignals, question
     `Gallery photos on file: ${signals.photos}\n` +
     `Projects on file: ${signals.projects}\n` +
     `Services on file: ${signals.services}\n` +
+    `Something orderable without booking (a real cart checkout makes sense): ${signals.menuOrderable ? "yes" : "no"}\n` +
     `Takes appointments (customers can book): ${signals.takesAppointments ? "yes" : "no"}\n` +
     `Contact channels listed: ${signals.contactChannels.length ? signals.contactChannels.join(", ") : "none"}\n` +
     `Social links on file: ${signals.socialLinks}\n` +

@@ -109,6 +109,25 @@ cut marker). D. the sanitizer's caps and its refusal to merge or rename.
 E. `transcribeForm` with a scripted model: the spec equals the fixture, one
 call with the prompt and the serialized snapshot, an empty snapshot makes no
 call, a reply without JSON is the empty spec.
+F2. the GoCheckIn shape (`reader-accordion.html`), start to questions:
+collapsed rows clipped to nothing and parked (opacity 0) dialogs are not on
+screen — the collapsed screen lists the category buttons and no OK / Close /
+Reload; expanding the first category is the last resort; the rows are one
+tile list named by the category right above them; a row is picked through
+its inner control; the staff sheet that opens a beat later is a new screen
+whose rows are named without their "Book" button, and none of those buttons
+is listed as a button of its own; the pick is made by that button, from the
+sheet in front, and the menu behind is left alone; the footer's Next goes
+forward, never Back or Add more service; the questions screen's labels in
+order with their marks, the widget's own agreement toggle read as a
+checkbox; nothing that commits, no parked dialog's button, no Back and no
+agreement toggle is ever clicked. (A. also holds screen 3 to its
+`[calendar]` element under the screen's heading.)
+K. `hasVisibleContent` — the signal `readBookingForm`'s first-screen grace
+period waits on for a client-rendered booking app that finishes loading
+before it finishes painting: a blank page reads as empty, the same page
+after it paints reads as real, a bare heading or a tile list with no inputs
+still counts, plain "Loading…" text does not.
 
 ## Secondary: live cross-check (not a gate)
 ```
@@ -118,13 +137,24 @@ Real crawl of moonlightnailsspabrighton.com and its GoCheckIn widget, the real
 browser read, the real model, a throwaway tenant. Scores the copied form
 against `truth.moonlight.ts`: the five questions in order with their marks,
 types and roles, one screen, the policy text, nothing extra, the provider
-rule, real provider names, the card's walk, sampled prices. **It could not be
-run in this environment: the container's proxy blocks the live MoonLight
-site.** Network and model output vary; a miss is a prompt to read the output,
-not a gate.
+rule, real provider names, the card's walk, sampled prices. Network and model
+output vary; a miss is a prompt to read the output, not a gate. Run from a
+machine with outbound HTTPS and `ANTHROPIC_API_KEY` set (2026-09-25: every
+check matched — see the run record).
 
 ## Run record
 - 2026-09-25 — `proof.ts`: `All 54 checks passed.` (A 6, B 7, C 15, D 4, E 7,
   F 10, G 3, Z 1). `reader-proof.ts`: `All checks passed.` (Chromium at
   `PLAYWRIGHT_BROWSERS_PATH`). `crosscheck.ts` not run (no route to the live
   site from this container).
+- 2026-09-25 (the GoCheckIn read) — `reader-proof.ts`: `All checks passed.`,
+  105 PASS lines (F2 rewritten for the real widget's shape: 16 checks; A gains
+  the calendar element). Before the reader changes, the same F2 fixture
+  stalled at `expand:Manicure` with the rows never read. `crosscheck.ts`
+  (live, laptop, real model): `Every check matched.` — 6 screens read in the
+  browser, the form copied with the widget's five questions (Full Name*,
+  Phone Number*, Email, Appointment Notes, the cancellation-policy agreement
+  as a waiver), steps service → provider → time → questions → review, the
+  five real providers with "Any available staff" making the provider
+  optional, 52 of 63 services seeded with 8/8 sampled prices matching. Also
+  green: `npm run lint`, `npm test` (127), `npx knip` (nothing new).

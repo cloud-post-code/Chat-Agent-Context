@@ -162,6 +162,60 @@ type Browser = import("playwright").Browser;
 type BrowserContext = import("playwright").BrowserContext;
 type BrowserPage = import("playwright").Page;
 
+/**
+ * The browser's own user agent with the one word that marks an automated
+ * launch removed: headless Chromium calls itself "HeadlessChrome", and some
+ * booking widgets refuse to render for that name alone. Version and platform
+ * stay exactly what the browser reports.
+ */
+export function plainUserAgent(ua: string): string {
+  return ua.replace(/HeadlessChrome\//g, "Chrome/");
+}
+
+/** What a page's own requests ran into, kept per page for the activity log. */
+export type PageDiag = {
+  /** Requests the network guard refused, counted by host. */
+  blocked: Map<string, number>;
+  /** Responses of 400+ and requests that died in the network, "status host/path". */
+  failed: string[];
+  /** Uncaught errors the page's scripts threw. */
+  errors: string[];
+};
+
+const DIAG_CAP = 20;
+const diags = new WeakMap<BrowserPage, PageDiag>();
+
+const shortUrl = (url: string): string => {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.pathname}`.slice(0, 80);
+  } catch {
+    return url.slice(0, 80);
+  }
+};
+
+/**
+ * One line saying why a page may have shown nothing: how many requests the
+ * network guard refused (and to where), which ones failed, what the page's
+ * scripts threw. "" when nothing went wrong that the browser could see.
+ */
+export function summarizeDiag(d: PageDiag): string {
+  const parts: string[] = [];
+  const blocked = [...d.blocked.values()].reduce((a, b) => a + b, 0);
+  if (blocked) {
+    parts.push(`${blocked} request${blocked === 1 ? "" : "s"} refused by the network guard (${[...d.blocked.keys()].slice(0, 3).join(", ")})`);
+  }
+  if (d.failed.length) parts.push(`${d.failed.length} failed: ${d.failed.slice(0, 3).join("; ")}`);
+  if (d.errors.length) parts.push(`script error: ${d.errors.slice(0, 2).join("; ")}`);
+  return parts.join(" · ");
+}
+
+/** The diagnostic line for a page guardedContext opened; "" for any other page. */
+export function pageDiagnostics(page: BrowserPage): string {
+  const d = diags.get(page);
+  return d ? summarizeDiag(d) : "";
+}
+
 /** Whether the browser may make this request: http(s) to a public host (netGuard.ts). */
 async function requestAllowed(url: string): Promise<boolean> {
   let u: URL;
@@ -183,14 +237,37 @@ async function requestAllowed(url: string): Promise<boolean> {
  * blocked, popups closed as they open, and dialogs dismissed so a page can't
  * hold the read. The caller closes the context.
  */
-export async function guardedContext(browser: Browser): Promise<{ context: BrowserContext; page: BrowserPage }> {
-  const context = await browser.newContext({ acceptDownloads: false, serviceWorkers: "block" });
+export async function guardedContext(
+  browser: Browser,
+  userAgent?: string,
+): Promise<{ context: BrowserContext; page: BrowserPage }> {
+  const context = await browser.newContext({
+    acceptDownloads: false,
+    serviceWorkers: "block",
+    // The browser's own user agent minus its "Headless" mark (plainUserAgent);
+    // the crawler reads it once per launch. Left out, the browser's default.
+    ...(userAgent ? { userAgent } : {}),
+  });
+  const diag: PageDiag = { blocked: new Map(), failed: [], errors: [] };
+  const note = (list: string[], line: string) => {
+    if (list.length < DIAG_CAP) list.push(line);
+  };
   await context.route("**/*", async (route) => {
+    const url = route.request().url();
     let ok = false;
     try {
-      ok = await requestAllowed(route.request().url());
+      ok = await requestAllowed(url);
     } catch {
       ok = false;
+    }
+    if (!ok) {
+      let host = "";
+      try {
+        host = new URL(url).hostname || url.slice(0, 40);
+      } catch {
+        host = url.slice(0, 40);
+      }
+      diag.blocked.set(host, (diag.blocked.get(host) ?? 0) + 1);
     }
     try {
       if (ok) await route.continue();
@@ -200,11 +277,36 @@ export async function guardedContext(browser: Browser): Promise<{ context: Brows
     }
   });
   const page = await context.newPage();
+  diags.set(page, diag);
+  page.on("response", (res) => {
+    if (res.status() >= 400) note(diag.failed, `${res.status()} ${shortUrl(res.url())}`);
+  });
+  page.on("requestfailed", (req) => {
+    const why = req.failure()?.errorText ?? "";
+    // The guard's own refusals are counted above, not here.
+    if (why && !/BLOCKED_BY_CLIENT|ERR_ABORTED/.test(why)) note(diag.failed, `${why} ${shortUrl(req.url())}`);
+  });
+  page.on("pageerror", (err) => note(diag.errors, err.message.slice(0, 120)));
   context.on("page", (p) => {
     if (p !== page) p.close().catch(() => {});
   });
   page.on("dialog", (d) => d.dismiss().catch(() => {}));
   return { context, page };
+}
+
+/** The browser's default user agent, read off a blank page once per launch, with its "Headless" mark removed. "" when it can't be read. */
+async function learnUserAgent(browser: Browser): Promise<string> {
+  let context: BrowserContext | null = null;
+  try {
+    context = await browser.newContext();
+    const page = await context.newPage();
+    const ua = (await page.evaluate("navigator.userAgent")) as unknown;
+    return typeof ua === "string" ? plainUserAgent(ua) : "";
+  } catch {
+    return "";
+  } finally {
+    await context?.close().catch(() => {});
+  }
 }
 
 export class Crawler {
@@ -213,6 +315,8 @@ export class Crawler {
   /** Renders under way, so two agents asking for one url share one tab. */
   private inflight = new Map<string, Promise<Page | null>>();
   private launching: Promise<Browser> | null = null;
+  /** The launched browser's user agent, minus its "Headless" mark; "" until known. */
+  private ua = "";
   private closed = false;
   /** Caps open tabs across every agent sharing this crawler: the extractors
    *  run side by side, and each one fans its own page loads out too. */
@@ -249,7 +353,12 @@ export class Crawler {
       }
       try {
         const { chromium } = await import("playwright");
-        return await chromium.launch({ headless: true });
+        // AutomationControlled is what sets navigator.webdriver on an
+        // automated launch; without it the browser reports what a visitor's
+        // would. Nothing else about the browser is changed.
+        const browser = await chromium.launch({ headless: true, args: ["--disable-blink-features=AutomationControlled"] });
+        this.ua = await learnUserAgent(browser);
+        return browser;
       } catch (err) {
         throw new Error(
           `Could not launch the Playwright browser: ${err instanceof Error ? err.message.slice(0, 120) : String(err)}`,
@@ -265,7 +374,7 @@ export class Crawler {
    *  closed while the browser was still launching. */
   private async tab(): Promise<{ context: BrowserContext; page: BrowserPage } | null> {
     const browser = await this.launch();
-    return this.closed ? null : guardedContext(browser);
+    return this.closed ? null : guardedContext(browser, this.ua || undefined);
   }
 
   /** Render one on-domain page as parsed HTML. Cached; null when the page
@@ -324,6 +433,14 @@ export class Crawler {
           | undefined;
         if (rendered && ground) rendered.bg = ground;
         html = external && !isSafeExternalUrl(p.url()) ? null : await p.content();
+        // A page that answered but painted no words at all is worth a line
+        // of its own — with what its requests ran into, so a blocked or
+        // failing widget is named rather than guessed at.
+        const words = (await p.evaluate("document.body ? document.body.innerText.trim().length : 0").catch(() => -1)) as number;
+        if (words === 0) {
+          const why = pageDiagnostics(p);
+          this.onEvent?.(`${abs.replace(this.origin, "") || "/"} rendered blank${why ? ` — ${why}` : ""}`);
+        }
       }
     } catch {
       html = null;

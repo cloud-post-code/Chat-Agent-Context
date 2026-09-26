@@ -323,11 +323,18 @@ async function main() {
 
     // ══ F. The planner ═════════════════════════════════════════════════════
     {
-      const signals = { photos: 0, projects: 0, services: 4, takesAppointments: true, contactChannels: [], categories: [] };
+      const signals = { photos: 0, projects: 0, services: 4, menuOrderable: true, takesAppointments: true, contactChannels: [], socialLinks: 0, categories: [], hasKnowledge: true };
       const both = sanitizeCardPlan({ cards: [{ kind: "services", label: "Services" }, { kind: "menu", label: "Menu", reason: "When …" }] }, signals, 0);
       check("F1 menu is a planned kind and wins over services", both.cards.length === 1 && both.cards[0].kind === "menu");
       const none = sanitizeCardPlan({ cards: [{ kind: "menu", label: "Menu" }] }, { ...signals, services: 0 }, 0);
       check("F1 …gated on items on file", none.cards.length === 0);
+      const appointmentOnly = sanitizeCardPlan(
+        { cards: [{ kind: "menu", label: "Menu", reason: "When …" }, { kind: "services", label: "Services", reason: "When …" }] },
+        { ...signals, menuOrderable: false },
+        0,
+      );
+      check("F1 …a menu with nothing orderable outside booking falls back to services",
+        appointmentOnly.cards.length === 1 && appointmentOnly.cards[0].kind === "services", JSON.stringify(appointmentOnly));
       const { placeCard, businessBlock } = await import("../../../lib/onboarding/cards");
       const placed = await placeCard(u.id, { kind: "menu", label: "Our menu", description: "", reason: "When …", layout: "carousel", brief: "", questions: [] }, 9, await businessBlock(u.id), [], async () => { throw new Error("no draft"); }, quiet);
       const rowNow = placed.ok ? await prisma.uiCard.findUnique({ where: { userId_key: { userId: u.id, key: placed.key } } }) : null;

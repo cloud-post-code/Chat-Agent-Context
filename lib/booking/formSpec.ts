@@ -6,6 +6,9 @@ import { seedStaff } from "../onboarding/bookingSeed";
 import { listStaff, saveBookingSettings } from "./store";
 import type { BookingSettings, FlowStep } from "./types";
 
+/** The most of a field's label that is stored — the transcriber's own cap (sanitizeFormSpec). */
+const LABEL_MAX = 200;
+
 /**
  * A transcribed booking form (lib/onboarding/formTranscribe.ts FormSpec)
  * written into a tenant: one AppointmentField row per field, in the form's
@@ -109,7 +112,8 @@ export async function writeFormSpec(
     return {
       userId,
       key: keys[i],
-      label: f.label.slice(0, 120),
+      // A label is copied whole: a widget's own agreement line runs long.
+      label: f.label.slice(0, LABEL_MAX),
       type,
       required: f.required,
       order: i,

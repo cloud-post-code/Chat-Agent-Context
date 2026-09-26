@@ -46,6 +46,80 @@ null), `snapshotStatic` reads the one screen cheerio already loaded — the
 same label resolution over the parsed HTML, plus a booking-or-form-widget
 `<iframe>` named as one more thing found there.
 
+Finding the booking page reads every page discovery loaded, not just the
+homepage: `findBookingLink` (`bookingPage.ts`) takes the whole page list and
+returns the highest-scoring link across all of them, so a "Book" link that
+only sits on a services or contact page is still found. When no page carries
+one, `findSiblingSubdomain` looks for a link to another subdomain of the
+business's own domain (a "shop." or "book." storefront that the homepage nav
+names in non-booking words) and `discoverServicePages` loads that one page
+too — on the business's own domain, through the same `loadExternal` path the
+offsite widget already uses — before concluding there is nothing to book
+through. `bookingFormUrl` scans the same full list.
+
+Three things a real visitor's browser has that a cold automated one doesn't,
+and that a widget can key off to refuse rendering: `readBookingForm` sends
+the `referer` of the page the link was actually found on (normally the site's
+own homepage — `services.ts` passes it through); the browser launches with
+`--disable-blink-features=AutomationControlled`, so `navigator.webdriver` —
+the one flag Chromium sets only for an automated launch — is simply not set;
+and every context carries the browser's own user agent with its
+"HeadlessChrome" mark spelled "Chrome" (`plainUserAgent`, read once per
+launch). None of it changes what the reader can do — the same
+never-click-Book rule and the same public-hosts-only network guard apply.
+When a page nevertheless renders with no words at all, the activity log says
+so and why (`pageDiagnostics`: requests the guard refused, by host; 400+
+responses and dead requests; script errors) — "Booking page loaded but showed
+nothing yet — 3 requests refused by the network guard (…) — trying once more".
+
+**Widgets that hide their form behind their own controls** (GoCheckIn's is
+the model; `reader-accordion.html` is it in miniature):
+- *What isn't on screen isn't read.* A collapsed accordion panel keeps its
+  rows in the DOM, clipped by `overflow:hidden` on a box with no height; a
+  dialog is parked at `opacity:0`. Neither is visible to a customer, so
+  neither is to the reader — `isVisible` looks up the ancestors for a faded
+  or clipped-to-nothing box, and a tile's words are its *visible* text.
+- *A row is picked through what's inside it.* A service row whose only
+  clickable part is a child filling it, or that carries its own radio, is a
+  tile; a row that carries the same one-word button as every other row
+  ("Book" beside each name) is picked by that button — no single one of three
+  identical buttons can be the booking's own submit.
+- *The sheet in front wins.* A list inside a fixed-position overlay (the
+  "Select Staff" sheet) is what the customer is looking at; the menu behind it
+  is done with, and a pick the reader already made (`ReadMemory`) is never
+  made twice.
+- *A late reaction is still a reaction.* After a click the reader waits for
+  the first mutation, then for quiet (`QUIET_MS`), and keeps listening
+  `LATE_MS` more for a sheet that opens only once the request the click
+  started has answered — all inside the step's cap.
+- *Last resort: expand.* With nothing to fill, pick or advance with, the first
+  visible button that neither commits (`NEVER`) nor steers (`CONTROL`: paging,
+  Back, Add more…) is clicked — a category header is the only way into an
+  accordion.
+- *Forward over a topic.* "Continue booking" goes on with the booking: behind
+  a forward word, a booking word is the topic, not a commit. Any other
+  committing word ("Next: Request quote") still refuses the button, and a
+  calendar's own paging ("Next month") is never a way forward.
+- *A calendar is a screen of its own kind.* A month grid becomes a
+  `[calendar]` element carrying the slots offered, named by the words above
+  it; its slot count stays out of the screen's fingerprint. When the day the
+  widget pre-selected offers no slot that can still be taken, the reader moves
+  to the next enabled day, as a customer would.
+- *Marks and masks.* "(*)" is a required mark like "*"; a blank-filling mask
+  in a placeholder ("(___) ___-____") is a format hint, not part of the name.
+- *A widget's own agreement box.* "I have read and agree to …" beside a small
+  clickable thing that isn't an `<input type=checkbox>` is read as a checkbox
+  with those words — and never ticked.
+
+A client-rendered booking app can finish its network activity before it
+finishes painting: the first screen only gets one bounded extra wait
+(`FIRST_SCREEN_GRACE_MS`, 6s, inside the existing time budget) for anything a
+customer could actually act on (`hasVisibleContent` — an input, a tile list,
+a calendar, or even just a heading), not just network idle. If the whole
+read still comes back with nothing on any screen, it is retried once with a
+plain reload before giving up — a blank first paint is a more common failure
+than a genuinely form-less booking page.
+
 ### Transcribing
 One model call, over the reader's serialized snapshot (`serializeSnapshot`,
 capped at 12k chars a screen / 40k total), with a system prompt whose whole

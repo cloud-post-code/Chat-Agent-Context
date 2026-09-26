@@ -49,14 +49,10 @@ export async function provisionUserDefaults(userId: string): Promise<void> {
     ["profile", () => prisma.profile.upsert({ where: { userId }, update: {}, create: { userId } })],
     [
       "persona",
-      async () => {
-        const existing = await prisma.personaConfig.findUnique({ where: { userId } });
-        if (!existing) {
-          await prisma.personaConfig.create({
-            data: { userId, tagline: "Here to help. Ask us anything." },
-          });
-        }
-      },
+      // No stock tagline: a placeholder line typed for nobody in particular
+      // would otherwise be printed to the chat model as if it were this
+      // business's own words (lib/knowledge.ts prints `tagline` verbatim).
+      () => prisma.personaConfig.upsert({ where: { userId }, update: {}, create: { userId } }),
     ],
     ["theme", () => prisma.themeConfig.upsert({ where: { userId }, update: {}, create: { userId } })],
     ["ingestion sources", () => seedStarterIngestionSources(userId)],

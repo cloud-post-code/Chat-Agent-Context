@@ -111,7 +111,7 @@ async function main() {
   const { parseDraft } = await import("../../../lib/cardBuilder");
   const { sanitizeCardPlan, generateOnboardingCards } = await import("../../../lib/onboarding/cards");
   const { setBookingEnabled, saveAppointmentField } = await import("../../../lib/appointments");
-  const { availability, createBooking, listBookings } = await import("../../../lib/booking/store");
+  const { availability, createBooking, listBookings, saveBookingSettings } = await import("../../../lib/booking/store");
   const { sanitizeSelection } = await import("../../../lib/booking/types");
   const { onboardingIngestKind } = await import("../../../lib/ingestionSources");
   const { renderToStaticMarkup } = await import("react-dom/server");
@@ -325,7 +325,7 @@ async function main() {
     check("parseDraft rejects show_services drawing a non-services block", mismatched);
 
     // ── 6. Onboarding plans it automatically, gated on services being on file ──
-    const signals = { photos: 0, projects: 0, services: 3, takesAppointments: true, contactChannels: [], categories: ["services"] };
+    const signals = { photos: 0, projects: 0, services: 3, menuOrderable: false, takesAppointments: true, contactChannels: [], socialLinks: 0, categories: ["services"], hasKnowledge: true };
     const plan = { cards: [{ kind: "services", label: "What we offer", description: "Services", reason: "When asked what we offer", questions: [1] }] };
     check("the planner keeps a services card when services are on file",
       sanitizeCardPlan(plan, signals, 1).cards[0]?.kind === "services");
@@ -356,6 +356,11 @@ async function main() {
       attached?.cardTool === "show_services" && attached.cardInput === null, JSON.stringify(attached));
 
     // ── 7. The booking the card leads to: the tapped service is the booking's service ──
+    // No hours stated means no bookable slots (lib/booking/types.ts no longer
+    // invents a Mon–Fri default), so this tenant needs its own.
+    await saveBookingSettings(userP.id, {
+      hours: { mon: [{ start: "09:00", end: "17:00" }], tue: [{ start: "09:00", end: "17:00" }], wed: [{ start: "09:00", end: "17:00" }], thu: [{ start: "09:00", end: "17:00" }], fri: [{ start: "09:00", end: "17:00" }], sat: [], sun: [] },
+    });
     await saveAppointmentField(userP.id, { key: "your_phone_number", label: "Your phone number", type: "phone", required: true, role: "phone" });
     const blockP = (await servicesBlock(userP.id)) as ServicesBlock;
     const tapped = blockP.items[1];

@@ -144,7 +144,7 @@ async function main() {
 
   try {
     // ── 1. Sanitizer ──
-    const signals = { photos: 2, projects: 0, services: 0, takesAppointments: true, contactChannels: ["email"], categories: [] };
+    const signals = { photos: 2, projects: 0, services: 0, menuOrderable: false, takesAppointments: true, contactChannels: ["email"], socialLinks: 0, categories: [], hasKnowledge: true };
     const existing = [{ label: "Get in touch", tool: "show_contact_form" }];
     const urls = [VISIT_URL, WORK_URL];
     for (const junk of [null, "x", { needs: 7 }, { needs: [null, 3, {}] }]) {

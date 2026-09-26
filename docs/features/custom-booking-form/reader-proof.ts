@@ -10,7 +10,9 @@
  * (reader-traps.html: submit buttons, onchange-submit selects, "Pay" tiles,
  * a pre-marked decoy); (G) the in-page string caps; (H) the network guard —
  * a browser context that never loads a private address, driven against a
- * local server on 127.0.0.1; (I) the halted flag; (J) prototype-named keys.
+ * local server on 127.0.0.1; (I) the halted flag; (J) prototype-named keys;
+ * (K) hasVisibleContent, the signal readBookingForm's first-screen grace
+ * period waits on for a client-rendered booking app that paints late.
  * Offline: no site, no model, no database.
  */
 import assert from "node:assert/strict";
@@ -22,6 +24,7 @@ import { chromium } from "playwright";
 import {
   advanceFrame,
   fingerprint,
+  hasVisibleContent,
   serializeSnapshot,
   snapshotFrame,
   snapshotStatic,
@@ -56,6 +59,7 @@ const same = (a: unknown, b: unknown): boolean => {
 
 const html = readFileSync(path.join(__dirname, "reader.html"), "utf8");
 const trapsHtml = readFileSync(path.join(__dirname, "reader-traps.html"), "utf8");
+const accordionHtml = readFileSync(path.join(__dirname, "reader-accordion.html"), "utf8");
 const field = (s: Screen | undefined, label: string) => s?.elements.find((e) => e.tag !== "button" && e.label === label);
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -136,7 +140,9 @@ async function main() {
   const staff = s2?.elements.find((e) => e.tag === "tile_list");
   check("staff tile list under its heading with the three names", staff?.label === "Select Staff" && same(staff.options, MOONLIGHT_STAFF), JSON.stringify(staff));
   check("screen 3 heading", same(s3?.headings, ["Select Date/Time"]), JSON.stringify(s3?.headings));
-  check("screen 3 has no fields (a calendar is not an input)", s3?.elements.every((e) => e.tag === "button") === true, JSON.stringify(s3?.elements));
+  check("screen 3 has no fields (a calendar is not an input)", s3?.elements.every((e) => e.tag === "button" || e.tag === "calendar") === true, JSON.stringify(s3?.elements));
+  const cal3 = s3?.elements.find((e) => e.tag === "calendar");
+  check("screen 3 shows its calendar under the screen's heading", cal3?.label === "Select Date/Time", JSON.stringify(cal3));
   check("a day and a slot were clicked to reach screen 4", clicks.some((c) => c.startsWith("day ")) && clicks.some((c) => c.startsWith("slot ")), clicks.join(", "));
   check("screen 4 heading", same(s4?.headings, ["How do we say hello?"]), JSON.stringify(s4?.headings));
   const labels4 = s4?.elements.filter((e) => e.tag !== "button").map((e) => `${e.label}${e.required ? "*" : ""}`) ?? [];
@@ -292,6 +298,78 @@ async function main() {
     }
   }
 
+  // ── F2. The GoCheckIn shape (reader-accordion.html), start to questions ──
+  console.log("F2. advanceFrame over reader-accordion.html — the GoCheckIn shape, start to questions");
+  {
+    const browser = await launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent(accordionHtml);
+      const frame = page.mainFrame();
+      const memory = { picked: new Set<string>() };
+      const clicksNow = async () => (await page.evaluate("window.__clicks")) as string[];
+      const step = async (n: number) => {
+        const actions = await advanceFrame(frame, () => false, memory);
+        console.log(`    step ${n} → ${actions.join(", ") || "(nothing to do)"}`);
+        return actions;
+      };
+      const s1 = await snapshotFrame(frame);
+      check("collapsed: no tile list (rows clipped to nothing are not on screen)", s1.elements.every((e) => e.tag !== "tile_list"), JSON.stringify(s1.elements.map((e) => e.tag)));
+      const btns1 = s1.elements.filter((e) => e.tag === "button").map((e) => e.label);
+      check("collapsed: the category buttons, and none of the parked dialogs' OK / Close / Reload", same(btns1, ["Manicure", "PEDICURE", "ACRYLIC"]), btns1.join(", "));
+      const a1 = await step(1);
+      check("step 1 expands the first category, as its last resort", same(a1, ["expand:Manicure"]), a1.join(", "));
+      const s2 = await snapshotFrame(frame);
+      const tiles2 = s2.elements.filter((e) => e.tag === "tile_list");
+      check(
+        "expanded: the rows are one tile list named by the category right above them",
+        tiles2.length === 1 && tiles2[0].label === "Manicure" && same(tiles2[0].options, ["Basic Manicure $22.00", "Gel Manicure $35.00", "Gel manicure + removal $38.00"]),
+        JSON.stringify(tiles2),
+      );
+      check("expanded and collapsed screens differ", fingerprint(s1) !== fingerprint(s2));
+      const a2 = await step(2);
+      const c2 = await clicksNow();
+      check("step 2 picks the first row through its inner control", same(a2, ["tile"]) && c2.includes("row:Basic Manicure $22.00"), `${a2.join(", ")} / ${c2.join(", ")}`);
+      const s3 = await snapshotFrame(frame);
+      const staff = s3.elements.find((e) => e.tag === "tile_list" && e.label === "Select Staff");
+      check(
+        "the staff sheet that opened a beat later is on the screen, rows named without their Book button",
+        same(staff?.options, ["Any available staff", "Katherine", "Vivian"]),
+        JSON.stringify(s3.elements),
+      );
+      check("no Book button of the sheet is listed as a button of its own", !s3.elements.some((e) => e.tag === "button" && e.label === "Book"), JSON.stringify(s3.elements.filter((e) => e.tag === "button")));
+      check("the staff screen is a new screen", fingerprint(s3) !== fingerprint(s2));
+      const a3 = await step(3);
+      const c3 = await clicksNow();
+      check(
+        "step 3 picks from the sheet in front by its Book button — the menu behind it is left alone",
+        same(a3, ["tile"]) && c3.includes("staff:Any available staff") && c3.filter((c) => c.startsWith("row:")).length === 1,
+        `${a3.join(", ")} / ${c3.join(", ")}`,
+      );
+      const s4 = await snapshotFrame(frame);
+      const btns4 = s4.elements.filter((e) => e.tag === "button").map((e) => e.label);
+      check("the footer screen: Add more service, Back, Next", same(btns4, ["Add more service", "Back", "Next"]), btns4.join(", "));
+      const a4 = await step(4);
+      check("step 4 goes forward with Next — never Back or Add more service", same(a4, ["next:Next"]), a4.join(", "));
+      const s5 = await snapshotFrame(frame);
+      const labels5 = s5.elements.filter((e) => e.tag !== "button").map((e) => `${e.label}${e.required ? "*" : ""}`);
+      check(
+        "the questions screen, in order with its required marks, the widget's own agreement toggle read as a checkbox",
+        same(labels5, ["Full Name*", "Phone Number*", "Email", "Appointment Notes", "I have read and agree to the cancellation policy of MoonLight Nails & Spa."]),
+        JSON.stringify(labels5),
+      );
+      check("the agreement is a checkbox", s5.elements.find((e) => e.label.startsWith("I have read"))?.tag === "checkbox");
+      const a5 = await step(5);
+      const c5 = await clicksNow();
+      check("step 5 has nothing left to do: Back is no way forward, Book appointment is never a click", a5.length === 0 && !c5.includes("back-2") && !c5.includes("BOOK"), `${a5.join(", ")} / ${c5.join(", ")}`);
+      check("no parked dialog's button was ever clicked", !c5.some((c) => c.startsWith("hidden:")), c5.join(", "));
+      check("the agreement toggle was never clicked", !c5.includes("agree"), c5.join(", "));
+      check("Book appointment was never clicked", ((await page.evaluate("window.__booked")) as boolean) === false);
+    } finally {
+      await browser.close();
+    }
+  }
+
   // ── G. In-page caps ─────────────────────────────────────────────────────
   console.log("G. snapshotFrame caps every string inside the page");
   {
@@ -405,6 +483,40 @@ async function main() {
       const actions = await advanceFrame(page.mainFrame(), () => true);
       const clicks = (await page.evaluate("window.__clicks")) as string[];
       check("halted → no actions, no clicks", actions.length === 0 && clicks.length === 0, `${actions.join(", ")} / ${clicks.join(", ")}`);
+    } finally {
+      await browser.close();
+    }
+  }
+
+  // ── K. hasVisibleContent — readBookingForm's client-rendered-app grace ──
+  // (readBookingForm itself drives through Crawler.drive, which the network
+  // guard refuses for any address that isn't a real public host — section H
+  // proves that refusal — so a loopback server can't stand in for the real
+  // booking widget here. This proves the signal it waits on instead: a blank
+  // client-rendered app reads as empty, the same app a beat later reads as
+  // real, and a tile list or a bare heading with no inputs still counts.)
+  console.log("K. hasVisibleContent: a client-rendered app read before and after it paints");
+  {
+    const browser = await launch();
+    try {
+      const page = await browser.newPage();
+      await page.setContent("<html><body></body></html>");
+      check("a blank page has no visible content", (await hasVisibleContent(page.mainFrame())) === false);
+      await page.evaluate(() => {
+        document.body.innerHTML = "<h1>Pick a service</h1><input placeholder='Name'>";
+      });
+      check("the same page, after painting its form, does", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent("<html><body><h1>Book now</h1></body></html>");
+      check("a bare heading with nothing to fill in still counts", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent(
+        "<html><body><div><a>Gel $35</a><a>Shellac $40</a><a>Dip $45</a></div></body></html>",
+      );
+      check("a tile list with no heading and no inputs still counts", (await hasVisibleContent(page.mainFrame())) === true);
+
+      await page.setContent("<html><body><div id='spinner'>Loading…</div></body></html>");
+      check("plain loading text with nothing clickable does not count", (await hasVisibleContent(page.mainFrame())) === false);
     } finally {
       await browser.close();
     }

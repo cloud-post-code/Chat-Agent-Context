@@ -8,7 +8,7 @@ extracts with the model and writes through `save.ts`. The bulk builder
 ## Modules
 | Stage / concern | Module |
 |---|---|
-| crawl (Playwright, one origin, shared page limiter) | `crawl.ts`; `netGuard.ts` keeps fetches on the public internet |
+| crawl (Playwright, one origin, shared page limiter) | `crawl.ts` (also `pageDiagnostics`: why a page rendered blank, for the activity log); `netGuard.ts` keeps fetches on the public internet |
 | core contact details, theme extraction | `extract.ts` (+ `themeCorpus.ts` for the theme prompt's input, `hours.ts`) |
 | locations / social / owners / goals / brand voice / gallery | `locations.ts`, `social.ts`, `owners.ts`, `goals.ts`, `brand.ts`, `images.ts` |
 | blog, testimonials, team, sitemap sweep | `knowledge.ts` |
