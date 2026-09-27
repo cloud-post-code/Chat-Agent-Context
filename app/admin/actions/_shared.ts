@@ -52,7 +52,7 @@ export function isUpload(v: FormDataEntryValue | null): v is File {
 }
 
 export function revalidateAll() {
-  revalidateAll();
+  revalidatePath("/admin/dashboard");
   // The chat renders the very same panels as the dashboard, and is where
   // signed-in owners land — leaving it out meant a save anywhere in the admin
   // left the chat's revealed panels showing stale data.
